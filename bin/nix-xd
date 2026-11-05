@@ -1,0 +1,68 @@
+set -euo pipefail
+usage() {
+  echo 'Usage: nix-xd plan|install|start|stop|status|shell [scope]'
+  echo 'Requires rootless Podman, systemd user session and Quadlet on a native Linux host.'
+}
+action="${1:-plan}"
+scope="${2:-nix-xd}"
+[[ $# -le 2 && "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || { usage; exit 2; }
+case "$action" in plan|install|start|stop|status|shell) ;; *) usage; exit 2;; esac
+case "$(uname -m)" in
+  x86_64) system=x86_64-linux; platform=linux/amd64 ;;
+  aarch64|arm64) system=aarch64-linux; platform=linux/arm64 ;;
+  *) echo 'Unsupported architecture' >&2; exit 1 ;;
+esac
+[[ "$system" == "$NIX_XD_SYSTEM" ]] || { echo 'Installer must match host architecture' >&2; exit 1; }
+image="localhost/nix-xd:$scope"
+unit="$scope.service"
+dir="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
+file="$dir/$scope.container"
+if [[ "$action" == plan ]]; then
+  printf 'System: %s\nSource: %s\nImage: %s\nQuadlet: %s\nStore volume: %s-store\n' "$system" "$NIX_XD_CONTEXT" "$image" "$file" "$scope"
+  exit 0
+fi
+[[ "$(id -u)" != 0 ]] || { echo 'Run as the intended unprivileged user' >&2; exit 1; }
+command -v podman >/dev/null
+command -v systemctl >/dev/null
+case "$action" in
+  install)
+    [[ ! -e "$file" ]] || { echo "Already exists: $file; inspect before replacing" >&2; exit 1; }
+    systemctl --user show-environment >/dev/null
+    [[ "$(podman info --format '{{.Host.Security.Rootless}}')" == true ]]
+    podman build --platform "$platform" -t "$image" "$NIX_XD_CONTEXT"
+    # A fresh volume is populated from the image before its first Nix invocation.
+    podman run --rm --network=none "$image" bash -lc 'nix --version'
+    mkdir -p "$dir"
+    tmp="$(mktemp "$dir/.nix-xd.XXXXXX")"
+    trap 'rm -f "$tmp"' EXIT
+    cat >"$tmp" <<EOF
+[Unit]
+Description=Nix Alpine ($scope)
+
+[Container]
+Image=$image
+ContainerName=$scope
+Pull=never
+Volume=$scope-store:/nix
+Exec=sleep infinity
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
+EOF
+    chmod 600 "$tmp"
+    ln "$tmp" "$file"
+    rm "$tmp"
+    trap - EXIT
+    systemctl --user daemon-reload
+    systemctl --user cat "$unit" >/dev/null
+    echo "Installed. Start with: nix-xd start $scope"
+    ;;
+  start) systemctl --user start "$unit" ;;
+  stop) systemctl --user stop "$unit" ;;
+  status) systemctl --user status "$unit" ;;
+  shell) podman exec -it "$scope" bash -l ;;
+esac

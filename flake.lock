@@ -1,0 +1,45 @@
+{
+  "nodes": {
+    "nix-alpine": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787969658,
+        "narHash": "sha256-WuAu8YDBGdzc1YTHVN4Xqj9lNBHLYYUDQIyucz6my7w=",
+        "owner": "dash-xd",
+        "repo": "nix-alpine",
+        "rev": "80a2821b7571edd09507f9b4349e2f1ed3daf900",
+        "type": "github"
+      },
+      "original": {
+        "owner": "dash-xd",
+        "repo": "nix-alpine",
+        "rev": "80a2821b7571edd09507f9b4349e2f1ed3daf900",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1793726008,
+        "narHash": "sha256-jQp1wKvbwWdLBASTXkSi/VYmDJ5AbBi1WvcMt9HWJC8=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "1d060086d60cb76a40cf37109f979d88a5bd6396",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nix-alpine": "nix-alpine",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
