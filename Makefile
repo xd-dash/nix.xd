@@ -37,8 +37,8 @@ plan:
 
 ifeq ($(OS),Darwin)
 machine-start:
-	@state="$(podman machine inspect "$(MACHINE)" --format '{{.State}}')"; \
-	  if [ "$state" != running ]; then podman machine start "$(MACHINE)"; fi
+	@state="$$(podman machine inspect "$(MACHINE)" --format '{{.State}}')"; \
+	  if [ "$$state" != running ]; then podman machine start "$(MACHINE)"; fi
 
 machine-stop:
 	@podman machine stop "$(MACHINE)"
