@@ -41,9 +41,9 @@ container run --rm "$image" nix --version
 if container inspect "$scope" >/dev/null 2>&1; then
   say "Reusing existing ARM Nix-Alpine container: $scope"
   details="$(container inspect "$scope")"
-  printf '%s\n' "$details" | grep -Eq '"name"[[:space:]]*:[[:space:]]*"'"$volume"'"' ||
+  grep -Eq '"name"[[:space:]]*:[[:space:]]*"'"$volume"'"' <<< "$details" ||
     die "Existing container $scope does not attach expected store volume $volume"
-  printf '%s\n' "$details" | grep -Fq '"reference" : "'"$image"'"' ||
+  grep -Fq '"reference" : "'"$image"'"' <<< "$details" ||
     die "Existing container $scope uses an unexpected image; refusing implicit replacement"
   if ! container exec "$scope" /bin/true >/dev/null 2>&1; then
     container start "$scope"
