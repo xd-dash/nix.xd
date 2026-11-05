@@ -48,7 +48,7 @@ say "Initializing Nix store volume if needed"
 container run --rm --user 0 --volume "$volume:/seed" "$image" \
   /bin/bash -ec '
     if [ ! -e /seed/.nix-xd-seeded ]; then
-      if [ -n "$(ls -A /seed)" ]; then
+      if [ -n "$(find /seed -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]; then
         echo "Refusing to overwrite existing unmarked volume" >&2
         exit 1
       fi
