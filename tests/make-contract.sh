@@ -28,6 +28,11 @@ grep -Fx -- '/workspaces/compositions/agni#qualify-process' "$tmp/command"
 
 make --no-print-directory --silent exec PROVIDER=podman CMD='nix --version'
 grep -Fx -- 'bash' "$tmp/command"
+grep -Fx -- '-c' "$tmp/command"
+if grep -Fx -- '-lc' "$tmp/command"; then
+  echo "Login shell would replace the Nix image PATH" >&2
+  exit 1
+fi
 grep -Fx -- 'nix --version' "$tmp/command"
 
 printf '%s\n' 'Generic Make -> Nix command contract passed.'
