@@ -16,7 +16,7 @@ FLAKE ?= .
 TARGET ?=
 ARGS ?=
 CMD ?= nix --version
-HASH := \\#
+HASH := \#
 PLAN_TARGET ?=
 OS := $(shell uname -s)
 
