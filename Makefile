@@ -16,7 +16,7 @@ FLAKE ?= .
 TARGET ?=
 ARGS ?=
 CMD ?= nix --version
-QUALIFY_TARGET ?= #qualify
+HASH := \\#
 PLAN_TARGET ?=
 OS := $(shell uname -s)
 
@@ -30,7 +30,7 @@ help:
 	  'make image-build                            Build Nix-Alpine OCI image' \
 	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path]' \
 	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \
-	  'make show|check|build|path-info FLAKE=path TARGET=\x23output' \
+	  'make show|check|build|path-info FLAKE=path TARGET=$(HASH)output' \
 	  'make run FLAKE=path TARGET=\x23app ARGS="..."' \
 	  'make compose|qualify|qualify-process|qualify-service|qualify-composition' \
 	  'make qualify-plan FLAKE=path PLAN_TARGET=\x23app (application-owned plan)' \
@@ -57,19 +57,19 @@ show check build path-info run develop shell exec ps inspect store-info:
 # Qualifiers call Nix app outputs owned by the selected checkout.
 # No claimed success when the selected output or host capability is missing.
 compose:
-	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),#compose)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
+	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),$(HASH)compose)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
 
 qualify:
-	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),#qualify)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
+	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),$(HASH)qualify)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
 
 qualify-process:
-	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),#qualify-process)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
+	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),$(HASH)qualify-process)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
 
 qualify-service:
-	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),#qualify-service)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
+	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),$(HASH)qualify-service)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
 
 qualify-composition:
-	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),#qualify-composition)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
+	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),$(HASH)qualify-composition)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
 
 qualify-plan:
 	@test -n "$(PLAN_TARGET)" || { echo "PLAN_TARGET=#app required; no generic host runner assumed" >&2; exit 2; }
