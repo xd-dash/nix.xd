@@ -32,6 +32,8 @@ export TMPDIR="$tmp"
 bash "$repo/bin/nix-xd-task" stage >"$tmp/success.log"
 grep -Fq 'Staged compositions/demo at ' "$tmp/success.log"
 grep -Fq 'cp ' "$tmp/calls"
+grep -Fq 'exec --user 0' "$tmp/calls"
+grep -Fq 'chown -R 1000:1000' "$tmp/calls"
 if compgen -G "$tmp/tmp.*" >/dev/null; then
   echo 'Staging left a temporary directory behind' >&2
   exit 1
