@@ -71,6 +71,34 @@ app outputs, failing if unavailable. `make qualify-plan` requires an explicit
 that a CoreOS VM booted. `ARGS` is a whitespace-delimited argument list;
 use `make exec CMD='...'` for shell commands.
 
+### Diagnostic logging and repeatable bootstrap
+
+Noninteractive `make bootstrap`, `sync`, `stage`, `show`, `check`,
+`build`, `path-info`, and `run` commands write live output to the terminal
+and a timestamped file in the tracked `logs/` directory. Generated `*.log`
+files are Git-ignored. Filenames include the scope, operation, UTC timestamp,
+and process ID (for example `nix-xd-arm-bootstrap-20261105T221100Z-1234.log`).
+`NIX_XD_LOG_DIR` can override the destination. The wrapper preserves the
+underlying command's failure status and prints the resulting log path.
+
+```sh
+make bootstrap PROVIDER=container SCOPE=nix-xd-arm
+ls -t logs/nix-xd-arm-bootstrap-*.log | head -1
+tail -f "$(ls -t logs/nix-xd-arm-bootstrap-*.log | head -1)"
+```
+
+Apple Container bootstrap checks for an existing runner **before** trying to
+attach its named Nix store to a temporary seed container. An existing container
+is reused only if its expected image reference, named volume, ext4 mount, and
+seed marker match. A stopped matching container is started. Unexpected state
+fails closed without deleting the container or store. An absent runner causes
+the volume to be created if needed, seeded once, and attached to the runner.
+Do not execute two bootstraps for the same scope concurrently.
+
+The ARM task runner explicitly selects `aarch64-linux` through the Nix
+`system` option. Flake evaluation remains pure by default; no global
+`--impure` flag or reliance on `builtins.currentSystem` is introduced.
+
 ### Providers and boundaries
 
 - **Podman (default):** Apple Hypervisor-backed Linux VM with rootless
