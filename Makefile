@@ -8,7 +8,7 @@ IMAGE ?= localhost/nix-xd:arm64
 CMD ?= nix --version
 WORKSPACE ?=
 WORKDIR ?= /home/nixuser/workspace
-COMPOSE_CMD ?= nix flake show
+COMPOSE_CMD ?= pwd
 OS := $(shell uname -s)
 
 .PHONY: help bootstrap plan machine-start machine-stop build start stop restart status logs shell exec run sync compose check
