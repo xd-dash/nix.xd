@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+scope="${1:?Scope required}"
+action="${2:?Action required}"
+shift 2
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || { echo "Invalid log scope" >&2; exit 2; }
+[[ "$action" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "Invalid log action" >&2; exit 2; }
+(( $# > 0 )) || { echo "Command required" >&2; exit 2; }
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+dir="${NIX_XD_LOG_DIR:-$root/logs}"
+mkdir -p "$dir"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+log="$dir/$scope-$action-$stamp-$$.log"
+printf 'Diagnostic log: %s\n' "$log"
+set +e
+"$@" 2>&1 | tee "$log"
+rc=${PIPESTATUS[0]}
+set -e
+printf 'Result: %s (exit %s)\n' "$log" "$rc"
+exit "$rc"
