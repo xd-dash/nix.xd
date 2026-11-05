@@ -13,6 +13,7 @@ on:
       - bin/nix-xd-smoke
       - bin/nix-xd-entry
       - tests/plan-contract.sh
+      - tests/stage-contract.sh
       - tests/make-contract.sh
       - .github/workflows/arm-make-check.yml
   pull_request:
@@ -28,6 +29,7 @@ on:
       - bin/nix-xd-smoke
       - bin/nix-xd-entry
       - tests/plan-contract.sh
+      - tests/stage-contract.sh
       - tests/make-contract.sh
       - .github/workflows/arm-make-check.yml
 jobs:
@@ -41,6 +43,8 @@ jobs:
         run: bash tests/make-contract.sh
       - name: Test generic plan transport and capability fences
         run: bash tests/plan-contract.sh
+      - name: Test staging success and failure cleanup
+        run: bash tests/stage-contract.sh
       - name: Verify both provider command interfaces
         run: |
           make help
