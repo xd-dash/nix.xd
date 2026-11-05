@@ -7,25 +7,39 @@ name="${4:-${repo#*/}}"
 rev="${5:-}"
 [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "Invalid REPO: $repo" >&2; exit 2; }
 [[ "$name" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ ]] || { echo "Invalid SYNC_NAME: $name" >&2; exit 2; }
-[[ "$name" != *..* ]] || { echo "Unsafe checkout path" >&2; exit 2; }
+IFS=/ read -r -a components <<< "$name"
+for part in "${components[@]}"; do
+  [[ "$part" != "." && "$part" != ".." && "$part" != ".git" ]] || { echo "Unsafe checkout component: $part" >&2; exit 2; }
+done
 git check-ref-format --branch "$branch" >/dev/null
 [[ -z "$rev" || "$rev" =~ ^[0-9a-f]{40}$ ]] || { echo "REV must be a full Git SHA" >&2; exit 2; }
+root="$(cd "$root" 2>/dev/null && pwd -P || { mkdir -p "$root"; cd "$root" && pwd -P; })"
 dir="$root/$name"
 mkdir -p "$(dirname "$dir")"
+parent="$(cd "$(dirname "$dir")" && pwd -P)"
+[[ "$parent" == "$root" || "$parent" == "$root/"* ]] || { echo "Checkout escapes WORKSPACES" >&2; exit 2; }
+[[ ! -L "$dir" ]] || { echo "Checkout must not be a symlink" >&2; exit 2; }
 if [[ ! -e "$dir" ]]; then
   git clone --branch "$branch" --single-branch "https://github.com/$repo.git" "$dir"
 else
   [[ -d "$dir/.git" ]] || { echo "Not a checkout: $dir" >&2; exit 1; }
   origin="$(git -C "$dir" remote get-url origin)"
   case "$origin" in "https://github.com/$repo.git"|"git@github.com:$repo.git") ;; *) echo "Origin mismatch: $origin" >&2; exit 1;; esac
-  [[ -z "$(git -C "$dir" status --porcelain --untracked-files=no)" ]] || { echo "Tracked modifications: $dir" >&2; exit 1; }
+  [[ -z "$(git -C "$dir" status --porcelain --untracked-files=all)" ]] || { echo "Local modifications: $dir" >&2; exit 1; }
   git -C "$dir" fetch origin "refs/heads/$branch:refs/remotes/origin/$branch"
-  if git -C "$dir" show-ref --verify --quiet "refs/heads/$branch"; then
+  if [[ -n "$rev" ]]; then
+    git -C "$dir" fetch origin "$rev"
+    git -C "$dir" checkout --detach "$rev"
+  elif git -C "$dir" show-ref --verify --quiet "refs/heads/$branch"; then
     git -C "$dir" switch "$branch"
   else
     git -C "$dir" switch -c "$branch" "origin/$branch"
   fi
   git -C "$dir" merge --ff-only "origin/$branch"
+fi
+if [[ -n "$rev" ]]; then
+  git -C "$dir" fetch origin "$rev"
+  git -C "$dir" checkout --detach "$rev"
 fi
 actual="$(git -C "$dir" rev-parse HEAD)"
 [[ -z "$rev" || "$actual" == "$rev" ]] || { echo "Revision mismatch expected $rev actual $actual" >&2; exit 1; }
