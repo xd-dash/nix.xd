@@ -7,6 +7,8 @@ on:
       - arm/bootstrap-podman.sh
       - arm/bootstrap-container.sh
       - bin/nix-xd-container
+      - bin/nix-xd-task
+      - bin/nix-xd-sync
       - .github/workflows/arm-make-check.yml
   pull_request:
     paths:
@@ -15,6 +17,8 @@ on:
       - arm/bootstrap-podman.sh
       - arm/bootstrap-container.sh
       - bin/nix-xd-container
+      - bin/nix-xd-task
+      - bin/nix-xd-sync
       - .github/workflows/arm-make-check.yml
 jobs:
   static:
@@ -22,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate bootstrap and Make targets
-        run: make check
+        run: make check-static
       - name: Verify both provider command interfaces
         run: |
           make help
@@ -30,3 +34,6 @@ jobs:
           make plan PROVIDER=container OS=Darwin
           make -n bootstrap PROVIDER=container OS=Darwin
           make -n bootstrap PROVIDER=podman OS=Darwin
+          make -n PROVIDER=container OS=Darwin build FLAKE=compositions/agni TARGET='#test'
+          make -n PROVIDER=podman qualify-process FLAKE=compositions/agni
+          make -n PROVIDER=container OS=Darwin stage CHECKOUT=compositions/agni
