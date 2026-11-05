@@ -7,31 +7,32 @@
   };
   outputs = { self, nixpkgs, nix-alpine }:
     let
-      systems = [ "x86_64-linux" "aarch64-linux" ];
-      eachSystem = nixpkgs.lib.genAttrs systems;
+      hostSystems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
+      eachHostSystem = nixpkgs.lib.genAttrs hostSystems;
     in {
-      packages = eachSystem (system:
+      packages = eachHostSystem (hostSystem:
         let
-          pkgs = import nixpkgs { inherit system; };
-          context = if system == "x86_64-linux" then nix-alpine else ./arm;
+          linuxSystem = if hostSystem == "x86_64-linux" then "x86_64-linux" else "aarch64-linux";
+          pkgs = import nixpkgs { system = hostSystem; };
+          context = if linuxSystem == "x86_64-linux" then nix-alpine else ./arm;
           installer = pkgs.writeShellApplication {
             name = "nix-xd";
             runtimeInputs = [ pkgs.coreutils pkgs.gnused ];
             text = ''
               export NIX_XD_CONTEXT=${context}
-              export NIX_XD_SYSTEM=${system}
+              export NIX_XD_SYSTEM=${linuxSystem}
               ${builtins.readFile ./bin/nix-xd}
             '';
           };
         in { default = installer; inherit installer; });
-      apps = eachSystem (system: {
+      apps = eachHostSystem (hostSystem: {
         default = {
           type = "app";
-          program = "${self.packages.${system}.installer}/bin/nix-xd";
+          program = "${self.packages.${hostSystem}.installer}/bin/nix-xd";
         };
       });
-      checks = eachSystem (system: {
-        installer = self.packages.${system}.installer;
+      checks = eachHostSystem (hostSystem: {
+        installer = self.packages.${hostSystem}.installer;
       });
     };
 }
