@@ -26,23 +26,43 @@ inside() { "$runtime" exec "$scope" "$@"; }
 interactive() { "$runtime" exec -it "$scope" "$@"; }
 
 validate_checkout() {
-  [[ -n "$checkout" && "$checkout" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$checkout" != *..* ]] ||
-    fail "CHECKOUT must be a safe workspace-relative path"
+  [[ -n "$checkout" && "$checkout" != "." && "$checkout" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ ]] ||
+    fail "CHECKOUT must be a named workspace-relative path"
+  local part
+  IFS=/ read -r -a parts <<< "$checkout"
+  for part in "${parts[@]}"; do
+    [[ "$part" != "." && "$part" != ".." && "$part" != ".git" ]] ||
+      fail "CHECKOUT contains a reserved path segment"
+  done
 }
 stage() {
   validate_checkout
-  local src="$root/$checkout" tmp
-  [[ -d "$src/.git" ]] || fail "Missing Git checkout: $src"
-  [[ -z "$(git -C "$src" status --porcelain --untracked-files=no)" ]] ||
-    fail "Tracked changes in $src; commit before staging"
+  [[ -d "$root" ]] || fail "Workspace root does not exist: $root"
+  local src="$root/$checkout" root_real src_real tmp
+  root_real="$(realpath "$root")"
+  src_real="$(realpath "$src")"
+  [[ "$src_real" == "$root_real/"* ]] || fail "Checkout resolves outside WORKSPACES: $src"
+  [[ -e "$src_real/.git" ]] || fail "Missing Git checkout metadata: $src_real/.git"
+  [[ -z "$(git -C "$src_real" status --porcelain --untracked-files=no)" ]] ||
+    fail "Tracked changes in $src_real; commit before staging"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   # Stage only committed files; no .git, credentials or unrelated host directories.
-  git -C "$src" archive HEAD | tar -xf - -C "$tmp"
-  inside mkdir -p "/workspaces/$checkout"
-  inside find "/workspaces/$checkout" -mindepth 1 -maxdepth 1 -exec rm -rf -- '{}' +
+  git -C "$src_real" archive HEAD | tar -xf - -C "$tmp"
+  inside bash -lc '
+    set -euo pipefail
+    checkout=$1
+    current=/workspaces
+    IFS=/ read -r -a parts <<< "$checkout"
+    for part in "${parts[@]}"; do
+      current="$current/$part"
+      [[ ! -L "$current" ]] || { echo "Refusing symlink in staged destination: $current" >&2; exit 1; }
+    done
+    mkdir -p "$current"
+    find "$current" -mindepth 1 -maxdepth 1 -exec rm -rf -- "{}" +
+  ' bash "$checkout"
   "$runtime" cp "$tmp/." "$scope:/workspaces/$checkout/"
-  printf 'Staged %s at %s\n' "$checkout" "$(git -C "$src" rev-parse HEAD)"
+  printf 'Staged %s at %s\n' "$checkout" "$(git -C "$src_real" rev-parse HEAD)"
 }
 flake_ref() {
   if [[ "$flake" == . ]]; then
