@@ -41,7 +41,7 @@ own workflow, snapshot its local checkout into the Nix-Alpine container and
 run its command there:
 
 ```sh
-make compose WORKSPACE="$HOME/workspace/agni" COMPOSE_CMD='nix flake show'
+make compose WORKSPACE="$HOME/workspace/agni" COMPOSE_CMD='nix shell nixpkgs#go --command go test ./...'
 ```
 
 `WORKSPACE` is copied into `/home/nixuser/workspace` (not bind-mounted);
