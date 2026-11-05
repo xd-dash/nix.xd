@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+provider="${NIX_XD_PROVIDER:-podman}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+system="${NIX_XD_SYSTEM:-aarch64-linux}"
+[[ "$provider" == podman || "$provider" == container ]] || { echo "Unsupported provider" >&2; exit 2; }
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || { echo "Invalid scope" >&2; exit 2; }
+echo "Runtime probe: provider=$provider scope=$scope system=$system"
+"$provider" exec "$scope" nix --version
+"$provider" exec "$scope" nix store info
+"$provider" exec "$scope" /bin/bash -c '
+  set -euo pipefail
+  test "$(id -u)" -eq 1000
+  test "$(uname -m)" = aarch64
+  command -v nix
+  nix --option system aarch64-linux eval --raw --expr "\"nix-exec-ok\""
+  printf "\nPASS: unprivileged ARM Nix execution\n"
+'
