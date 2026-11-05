@@ -20,7 +20,8 @@ HASH := \#
 PLAN_TARGET ?=
 OS := $(shell uname -s)
 
-TASK = NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' bash bin/nix-xd-task
+TASK_ENV = NIX_XD_SYSTEM='aarch64-linux' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
+TASK = $(TASK_ENV) bash bin/nix-xd-task
 
 .PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan check-static
 
@@ -39,19 +40,19 @@ help:
 
 bootstrap:
 	@test "$(OS)" = Darwin || { echo "macOS bootstrap requires Darwin" >&2; exit 1; }
-	@NIX_XD_PROVIDER="$(PROVIDER)" NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash arm/bootstrap-macos.sh
+	@NIX_XD_PROVIDER="$(PROVIDER)" NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" bootstrap bash arm/bootstrap-macos.sh
 
 plan:
 	@printf 'Host=%s Provider=%s Machine=%s Scope=%s Workspaces=%s Flake=%s%s\n' '$(OS)' '$(PROVIDER)' '$(MACHINE)' '$(SCOPE)' '$(WORKSPACES)' '$(FLAKE)' '$(TARGET)'
 
 sync clone:
 	@test -n "$(REPO)" || { echo "REPO=owner/repo required" >&2; exit 2; }
-	@bash bin/nix-xd-sync "$(REPO)" "$(BRANCH)" "$(WORKSPACES)" "$(SYNC_NAME)" "$(REV)"
+	@bash bin/nix-xd-log "$(SCOPE)" sync bash bin/nix-xd-sync "$(REPO)" "$(BRANCH)" "$(WORKSPACES)" "$(SYNC_NAME)" "$(REV)"
 
-stage:
-	@$(TASK) stage
+stage show check build path-info run:
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-task "$@"
 
-show check build path-info run develop shell exec ps inspect store-info:
+develop shell exec ps inspect store-info:
 	@$(TASK) $@
 
 # Qualifiers call Nix app outputs owned by the selected checkout.
@@ -124,7 +125,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@echo 'Static command checks passed; no ARM runtime executed.'
