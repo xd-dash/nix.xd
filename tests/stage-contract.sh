@@ -12,7 +12,7 @@ printf 'test\n' >"$tmp/workspaces/compositions/demo/file.txt"
 git -C "$tmp/workspaces/compositions/demo" add file.txt
 git -C "$tmp/workspaces/compositions/demo" commit -qm initial
 
-cat >"$tmp/bin/container" <<'MOCK'
+cat >"$tmp/bin/podman" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"$NIX_XD_TEST_RECORD"
@@ -20,11 +20,11 @@ if [[ "$1" == cp && "${FAIL_COPY:-0}" == 1 ]]; then
   exit 31
 fi
 MOCK
-chmod +x "$tmp/bin/container"
+chmod +x "$tmp/bin/podman"
 
 export PATH="$tmp/bin:$PATH"
 export NIX_XD_TEST_RECORD="$tmp/calls"
-export NIX_XD_PROVIDER=container NIX_XD_SCOPE=nix-xd-arm
+export NIX_XD_PROVIDER=podman NIX_XD_SCOPE=nix-xd-arm
 export NIX_XD_WORKSPACES="$tmp/workspaces" NIX_XD_CHECKOUT=compositions/demo
 export NIX_XD_SYSTEM=aarch64-linux
 export TMPDIR="$tmp"
