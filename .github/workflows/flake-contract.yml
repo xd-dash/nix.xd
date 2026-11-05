@@ -13,12 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
-      - name: Resolve the pinned Nix-Alpine input
+      - name: Verify pinned Nix-Alpine input
         run: |
-          nix flake lock --update-input nix-alpine
-          cat flake.lock
+          nix flake metadata --json >/dev/null
+          git diff --exit-code -- flake.lock
       - name: Evaluate Linux and Darwin app outputs
         run: |
-          nix eval --json --expr 'let f = builtins.getFlake (toString ./.); in builtins.attrNames f.apps'
+          nix eval --json --apply builtins.attrNames .#apps
           nix eval --raw .#packages.x86_64-linux.operator.name
           nix eval --raw .#packages.aarch64-darwin.operator.name
