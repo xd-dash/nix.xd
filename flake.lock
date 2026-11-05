@@ -3,17 +3,17 @@
     "nix-alpine": {
       "flake": false,
       "locked": {
-        "lastModified": 1787969658,
-        "narHash": "sha256-WuAu8YDBGdzc1YTHVN4Xqj9lNBHLYYUDQIyucz6my7w=",
+        "lastModified": 1793919568,
+        "narHash": "sha256-sbQ0MKQcyI0oYOSVixg2O+O9EUX3HYQvMC/ekaHEXZs=",
         "owner": "dash-xd",
         "repo": "nix-alpine",
-        "rev": "80a2821b7571edd09507f9b4349e2f1ed3daf900",
+        "rev": "037290d6713cb5efc548982c42b26f77f467e58a",
         "type": "github"
       },
       "original": {
         "owner": "dash-xd",
         "repo": "nix-alpine",
-        "rev": "80a2821b7571edd09507f9b4349e2f1ed3daf900",
+        "rev": "037290d6713cb5efc548982c42b26f77f467e58a",
         "type": "github"
       }
     },
