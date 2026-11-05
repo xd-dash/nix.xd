@@ -4,11 +4,17 @@ on:
     paths:
       - Makefile
       - arm/bootstrap-macos.sh
+      - arm/bootstrap-podman.sh
+      - arm/bootstrap-container.sh
+      - bin/nix-xd-container
       - .github/workflows/arm-make-check.yml
   pull_request:
     paths:
       - Makefile
       - arm/bootstrap-macos.sh
+      - arm/bootstrap-podman.sh
+      - arm/bootstrap-container.sh
+      - bin/nix-xd-container
       - .github/workflows/arm-make-check.yml
 jobs:
   static:
@@ -17,7 +23,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate bootstrap and Make targets
         run: make check
-      - name: Verify entrypoints are discoverable
+      - name: Verify both provider command interfaces
         run: |
           make help
           make plan
+          make plan PROVIDER=container
+          make -n bootstrap PROVIDER=container OS=Darwin
+          make -n bootstrap PROVIDER=podman OS=Darwin
