@@ -9,6 +9,7 @@ on:
       - bin/nix-xd-container
       - bin/nix-xd-task
       - bin/nix-xd-sync
+      - tests/make-contract.sh
       - .github/workflows/arm-make-check.yml
   pull_request:
     paths:
@@ -19,6 +20,7 @@ on:
       - bin/nix-xd-container
       - bin/nix-xd-task
       - bin/nix-xd-sync
+      - tests/make-contract.sh
       - .github/workflows/arm-make-check.yml
 jobs:
   static:
@@ -27,6 +29,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate bootstrap and Make targets
         run: make check-static
+      - name: Test generic Nix command contract
+        run: bash tests/make-contract.sh
       - name: Verify both provider command interfaces
         run: |
           make help
