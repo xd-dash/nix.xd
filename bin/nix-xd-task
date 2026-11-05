@@ -49,7 +49,12 @@ stage() {
   trap 'rm -rf "$tmp"' EXIT
   # Stage only committed files; no .git, credentials or unrelated host directories.
   git -C "$src_real" archive HEAD | tar -xf - -C "$tmp"
-  inside bash -lc '
+  "$runtime" exec --user 0 "$scope" /bin/sh -ec '
+    [ ! -L /workspaces ] || { echo "Refusing /workspaces symlink" >&2; exit 1; }
+    [ ! -e /workspaces ] || [ -d /workspaces ] || exit 1
+    install -d -m 0755 -o 1000 -g 1000 /workspaces
+  '
+  inside bash -c '
     set -euo pipefail
     checkout=$1
     current=/workspaces
