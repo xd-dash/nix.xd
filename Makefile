@@ -35,20 +35,15 @@ plan:
 	@printf 'OS: %s\nMachine: %s\nScope: %s\nImage: %s\nWorkspace: %s\n' \
 	  '$(OS)' '$(MACHINE)' '$(SCOPE)' '$(IMAGE)' '$(WORKSPACE)'
 
+ifeq ($(OS),Darwin)
 machine-start:
-	@test "$(OS)" = Darwin || { echo "machine-start is macOS-only" >&2; exit 1; }
-	@state="$$(podman machine inspect "$(MACHINE)" --format '{{.State}}')"; \
-	  if [ "$$state" != running ]; then podman machine start "$(MACHINE)"; fi
+	@state="$(podman machine inspect "$(MACHINE)" --format '{{.State}}')"; \
+	  if [ "$state" != running ]; then podman machine start "$(MACHINE)"; fi
 
 machine-stop:
-	@test "$(OS)" = Darwin || { echo "machine-stop is macOS-only" >&2; exit 1; }
 	@podman machine stop "$(MACHINE)"
 
-build:
-	@podman build --platform linux/arm64 -t "$(IMAGE)" ./arm
-
-start:
-	@$(MAKE) --no-print-directory machine-start
+start: machine-start
 	@podman machine ssh "$(MACHINE)" systemctl --user start "$(SCOPE).service"
 
 stop:
@@ -63,6 +58,28 @@ status:
 
 logs:
 	@podman machine ssh "$(MACHINE)" journalctl --user --no-pager -u "$(SCOPE).service" -n 100
+else
+machine-start machine-stop:
+	@echo 'Podman Machine is not required on native Linux.'
+
+start:
+	@systemctl --user start "$(SCOPE).service"
+
+stop:
+	@systemctl --user stop "$(SCOPE).service"
+
+restart:
+	@systemctl --user restart "$(SCOPE).service"
+
+status:
+	@systemctl --user --no-pager status "$(SCOPE).service"
+
+logs:
+	@journalctl --user --no-pager -u "$(SCOPE).service" -n 100
+endif
+
+build: machine-start
+	@podman build --platform linux/arm64 -t "$(IMAGE)" ./arm
 
 shell:
 	@podman exec -it "$(SCOPE)" bash -l
