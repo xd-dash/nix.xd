@@ -35,7 +35,7 @@ validate_checkout() {
       fail "CHECKOUT contains a reserved path segment"
   done
 }
-stage() {
+stage() (
   validate_checkout
   [[ -d "$root" ]] || fail "Workspace root does not exist: $root"
   local src="$root/$checkout" root_real src_real tmp
@@ -68,7 +68,7 @@ stage() {
   ' bash "$checkout"
   "$runtime" cp "$tmp/." "$scope:/workspaces/$checkout/"
   printf 'Staged %s at %s\n' "$checkout" "$(git -C "$src_real" rev-parse HEAD)"
-}
+)
 flake_ref() {
   if [[ "$flake" == . ]]; then
     path="/workspaces"
