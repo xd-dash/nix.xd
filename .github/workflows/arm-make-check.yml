@@ -27,6 +27,6 @@ jobs:
         run: |
           make help
           make plan
-          make plan PROVIDER=container
+          make plan PROVIDER=container OS=Darwin
           make -n bootstrap PROVIDER=container OS=Darwin
           make -n bootstrap PROVIDER=podman OS=Darwin
