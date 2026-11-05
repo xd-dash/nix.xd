@@ -1,0 +1,23 @@
+name: ARM runner static qualification
+on:
+  push:
+    paths:
+      - Makefile
+      - arm/bootstrap-macos.sh
+      - .github/workflows/arm-make-check.yml
+  pull_request:
+    paths:
+      - Makefile
+      - arm/bootstrap-macos.sh
+      - .github/workflows/arm-make-check.yml
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate bootstrap and Make targets
+        run: make check
+      - name: Verify entrypoints are discoverable
+        run: |
+          make help
+          make plan
