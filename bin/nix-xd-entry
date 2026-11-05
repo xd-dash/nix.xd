@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Flake-hosted entry point. Make remains the single generic dispatcher.
+source_root="${NIX_XD_SOURCE:?NIX_XD_SOURCE required}"
+host_system="${NIX_XD_HOST_SYSTEM:?NIX_XD_HOST_SYSTEM required}"
+linux_system="${NIX_XD_LINUX_SYSTEM:?NIX_XD_LINUX_SYSTEM required}"
+workspace_root="${NIX_XD_WORKSPACES:-$PWD}"
+[[ -d "$workspace_root" ]] || { echo "Workspace root not found: $workspace_root" >&2; exit 2; }
+export NIX_XD_LOG_DIR="${NIX_XD_LOG_DIR:-$workspace_root/logs}"
+
+# The input is pinned by flake.lock; the host command has no Agni defaults.
+case "$host_system:$linux_system" in
+  aarch64-darwin:aarch64-linux|aarch64-linux:aarch64-linux|x86_64-linux:x86_64-linux) ;;
+  *) echo "Unsupported host/guest architecture: $host_system -> $linux_system" >&2; exit 2 ;;
+esac
+
+exec make --no-print-directory -C "$source_root" \
+  WORKSPACES="$workspace_root" LINUX_SYSTEM="$linux_system" "$@"
