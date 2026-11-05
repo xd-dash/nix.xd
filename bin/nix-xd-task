@@ -49,24 +49,41 @@ stage() (
   trap 'rm -rf "$tmp"' EXIT
   # Stage only committed files; no .git, credentials or unrelated host directories.
   git -C "$src_real" archive HEAD | tar -xf - -C "$tmp"
-  "$runtime" exec --user 0 "$scope" /bin/sh -ec '
-    [ ! -L /workspaces ] || { echo "Refusing /workspaces symlink" >&2; exit 1; }
-    [ ! -e /workspaces ] || [ -d /workspaces ] || exit 1
-    install -d -m 0755 -o 1000 -g 1000 /workspaces
-  '
-  inside bash -c '
+  # A previous container cp may leave the staged checkout root-owned.
+  # Run only destination preparation/ownership repair as container root.
+  # All Nix operations continue as nixuser.
+  "$runtime" exec --user 0 "$scope" /bin/bash -c '
     set -euo pipefail
     checkout=$1
     current=/workspaces
+    [[ ! -L "$current" && ( ! -e "$current" || -d "$current" ) ]] ||
+      { echo "Unsafe workspace root" >&2; exit 1; }
+    install -d -m 0755 -o 1000 -g 1000 "$current"
     IFS=/ read -r -a parts <<< "$checkout"
     for part in "${parts[@]}"; do
       current="$current/$part"
-      [[ ! -L "$current" ]] || { echo "Refusing symlink in staged destination: $current" >&2; exit 1; }
+      [[ ! -L "$current" && ( ! -e "$current" || -d "$current" ) ]] ||
+        { echo "Unsafe staged destination: $current" >&2; exit 1; }
+      mkdir -p "$current"
     done
-    mkdir -p "$current"
+    # This path has been checked segment by segment, and is not /workspaces.
+    chown -R 1000:1000 "$current"
     find "$current" -mindepth 1 -maxdepth 1 -exec rm -rf -- "{}" +
   ' bash "$checkout"
   "$runtime" cp "$tmp/." "$scope:/workspaces/$checkout/"
+  "$runtime" exec --user 0 "$scope" /bin/bash -c '
+    set -euo pipefail
+    checkout=$1
+    current=/workspaces
+    [[ ! -L "$current" ]] || exit 1
+    IFS=/ read -r -a parts <<< "$checkout"
+    for part in "${parts[@]}"; do
+      current="$current/$part"
+      [[ ! -L "$current" && -d "$current" ]] || exit 1
+    done
+    chown -R 1000:1000 "$current"
+  ' bash "$checkout"
+  inside test -r "/workspaces/$checkout"
   printf 'Staged %s at %s\n' "$checkout" "$(git -C "$src_real" rev-parse HEAD)"
 )
 flake_ref() {
