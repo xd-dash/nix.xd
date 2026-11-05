@@ -64,12 +64,10 @@ nix_task() {
     build) inside nix build --no-write-lock-file --no-link "$ref" ;;
     path-info) inside nix path-info --no-write-lock-file "$ref" ;;
     run|qualify)
-      # ARGS is intentionally shell-parsed by bash as a caller-authored argument string.
-      if [[ -n "$args" ]]; then
-        inside bash -lc 'exec nix run --no-write-lock-file "$1" -- ${@:2}' _ "$ref" $args
-      else
-        inside nix run --no-write-lock-file "$ref"
-      fi
+      local -a argv=()
+      # Simple space-delimited arguments; use exec CMD=... for shell constructs.
+      [[ -z "$args" ]] || read -r -a argv <<< "$args"
+      inside nix run --no-write-lock-file "$ref" -- "${argv[@]}"
       ;;
     develop) interactive nix develop --no-write-lock-file "$ref" -c bash ;;
   esac
