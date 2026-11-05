@@ -98,8 +98,8 @@ nix_task() {
 case "$action" in
   stage) stage ;;
   show|check|build|path-info|run|qualify|develop) nix_task ;;
-  shell) interactive bash -l ;;
-  exec) inside bash -lc "$cmd" ;;
+  shell) interactive bash ;;
+  exec) inside bash -c "$cmd" ;;
   store-info) inside nix store info ;;
   ps) "$runtime" ps -a ;;
   inspect) "$runtime" inspect "$scope" ;;
