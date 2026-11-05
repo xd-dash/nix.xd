@@ -90,7 +90,7 @@ qualify-composition:
 PLAN_ENV = NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_SYSTEM='$(LINUX_SYSTEM)' NIX_ALPINE_REV='$(NIX_ALPINE_REV)' NIX_ALPINE_CHECKOUT='$(NIX_ALPINE_CHECKOUT)' PLAN_REPO='$(PLAN_REPO)' PLAN_BRANCH='$(PLAN_BRANCH)' PLAN_REV='$(PLAN_REV)' PLAN_CHECKOUT='$(PLAN_CHECKOUT)' PLAN_FILE='$(PLAN_FILE)' PLAN_FLAKE='$(PLAN_FLAKE)' PLAN_TARGET='$(PLAN_TARGET)' PLAN_GATE='$(PLAN_GATE)' PLAN_SOURCES='$(PLAN_SOURCES)' PLAN_ARTIFACT_MANIFEST='$(PLAN_ARTIFACT_MANIFEST)' PLAN_CAPABILITIES='$(PLAN_CAPABILITIES)' RETAIN='$(RETAIN)'
 
 qualify-plan:
-	@$(PLAN_ENV) bash bin/nix-xd-log "$(SCOPE)" qualify-plan bash bin/nix-xd-plan bin/nix-xd-smoke
+	@$(PLAN_ENV) bash bin/nix-xd-log "$(SCOPE)" qualify-plan bash bin/nix-xd-plan
 
 smoke:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" smoke bash bin/nix-xd-smoke
@@ -144,7 +144,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@echo 'Static command checks passed; no ARM runtime executed.'
