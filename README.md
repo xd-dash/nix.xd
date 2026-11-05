@@ -13,49 +13,71 @@ No changes to nix-alpine are required. Developing branches are deliberately excl
 Only the build-context adapter should need adjustment when upstream settles.
 
 
-## Generic Make interface (macOS Apple Silicon and ARM64 Linux)
+## Generic Make interface (macOS Apple Silicon)
 
-On macOS, Homebrew Podman is required. The bootstrap creates an Apple Hypervisor
-ARM64 Podman Machine, builds the local `arm/` image, installs a rootless Quadlet
-in the guest Linux user manager, and adds optional zsh helpers. It does not
-install Nix on macOS or run CoreOS/QEMU automatically.
+The Makefile accepts `PROVIDER=podman|container`, defaulting to `podman`.
+The shared ARM image is defined in `arm/Dockerfile`; providers only manage
+host preparation, runtime storage and lifecycle. Neither provider runs Agni,
+CoreOS, QEMU or Wisp as part of bootstrap.
 
 ```sh
 mkdir -p ~/workspace
 git clone https://github.com/xd-dash/nix.xd.git ~/workspace/nix.xd
 cd ~/workspace/nix.xd
-make bootstrap
-make status
-make shell
+
+make bootstrap                      # Podman Machine (default), rootless Quadlet
+make bootstrap PROVIDER=container   # Apple native container, no Podman Machine
+make status PROVIDER=container
+make shell PROVIDER=container
 ```
 
-The Makefile provides `bootstrap`, `plan`, `machine-start`,
-`machine-stop`, `build`, `start`, `stop`, `restart`, `status`,
-`logs`, `shell`, `exec`, `run`, `sync`, `compose`, and `check`.
-`MACHINE` and `SCOPE` select the VM and service; defaults are
-`podman-machine-default` and `nix-xd-arm`. `make check` is a static
-syntax/dry-run check, not runtime qualification.
+### Providers
 
-The composition boundary is intentionally generic. To execute an application's
-own workflow, snapshot its local checkout into the Nix-Alpine container and
-run its command there:
+- **Podman (default):** On macOS, installs the Podman CLI with Homebrew when
+  absent, initializes/starts an Apple Hypervisor-backed Linux ARM64 VM, builds
+  the OCI image, and installs the rootless systemd user Quadlet in that VM.
+  Its existing bootstrap remains at `arm/bootstrap-podman.sh`.
+- **Apple container:** Requires Apple Silicon with macOS 26 or newer. Installs
+  the `container` Homebrew formula if absent, initializes the native container
+  services and recommended Linux kernel if needed, builds the same ARM64 OCI
+  image, and runs Nix-Alpine in a lightweight per-container VM. It uses **no
+  Podman Machine, no Linux host Quadlet and no persistent systemd user manager**.
+  A named Linux volume persists `/nix`; on first use it is seeded from the
+  image's installed Nix store. It does not auto-start at macOS login.
+  The Apple provider may require an initial interactive system/kernel setup.
+
+All provider-specific implementation is in `arm/bootstrap-*.sh` and
+`bin/nix-xd-container`. The public Make targets are: `bootstrap`, `plan`,
+`machine-start`, `machine-stop`, `build`, `start`, `stop`, `restart`,
+`status`, `logs`, `shell`, `exec`, `run`, `sync`, `compose`, and `check`.
+The `machine-start`/`machine-stop` targets refer to container-system services
+with the Apple provider; `machine-stop` stops **all** of Apple's container
+services, not just this runner. Prefer `make stop PROVIDER=container` when
+stopping only Nix-Alpine.
+
+Use the same provider on subsequent commands, for example:
 
 ```sh
-make compose WORKSPACE="$HOME/workspace/agni" COMPOSE_CMD='nix shell nixpkgs#go --command go test ./...'
+make start PROVIDER=container
+make exec PROVIDER=container CMD='nix --version'
+make compose PROVIDER=container WORKSPACE="$HOME/workspace/agni" \
+  COMPOSE_CMD='nix shell nixpkgs#go --command go test ./...'
 ```
 
-`WORKSPACE` is copied into `/home/nixuser/workspace` (not bind-mounted);
-the container must already be running. This includes all files in the directory,
-so do not use it for a checkout containing secrets. The composition command,
-its dependencies, QEMU arguments, CoreOS artifacts and Wisp policy belong to
-Agni or the calling application, not to `nix.xd`. The current Agni CoreOS
-artifacts have not been validated for ARM/QEMU TCG. Nothing is deployed.
+Application source is copied into `/home/nixuser/workspace`, not mounted
+from the host. `sync` includes hidden files and Git metadata, so only copy
+trusted directories without secrets. The caller controls the application
+command, dependencies and artifacts; **Agni owns the QEMU/CoreOS/Wisp logic**.
+The current Agni QEMU workflow is not yet ARM-qualified.
 
-For a fully managed source snapshot and reproducibility, pin the application
-revision and avoid changing source between qualification and execution.
-On native Linux, `start`, `stop`, `status` and `logs` use systemd
-directly; the existing `nix run ... -- install` path remains the Linux
-installer. `make bootstrap` is currently macOS-only.
+The two providers have separate image stores and container state even when
+their scopes have the same name. `make build` alone does not replace a
+previously created runtime container; bootstraps intentionally preserve
+existing containers and volumes rather than silently destroying them.
+Only one writer should access a given Nix store at a time.
+
+`make check` validates script syntax and Make expansion for both providers,
+but does not boot the Mac runtime or certify a Nix build.
 
 ## Usage
 
