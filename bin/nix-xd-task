@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+action="${1:?Action required}"
+provider="${NIX_XD_PROVIDER:-podman}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+root="${NIX_XD_WORKSPACES:-$HOME/workspace/nix.xd}"
+checkout="${NIX_XD_CHECKOUT:-}"
+flake="${NIX_XD_FLAKE:-.}"
+target="${NIX_XD_TARGET:-}"
+args="${NIX_XD_ARGS:-}"
+cmd="${NIX_XD_CMD:-nix --version}"
+
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+[[ "$provider" == podman || "$provider" == container ]] || fail "Unsupported provider: $provider"
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid scope"
+runtime="$provider"
+if [[ "$provider" == container ]]; then
+  [[ "$(uname -s)" == Darwin ]] || fail "Apple container requires macOS"
+fi
+command -v "$runtime" >/dev/null || fail "Runtime not installed: $runtime"
+
+inside() { "$runtime" exec "$scope" "$@"; }
+interactive() { "$runtime" exec -it "$scope" "$@"; }
+
+validate_checkout() {
+  [[ -n "$checkout" && "$checkout" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$checkout" != *..* ]] ||
+    fail "CHECKOUT must be a safe workspace-relative path"
+}
+stage() {
+  validate_checkout
+  local src="$root/$checkout" tmp
+  [[ -d "$src/.git" ]] || fail "Missing Git checkout: $src"
+  [[ -z "$(git -C "$src" status --porcelain --untracked-files=no)" ]] ||
+    fail "Tracked changes in $src; commit before staging"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  # Stage only committed files; no .git, credentials or unrelated host directories.
+  git -C "$src" archive HEAD | tar -xf - -C "$tmp"
+  inside mkdir -p "/workspaces/$checkout"
+  inside find "/workspaces/$checkout" -mindepth 1 -maxdepth 1 -exec rm -rf -- '{}' +
+  "$runtime" cp "$tmp/." "$scope:/workspaces/$checkout/"
+  printf 'Staged %s at %s\n' "$checkout" "$(git -C "$src" rev-parse HEAD)"
+}
+flake_ref() {
+  if [[ "$flake" == . ]]; then
+    path="/workspaces"
+  elif [[ "$flake" == /workspaces/* ]]; then
+    path="$flake"
+  elif [[ "$flake" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ ]]; then
+    path="/workspaces/$flake"
+  else
+    fail "FLAKE must be a workspace-relative path"
+  fi
+  [[ "$path" != *..* ]] || fail "Unsafe flake path"
+  [[ -z "$target" || "$target" =~ ^#[A-Za-z0-9_.-]+$ ]] || fail "TARGET must be empty or #output"
+  ref="$path$target"
+}
+nix_task() {
+  flake_ref
+  case "$action" in
+    show) inside nix flake show --no-write-lock-file "$ref" ;;
+    check) inside nix flake check --no-write-lock-file "$ref" ;;
+    build) inside nix build --no-write-lock-file --no-link "$ref" ;;
+    path-info) inside nix path-info --no-write-lock-file "$ref" ;;
+    run|qualify)
+      # ARGS is intentionally shell-parsed by bash as a caller-authored argument string.
+      if [[ -n "$args" ]]; then
+        inside bash -lc 'exec nix run --no-write-lock-file "$1" -- ${@:2}' _ "$ref" $args
+      else
+        inside nix run --no-write-lock-file "$ref"
+      fi
+      ;;
+    develop) interactive nix develop --no-write-lock-file "$ref" -c bash ;;
+  esac
+}
+
+case "$action" in
+  stage) stage ;;
+  show|check|build|path-info|run|qualify|develop) nix_task ;;
+  shell) interactive bash -l ;;
+  exec) inside bash -lc "$cmd" ;;
+  store-info) inside nix store info ;;
+  ps) "$runtime" ps -a ;;
+  inspect) "$runtime" inspect "$scope" ;;
+  *) fail "Unknown action $action" ;;
+esac
