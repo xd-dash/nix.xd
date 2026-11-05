@@ -32,8 +32,8 @@ case "$action" in
     container inspect "$scope"
     ;;
   logs) container logs "$scope" ;;
-  shell) exec container exec -it "$scope" bash -l ;;
-  exec|run) exec container exec "$scope" bash -lc "${NIX_XD_CMD:-nix --version}" ;;
+  shell) exec container exec -it "$scope" bash ;;
+  exec|run) exec container exec "$scope" bash -c "${NIX_XD_CMD:-nix --version}" ;;
   sync)
     [[ -n "$workspace" && -d "$workspace" ]] || die "Set WORKSPACE to a local application checkout"
     container exec "$scope" mkdir -p "$workdir"
@@ -43,7 +43,7 @@ case "$action" in
     [[ -n "$workspace" && -d "$workspace" ]] || die "Set WORKSPACE to a local application checkout"
     container exec "$scope" mkdir -p "$workdir"
     container cp "$workspace/." "$scope:$workdir/"
-    exec container exec -w "$workdir" "$scope" bash -lc "${NIX_XD_COMPOSE_CMD:-pwd}"
+    exec container exec -w "$workdir" "$scope" bash -c "${NIX_XD_COMPOSE_CMD:-pwd}"
     ;;
   *) die "Unsupported action: $action" ;;
 esac
