@@ -13,71 +13,78 @@ No changes to nix-alpine are required. Developing branches are deliberately excl
 Only the build-context adapter should need adjustment when upstream settles.
 
 
-## Generic Make interface (macOS Apple Silicon)
+## Generic Make orchestration on Apple Silicon
 
-The Makefile accepts `PROVIDER=podman|container`, defaulting to `podman`.
-The shared ARM image is defined in `arm/Dockerfile`; providers only manage
-host preparation, runtime storage and lifecycle. Neither provider runs Agni,
-CoreOS, QEMU or Wisp as part of bootstrap.
+The ARM Makefile follows the developing x86-64 Nix-Alpine interface at
+`dash-xd/nix-alpine/local/Makefile` (branch `codex/coreos-fatline-qemu`).
+The host runtime provider is independently selected by
+`PROVIDER=podman|container`, default `podman`. The host does **not** need
+Nix installed. Agni or another application's flake owns its own capabilities.
 
 ```sh
 mkdir -p ~/workspace
 git clone https://github.com/xd-dash/nix.xd.git ~/workspace/nix.xd
 cd ~/workspace/nix.xd
-
-make bootstrap                      # Podman Machine (default), rootless Quadlet
-make bootstrap PROVIDER=container   # Apple native container, no Podman Machine
+make bootstrap PROVIDER=container         # native Apple container (macOS 26+)
 make status PROVIDER=container
-make shell PROVIDER=container
 ```
 
-### Providers
+Use `make bootstrap` for the default Podman Machine + rootless Quadlet path.
+Neither bootstrap installs, runs, or hardcodes Agni.
 
-- **Podman (default):** On macOS, installs the Podman CLI with Homebrew when
-  absent, initializes/starts an Apple Hypervisor-backed Linux ARM64 VM, builds
-  the OCI image, and installs the rootless systemd user Quadlet in that VM.
-  Its existing bootstrap remains at `arm/bootstrap-podman.sh`.
-- **Apple container:** Requires Apple Silicon with macOS 26 or newer. Installs
-  the `container` Homebrew formula if absent, initializes the native container
-  services and recommended Linux kernel if needed, builds the same ARM64 OCI
-  image, and runs Nix-Alpine in a lightweight per-container VM. It uses **no
-  Podman Machine, no Linux host Quadlet and no persistent systemd user manager**.
-  A named Linux volume persists `/nix`; on first use it is seeded from the
-  image's installed Nix store. It does not auto-start at macOS login.
-  The Apple provider may require an initial interactive system/kernel setup.
+### Generic source and flake interface
 
-All provider-specific implementation is in `arm/bootstrap-*.sh` and
-`bin/nix-xd-container`. The public Make targets are: `bootstrap`, `plan`,
-`machine-start`, `machine-stop`, `build`, `start`, `stop`, `restart`,
-`status`, `logs`, `shell`, `exec`, `run`, `sync`, `compose`, and `check`.
-The `machine-start`/`machine-stop` targets refer to container-system services
-with the Apple provider; `machine-stop` stops **all** of Apple's container
-services, not just this runner. Prefer `make stop PROVIDER=container` when
-stopping only Nix-Alpine.
-
-Use the same provider on subsequent commands, for example:
+`WORKSPACES` defaults to the `nix.xd` checkout root. This matches the x86
+layout's `/workspaces` convention. A checkout name may include subdirectories
+such as `compositions/agni`.
 
 ```sh
-make start PROVIDER=container
-make exec PROVIDER=container CMD='nix --version'
-make compose PROVIDER=container WORKSPACE="$HOME/workspace/agni" \
-  COMPOSE_CMD='nix shell nixpkgs#go --command go test ./...'
+make sync REPO=dash-xd/agni \
+  BRANCH=codex/coreos-fatline-qemu \
+  SYNC_NAME=compositions/agni
+
+make stage CHECKOUT=compositions/agni PROVIDER=container
+make show FLAKE=compositions/agni/qemu/coreos-live PROVIDER=container
+make build FLAKE=compositions/agni/qemu/coreos-live TARGET='#output' PROVIDER=container
+make run FLAKE=compositions/agni/qemu/coreos-live TARGET='#app' PROVIDER=container
 ```
 
-Application source is copied into `/home/nixuser/workspace`, not mounted
-from the host. `sync` includes hidden files and Git metadata, so only copy
-trusted directories without secrets. The caller controls the application
-command, dependencies and artifacts; **Agni owns the QEMU/CoreOS/Wisp logic**.
-The current Agni QEMU workflow is not yet ARM-qualified.
+`#output` and `#app` are illustrative; check `make show` before selecting
+an output. The old Agni CoreOS flake has known incomplete hashes and is **not**
+already qualified for ARM. `make build` now means **Nix build** as on x86;
+`make image-build` builds the Nix-Alpine OCI image.
 
-The two providers have separate image stores and container state even when
-their scopes have the same name. `make build` alone does not replace a
-previously created runtime container; bootstraps intentionally preserve
-existing containers and volumes rather than silently destroying them.
-Only one writer should access a given Nix store at a time.
+`make sync` clones or fast-forwards `REPO` at `BRANCH`, checks the remote,
+refuses tracked edits, and accepts `REV=<full-40-character-SHA>` as a
+fail-closed revision fence. `make stage` copies the committed Git snapshot,
+excluding untracked files and `.git`, from the requested checkout to
+`/workspaces/<checkout>` in the selected runtime. Re-stage after changing
+the source. No host socket, host systemd bus, or broad host workspace mount is
+granted to the Apple provider.
 
-`make check` validates script syntax and Make expansion for both providers,
-but does not boot the Mac runtime or certify a Nix build.
+`make show`, `check`, `build`, `path-info`, `run`, and `develop`
+delegate to Nix inside the selected Nix-Alpine container and accept `FLAKE`
+and `TARGET`. `make compose`, `qualify`, `qualify-process`,
+`qualify-service`, and `qualify-composition` select application-owned Nix
+app outputs, failing if unavailable. `make qualify-plan` requires an explicit
+`PLAN_TARGET`; it does not emulate x86 host-Podman qualification or assert
+that a CoreOS VM booted. `ARGS` is a whitespace-delimited argument list;
+use `make exec CMD='...'` for shell commands.
+
+### Providers and boundaries
+
+- **Podman (default):** Apple Hypervisor-backed Linux VM with rootless
+  systemd/Quadlet for persistent container lifecycle.
+- **Apple container:** Native `container` CLI, per-container micro-VM,
+  persistent named `/nix` volume, no Podman Machine or Quadlet.
+- Both use the `arm/Dockerfile` OCI image and the same generic Nix task
+  interface. Image stores and volumes are independent.
+- The current ARM Make execution is **not runtime qualified** on a Mac.
+  `make check-static` only validates source syntax and Make expansion.
+
+Agni remains the authority for QEMU/CoreOS/Farcaster configuration and optional
+Wisp/Fatline behavior. Running nested accelerated QEMU from Apple's container
+runtime cannot be assumed.
 
 ## Usage
 
