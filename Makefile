@@ -2,6 +2,7 @@
 SHELL := /bin/sh
 .DEFAULT_GOAL := help
 
+PROVIDER ?= podman
 MACHINE ?= podman-machine-default
 SCOPE ?= nix-xd-arm
 IMAGE ?= localhost/nix-xd:arm64
@@ -15,7 +16,7 @@ OS := $(shell uname -s)
 
 help:
 	@printf '%s\n' \
-	  'make bootstrap               Initialize macOS Podman Machine + ARM Quadlet' \
+	  'make bootstrap PROVIDER=podman|container    Initialize ARM runtime (default podman)' \
 	  'make plan                    Display host/runtime configuration' \
 	  'make machine-start|machine-stop' \
 	  'make build                   Rebuild ARM64 image' \
@@ -25,16 +26,34 @@ help:
 	  'make run CMD="..."           Alias for exec (non-interactive)' \
 	  'make sync WORKSPACE=path     Copy an application checkout into runner' \
 	  'make compose WORKSPACE=path COMPOSE_CMD="..."   Sync then execute application command' \
-	  'make check                   Validate bootstrap and Makefile syntax'
+	  'make check                   Validate both provider scripts and Make targets'
 
 bootstrap:
 	@test "$(OS)" = Darwin || { echo "macOS bootstrap requires Darwin" >&2; exit 1; }
-	@NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" bash arm/bootstrap-macos.sh
+	@NIX_XD_PROVIDER="$(PROVIDER)" NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash arm/bootstrap-macos.sh
 
 plan:
-	@printf 'OS: %s\nMachine: %s\nScope: %s\nImage: %s\nWorkspace: %s\n' \
-	  '$(OS)' '$(MACHINE)' '$(SCOPE)' '$(IMAGE)' '$(WORKSPACE)'
+	@printf 'OS: %s\nProvider: %s\nMachine: %s\nScope: %s\nImage: %s\nWorkspace: %s\n' \
+	  '$(OS)' '$(PROVIDER)' '$(MACHINE)' '$(SCOPE)' '$(IMAGE)' '$(WORKSPACE)'
 
+ifeq ($(PROVIDER),container)
+ifeq ($(OS),Darwin)
+CONTAINER_RUN = NIX_XD_SCOPE='$(SCOPE)' NIX_XD_IMAGE='$(IMAGE)' NIX_XD_WORKSPACE='$(WORKSPACE)' NIX_XD_WORKDIR='$(WORKDIR)' bash bin/nix-xd-container
+machine-start machine-stop build start stop restart status logs shell:
+	@$(CONTAINER_RUN) $@
+
+exec run:
+	@NIX_XD_CMD='$(CMD)' $(CONTAINER_RUN) $@
+
+sync:
+	@$(CONTAINER_RUN) sync
+
+compose:
+	@NIX_XD_COMPOSE_CMD='$(COMPOSE_CMD)' $(CONTAINER_RUN) compose
+else
+$(error PROVIDER=container requires Apple Silicon macOS)
+endif
+else ifeq ($(PROVIDER),podman)
 ifeq ($(OS),Darwin)
 machine-start:
 	@state="$$(podman machine inspect "$(MACHINE)" --format '{{.State}}')"; \
@@ -98,7 +117,12 @@ sync:
 compose: sync
 	@podman exec -w "$(WORKDIR)" "$(SCOPE)" bash -lc '$(COMPOSE_CMD)'
 
+else
+$(error Unsupported PROVIDER='$(PROVIDER)': use podman or container)
+endif
+
 check:
-	@bash -n arm/bootstrap-macos.sh
-	@$(MAKE) --no-print-directory -n plan build status shell >/dev/null
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container
+	@$(MAKE) --no-print-directory -n PROVIDER=podman plan build status shell >/dev/null
+	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan build status shell >/dev/null
 	@echo 'Static checks passed (no macOS VM execution)'
