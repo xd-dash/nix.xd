@@ -36,34 +36,43 @@ say "Building ARM Nix-Alpine"
 container build --platform linux/arm64 -t "$image" "$repo/arm"
 container run --rm "$image" nix --version
 
-if ! container volume inspect "$volume" >/dev/null 2>&1; then
-  say "Creating persistent Nix store volume: $volume"
-  container volume create --opt size="${NIX_XD_STORE_SIZE:-40G}" "$volume"
-fi
-
-# On Apple's runtime an empty volume overlays the image's /nix directory.
-# Seed it explicitly from the image; unlike Podman's behavior, do not assume
-# volume mounts automatically copy the image's preinstalled Nix store.
-say "Initializing Nix store volume if needed"
-container run --rm --user 0 --volume "$volume:/seed" "$image" \
-  /bin/bash -ec '
-    if [ ! -e /seed/.nix-xd-seeded ]; then
-      if [ -n "$(find /seed -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]; then
-        echo "Refusing to overwrite existing unmarked volume" >&2
-        exit 1
-      fi
-      cp -a /nix/. /seed/
-      chown -R 1000:1000 /seed
-      touch /seed/.nix-xd-seeded
-    fi
-  '
-
+# Reuse the sole store owner before attempting any temporary volume mount.
+# Apple Container does not permit concurrent named-volume attachments.
 if container inspect "$scope" >/dev/null 2>&1; then
-  say "Existing container found; preserving its filesystem"
+  say "Reusing existing ARM Nix-Alpine container: $scope"
+  details="$(container inspect "$scope")"
+  printf '%s\n' "$details" | grep -Eq '"name"[[:space:]]*:[[:space:]]*"'"$volume"'"' ||
+    die "Existing container $scope does not attach expected store volume $volume"
+  printf '%s\n' "$details" | grep -Fq '"reference" : "'"$image"'"' ||
+    die "Existing container $scope uses an unexpected image; refusing implicit replacement"
   if ! container exec "$scope" /bin/true >/dev/null 2>&1; then
     container start "$scope"
   fi
+  container exec "$scope" /bin/bash -ec '
+    grep -Eq "[[:space:]]/nix[[:space:]]ext4[[:space:]]rw" /proc/mounts
+    test -f /nix/.nix-xd-seeded
+  ' || die "Existing container store is unmounted or unseeded; refusing destructive repair"
 else
+  if ! container volume inspect "$volume" >/dev/null 2>&1; then
+    say "Creating persistent Nix store volume: $volume"
+    container volume create --opt size="${NIX_XD_STORE_SIZE:-40G}" "$volume"
+  fi
+
+  # Seed only when no persistent runner owns the volume.
+  say "Initializing Nix store volume if needed"
+  container run --rm --user 0 --volume "$volume:/seed" "$image" \
+    /bin/bash -ec '
+      if [ ! -e /seed/.nix-xd-seeded ]; then
+        if [ -n "$(find /seed -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]; then
+          echo "Refusing to overwrite existing unmarked volume" >&2
+          exit 1
+        fi
+        cp -a /nix/. /seed/
+        chown -R 1000:1000 /seed
+        touch /seed/.nix-xd-seeded
+      fi
+    '
+
   say "Starting persistent ARM Nix-Alpine container"
   container run -d --name "$scope" \
     --volume "$volume:/nix" \
