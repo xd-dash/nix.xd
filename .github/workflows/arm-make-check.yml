@@ -14,6 +14,8 @@ on:
       - bin/nix-xd-entry
       - tests/plan-contract.sh
       - tests/stage-contract.sh
+      - tests/plan-fixture/**
+      - tests/plan-fixture-test.sh
       - tests/make-contract.sh
       - .github/workflows/arm-make-check.yml
   pull_request:
@@ -30,6 +32,8 @@ on:
       - bin/nix-xd-entry
       - tests/plan-contract.sh
       - tests/stage-contract.sh
+      - tests/plan-fixture/**
+      - tests/plan-fixture-test.sh
       - tests/make-contract.sh
       - .github/workflows/arm-make-check.yml
 jobs:
@@ -45,6 +49,8 @@ jobs:
         run: bash tests/plan-contract.sh
       - name: Test staging success and failure cleanup
         run: bash tests/stage-contract.sh
+      - name: Verify schema-v2 module lifecycle fixture
+        run: bash tests/plan-fixture-test.sh
       - name: Verify both provider command interfaces
         run: |
           make help
