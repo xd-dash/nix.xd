@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo="${1:?REPO=owner/repo required}"
+branch="${2:-main}"
+root="${3:?WORKSPACES required}"
+name="${4:-${repo#*/}}"
+rev="${5:-}"
+[[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "Invalid REPO: $repo" >&2; exit 2; }
+[[ "$name" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ ]] || { echo "Invalid SYNC_NAME: $name" >&2; exit 2; }
+[[ "$name" != *..* ]] || { echo "Unsafe checkout path" >&2; exit 2; }
+git check-ref-format --branch "$branch" >/dev/null
+[[ -z "$rev" || "$rev" =~ ^[0-9a-f]{40}$ ]] || { echo "REV must be a full Git SHA" >&2; exit 2; }
+dir="$root/$name"
+mkdir -p "$(dirname "$dir")"
+if [[ ! -e "$dir" ]]; then
+  git clone --branch "$branch" --single-branch "https://github.com/$repo.git" "$dir"
+else
+  [[ -d "$dir/.git" ]] || { echo "Not a checkout: $dir" >&2; exit 1; }
+  origin="$(git -C "$dir" remote get-url origin)"
+  case "$origin" in "https://github.com/$repo.git"|"git@github.com:$repo.git") ;; *) echo "Origin mismatch: $origin" >&2; exit 1;; esac
+  [[ -z "$(git -C "$dir" status --porcelain --untracked-files=no)" ]] || { echo "Tracked modifications: $dir" >&2; exit 1; }
+  git -C "$dir" fetch origin "refs/heads/$branch:refs/remotes/origin/$branch"
+  if git -C "$dir" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$dir" switch "$branch"
+  else
+    git -C "$dir" switch -c "$branch" "origin/$branch"
+  fi
+  git -C "$dir" merge --ff-only "origin/$branch"
+fi
+actual="$(git -C "$dir" rev-parse HEAD)"
+[[ -z "$rev" || "$actual" == "$rev" ]] || { echo "Revision mismatch expected $rev actual $actual" >&2; exit 1; }
+printf 'Synchronized %s %s at %s\n' "$repo" "$name" "$actual"
