@@ -15,5 +15,22 @@ case "$host_system:$linux_system" in
   *) echo "Unsupported host/guest architecture: $host_system -> $linux_system" >&2; exit 2 ;;
 esac
 
-exec make --no-print-directory -C "$source_root" \
-  WORKSPACES="$workspace_root" LINUX_SYSTEM="$linux_system" "$@"
+case "$host_system" in
+  x86_64-linux|aarch64-linux)
+    # Reuse the actual pinned Nix-Alpine Make interface, including its
+    # host Podman/systemd qualification adapter and generic plan protocol.
+    pin="${NIX_XD_NIX_ALPINE_REV:?Missing pinned Nix-Alpine revision}"
+    checkout="nix-alpine/nix-alpine"
+    bash "$source_root/bin/nix-xd-sync" \
+      dash-xd/nix-alpine codex/nixxd-refresh-reset \
+      "$workspace_root" "$checkout" "$pin"
+    exec make --no-print-directory \
+      -C "$workspace_root/$checkout/local" \
+      WORKSPACES="$workspace_root" NIX_XD_ROOT="$workspace_root" \
+      LOG_DIR="$NIX_XD_LOG_DIR" LOG=1 "$@"
+    ;;
+  aarch64-darwin)
+    exec make --no-print-directory -C "$source_root" \
+      WORKSPACES="$workspace_root" LINUX_SYSTEM="$linux_system" "$@"
+    ;;
+esac
