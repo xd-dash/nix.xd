@@ -1,157 +1,146 @@
 # nix.xd
 
-A small host installer for a rootless Podman + systemd/Quadlet Nix-Alpine service.
-This does not install NixOS or change host packages.
+Generic host-side entry point for [dash-xd/nix-alpine](https://github.com/dash-xd/nix-alpine).
+This repository owns the cross-architecture Nix interface and the macOS ARM
+bootstrap adapters. It does not own application compositions or qualification
+modules; those belong to application repositories such as Agni.
 
-| Host | Build context |
-| --- | --- |
-| x86_64 Linux | Exact flake input from dash-xd/nix-alpine |
-| ARM64 Linux (aarch64) | arm/ in this repository |
+## Platform and execution model
 
-The x86_64 input is pinned to upstream main at 80a2821b7571edd09507f9b4349e2f1ed3daf900.
-No changes to nix-alpine are required. Developing branches are deliberately excluded.
-Only the build-context adapter should need adjustment when upstream settles.
+| Host | Linux workload | Execution interface |
+| --- | --- | --- |
+| x86_64 Linux | x86_64-linux | pinned Nix-Alpine `local/Makefile`, rootless Podman/systemd |
+| aarch64 Linux | aarch64-linux | pinned Nix-Alpine `local/Makefile`, rootless Podman/systemd |
+| Apple Silicon macOS | aarch64-linux | `nix.xd` generic Make adapter, Apple `container` or Podman Machine |
 
+The top-level `flake.nix` exports the same `nix-xd` app on
+`x86_64-linux`, `aarch64-linux`, and `aarch64-darwin`.
+The app selects the native host adapter and Linux execution architecture.
+It pins Nix-Alpine to
+`037290d6713cb5efc548982c42b26f77f467e58a`
+(from `codex/nixxd-refresh-reset`) and uses that checkout's original
+Makefile on native Linux. The input hash is retained in `flake.lock`.
 
-## Generic Make orchestration on Apple Silicon
+The macOS Make adapter is deliberately separate while Apple Container
+qualification is being developed; it is not a copy of the Linux Podman
+host-runtime tester. The Make interface is the convenience layer, not
+application logic. Agni does not need a Makefile.
 
-The ARM Makefile follows the developing x86-64 Nix-Alpine interface at
-`dash-xd/nix-alpine/local/Makefile` (branch `codex/coreos-fatline-qemu`).
-The host runtime provider is independently selected by
-`PROVIDER=podman|container`, default `podman`. The host does **not** need
-Nix installed. Agni or another application's flake owns its own capabilities.
+## Apple Silicon: use the existing runtime
+
+From macOS, not from inside the `nix-xd-arm` shell:
 
 ```sh
-mkdir -p ~/workspace
-git clone https://github.com/xd-dash/nix.xd.git ~/workspace/nix.xd
 cd ~/workspace/nix.xd
-make bootstrap PROVIDER=container         # native Apple container (macOS 26+)
-make status PROVIDER=container
+git fetch origin
+git switch --track origin/codex/nix-alpine-cross-arch-contract
+make check-static
+make smoke PROVIDER=container SCOPE=nix-xd-arm
 ```
 
-Use `make bootstrap` for the default Podman Machine + rootless Quadlet path.
-Neither bootstrap installs, runs, or hardcodes Agni.
+If already on the branch, use `git pull --ff-only` instead of `git switch`.
+`make smoke` is non-destructive. It does not recreate the container, image,
+or persistent `/nix` volume.
 
-### Generic source and flake interface
-
-`WORKSPACES` defaults to the `nix.xd` checkout root. This matches the x86
-layout's `/workspaces` convention. A checkout name may include subdirectories
-such as `compositions/agni`.
+To synchronize and stage the pinned Nix-Alpine toolbox source:
 
 ```sh
-make sync REPO=dash-xd/agni \
-  BRANCH=codex/coreos-fatline-qemu \
-  SYNC_NAME=compositions/agni
+make sync REPO=dash-xd/nix-alpine \
+  BRANCH=codex/nixxd-refresh-reset \
+  REV=037290d6713cb5efc548982c42b26f77f467e58a \
+  SYNC_NAME=nix-alpine/nix-alpine
 
-make stage CHECKOUT=compositions/agni PROVIDER=container
-make show FLAKE=compositions/agni/qemu/coreos-live PROVIDER=container
-make build FLAKE=compositions/agni/qemu/coreos-live TARGET='#output' PROVIDER=container
-make run FLAKE=compositions/agni/qemu/coreos-live TARGET='#app' PROVIDER=container
+make stage PROVIDER=container CHECKOUT=nix-alpine/nix-alpine
+make show PROVIDER=container FLAKE=nix-alpine/nix-alpine/toolbox
 ```
 
-`#output` and `#app` are illustrative; check `make show` before selecting
-an output. The old Agni CoreOS flake has known incomplete hashes and is **not**
-already qualified for ARM. `make build` now means **Nix build** as on x86;
-`make image-build` builds the Nix-Alpine OCI image.
+All three operations emit UTC timestamped logs in `logs/`. The log wrapper
+streams output and returns the real exit code, including on failure.
+Override the output location with `NIX_XD_LOG_DIR`. The `stage` operation
+uses `git archive HEAD`, excludes untracked files and Git metadata, and
+initializes `/workspaces` safely in existing containers as needed.
 
-`make sync` clones or fast-forwards `REPO` at `BRANCH`, checks the remote,
-refuses tracked edits, and accepts `REV=<full-40-character-SHA>` as a
-fail-closed revision fence. `make stage` copies the committed Git snapshot,
-excluding untracked files and `.git`, from the requested checkout to
-`/workspaces/<checkout>` in the selected runtime. Re-stage after changing
-the source. No host socket, host systemd bus, or broad host workspace mount is
-granted to the Apple provider.
-
-`make show`, `check`, `build`, `path-info`, `run`, and `develop`
-delegate to Nix inside the selected Nix-Alpine container and accept `FLAKE`
-and `TARGET`. `make compose`, `qualify`, `qualify-process`,
-`qualify-service`, and `qualify-composition` select application-owned Nix
-app outputs, failing if unavailable. `make qualify-plan` requires an explicit
-`PLAN_TARGET`; it does not emulate x86 host-Podman qualification or assert
-that a CoreOS VM booted. `ARGS` is a whitespace-delimited argument list;
-use `make exec CMD='...'` for shell commands.
-
-### Diagnostic logging and repeatable bootstrap
-
-Noninteractive `make bootstrap`, `sync`, `stage`, `show`, `check`,
-`build`, `path-info`, and `run` commands write live output to the terminal
-and a timestamped file in the tracked `logs/` directory. Generated `*.log`
-files are Git-ignored. Filenames include the scope, operation, UTC timestamp,
-and process ID (for example `nix-xd-arm-bootstrap-20261105T221100Z-1234.log`).
-`NIX_XD_LOG_DIR` can override the destination. The wrapper preserves the
-underlying command's failure status and prints the resulting log path.
+### Bootstrap providers
 
 ```sh
-make bootstrap PROVIDER=container SCOPE=nix-xd-arm
-ls -t logs/nix-xd-arm-bootstrap-*.log | head -1
-tail -f "$(ls -t logs/nix-xd-arm-bootstrap-*.log | head -1)"
+make bootstrap                     # Podman Machine + Quadlet (default)
+make bootstrap PROVIDER=container  # Apple native container, no Podman Machine
 ```
 
-Apple Container bootstrap checks for an existing runner **before** trying to
-attach its named Nix store to a temporary seed container. An existing container
-is reused only if its expected image reference, named volume, ext4 mount, and
-seed marker match. A stopped matching container is started. Unexpected state
-fails closed without deleting the container or store. An absent runner causes
-the volume to be created if needed, seeded once, and attached to the runner.
-Do not execute two bootstraps for the same scope concurrently.
+The Apple `container` provider runs Linux in per-container micro-VMs and
+keeps its writable `/nix` volume independent from Podman. Its existing,
+verified matching container is reused without a second volume attachment.
+Neither provider installs an application checkout. The macOS host does not
+need Nix installed for the Make path.
 
-The ARM task runner explicitly selects `aarch64-linux` through the Nix
-`system` option. Flake evaluation remains pure by default; no global
-`--impure` flag or reliance on `builtins.currentSystem` is introduced.
+For users who already have Nix installed on macOS, the top-level flake
+provides a separate `nix run` entry point. The flake doesn't install Nix
+on the macOS host.
 
-### Providers and boundaries
-
-- **Podman (default):** Apple Hypervisor-backed Linux VM with rootless
-  systemd/Quadlet for persistent container lifecycle.
-- **Apple container:** Native `container` CLI, per-container micro-VM,
-  persistent named `/nix` volume, no Podman Machine or Quadlet.
-- Both use the `arm/Dockerfile` OCI image and the same generic Nix task
-  interface. Image stores and volumes are independent.
-- The current ARM Make execution is **not runtime qualified** on a Mac.
-  `make check-static` only validates source syntax and Make expansion.
-
-Agni remains the authority for QEMU/CoreOS/Farcaster configuration and optional
-Wisp/Fatline behavior. Running nested accelerated QEMU from Apple's container
-runtime cannot be assumed.
-
-## Usage
-
-The host needs Nix with flakes enabled to invoke the installer, rootless Podman,
-Quadlet, and an active systemd user session. ARM means ARM64, not 32-bit ARM.
-Configure subordinate UID/GID ranges using your distribution's normal rootless
-Podman setup. The installer does not use sudo or change lingering policy.
+## Generic Nix commands
 
 ```sh
-nix run github:xd-dash/nix.xd -- plan
-nix run github:xd-dash/nix.xd -- install
-nix run github:xd-dash/nix.xd -- start
-nix run github:xd-dash/nix.xd -- shell
+make show FLAKE=compositions/example TARGET='#output' PROVIDER=container
+make check FLAKE=compositions/example PROVIDER=container
+make build FLAKE=compositions/example TARGET='#package' PROVIDER=container
+make run FLAKE=compositions/example TARGET='#app' PROVIDER=container
 ```
 
-Add a scope as the second argument to isolate service/container/store names.
-Install builds the native image, checks Nix, and writes a user Quadlet. It does
-not start the service. Quadlet's Install section handles future user-session
-startup; do not enable the generated service. For boot without login, explicitly
-configure user lingering on the host.
+These commands execute *inside* Nix-Alpine. `make image-build` is the
+separate operation for building the Nix-Alpine OCI image.
 
-Each scope owns one writable Nix store. Use this service as the single writer;
-do not mount that store into other concurrent writers. No host directories or
-container engine sockets are mounted. The service has outbound networking but
-publishes no ports.
+Application sources live under `WORKSPACES`, with `nix-alpine/` and
+`compositions/` as sibling directories. Mac workspaces are explicitly
+staged at the same `/workspaces` path used by the native-Linux toolbox.
+No broad host directory or container-engine socket is mounted into the
+Apple runner.
 
-## Boundaries and qualification
+## Qualification-plan contract
 
-This is an initial integration, not a production-qualified runtime.
-The source pin does not make the container build reproducible: upstream uses
-Alpine latest and a network Nix installer; the ARM context pins a release tag and
-Nix installer version, but does not yet lock image/payload digests.
-ARM has no native runtime qualification yet. No cross-emulation is configured.
-The container's sandbox is disabled to match the existing single-user setup.
+The schema is owned by the caller's plan app, not by `nix.xd`.
+Nix-Alpine's `local/PLAN_INTERFACE.md` defines `schemaVersion: 2`,
+`protocolVersion: 1`, stable module IDs, dependencies, phases, inputs,
+outputs, and cleanup. The app resolves and executes these modules.
 
-`nix flake check --all-systems` evaluates both systems; native builds should be
-qualified separately on each architecture before relying on them.
-The bootstrap transaction generates and checks flake.lock before publication.
+On either backend, the standard selection vocabulary is:
 
-Existing Quadlet files are never overwritten. To remove an installation, stop
-its service, remove its exact .container file, and reload the user systemd
-manager. Store-volume deletion is a separate explicit data-removal operation.
+```sh
+make qualify-plan PROVIDER=container \
+  PLAN_REPO=owner/repository \
+  PLAN_BRANCH=branch \
+  PLAN_REV=<40-character-Git-SHA> \
+  PLAN_CHECKOUT=compositions/example \
+  PLAN_FILE=plan/qualification.json \
+  PLAN_FLAKE=plan \
+  PLAN_TARGET=qualify-plan \
+  PLAN_GATE=all \
+  PLAN_CAPABILITIES=nix-exec
+```
+
+On Apple Container, only `PLAN_CAPABILITIES=nix-exec` is accepted.
+It transports the same `--plan`, `--gate`, `--workspaces`, `--toolbox`,
+`--nix-alpine-local`, `--scope`, and `--plan-checkout` arguments to
+the application flake app. The application must validate module protocol
+versions and enforce requirements for its own modules. This is *not*
+a claim that a CoreOS VM or Fatline service is qualified.
+
+The Linux Nix-Alpine plan runner provides disposable host Podman/systemd
+qualification and is selected directly by the unified flake entry point.
+Apple Container has no host Podman socket, Linux user-systemd bus, or
+nested KVM. Plans requesting those runtime capabilities fail closed
+rather than reporting false success. For now the Apple adapter also
+rejects `PLAN_SOURCES`, `PLAN_ARTIFACT_MANIFEST`, and `RETAIN=1`;
+these x86 plan features are not yet implemented there.
+
+## Qualification and limits
+
+- `make check-static` and GitHub CI validate syntax and Make argument contracts.
+- `make smoke PROVIDER=container` is the next Mac runtime gate; its output
+  must be reviewed before considering the Apple provider qualified.
+- The current OCI image installs Nix 2.31.2 in ARM Alpine Linux. It does not
+  install Nix on macOS.
+- Existing containers and persistent store volumes are preserved.
+- Pinning the Nix-Alpine source does not guarantee reproducibility of network
+  downloads performed by its image build.
+- QEMU/CoreOS/Farcaster provisioning and optional Fatline compositions remain
+  the responsibility of the application repository, not `nix.xd`.
