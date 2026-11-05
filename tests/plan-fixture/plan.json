@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 2,
+  "protocolVersion": 1,
+  "modules": [
+    {
+      "id": "bootstrap",
+      "kind": "fixture.step",
+      "phases": [
+        "prepare",
+        "execute",
+        "verify",
+        "cleanup"
+      ],
+      "inputs": {},
+      "outputs": [
+        "bootstrap-ready"
+      ],
+      "dependsOn": [],
+      "cleanup": "always"
+    },
+    {
+      "id": "dependency",
+      "kind": "fixture.step",
+      "phases": [
+        "prepare",
+        "execute",
+        "verify",
+        "cleanup"
+      ],
+      "inputs": {},
+      "outputs": [
+        "dependency-ready"
+      ],
+      "dependsOn": [
+        "bootstrap"
+      ],
+      "cleanup": "always"
+    },
+    {
+      "id": "parallel",
+      "kind": "fixture.step",
+      "phases": [
+        "prepare",
+        "execute",
+        "verify",
+        "cleanup"
+      ],
+      "inputs": {},
+      "outputs": [
+        "parallel-ready"
+      ],
+      "dependsOn": [
+        "bootstrap"
+      ],
+      "cleanup": "always"
+    },
+    {
+      "id": "final",
+      "kind": "fixture.step",
+      "phases": [
+        "prepare",
+        "execute",
+        "verify",
+        "cleanup"
+      ],
+      "inputs": {},
+      "outputs": [
+        "final-ready"
+      ],
+      "dependsOn": [
+        "dependency",
+        "parallel"
+      ],
+      "cleanup": "always"
+    },
+    {
+      "id": "broken",
+      "kind": "fixture.step",
+      "phases": [
+        "prepare",
+        "execute",
+        "verify",
+        "cleanup"
+      ],
+      "inputs": {
+        "fail": true
+      },
+      "outputs": [
+        "never"
+      ],
+      "dependsOn": [
+        "dependency"
+      ],
+      "cleanup": "always"
+    }
+  ],
+  "gates": {
+    "all": [
+      "final"
+    ],
+    "failure": [
+      "broken"
+    ]
+  }
+}
