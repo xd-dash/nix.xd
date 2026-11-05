@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Generic schema-v2 plan transport. The caller's flake implements modules and gates.
+repo="${PLAN_REPO:?PLAN_REPO required}"
+branch="${PLAN_BRANCH:-main}"
+rev="${PLAN_REV:?PLAN_REV required}"
+checkout="${PLAN_CHECKOUT:?PLAN_CHECKOUT required}"
+plan_file="${PLAN_FILE:?PLAN_FILE required}"
+plan_flake="${PLAN_FLAKE:?PLAN_FLAKE required}"
+target="${PLAN_TARGET:-qualify-plan}"
+gate="${PLAN_GATE:-all}"
+provider="${NIX_XD_PROVIDER:-podman}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+root="${NIX_XD_WORKSPACES:?NIX_XD_WORKSPACES required}"
+system="${NIX_XD_SYSTEM:-aarch64-linux}"
+requires="${PLAN_CAPABILITIES:-}"
+retain="${RETAIN:-0}"
+sources="${PLAN_SOURCES:-}"
+artifacts="${PLAN_ARTIFACT_MANIFEST:-}"
+nix_checkout="${NIX_ALPINE_CHECKOUT:-nix-alpine/nix-alpine}"
+nix_rev="${NIX_ALPINE_REV:?Pinned NIX_ALPINE_REV required}"
+self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+die() { echo "error: $*" >&2; exit 1; }
+validate_path() {
+  local value=$1 part
+  [[ -n "$value" && "$value" != /* && "$value" != *//* ]] || die "Unsafe relative path: $value"
+  local -a segments=()
+  IFS=/ read -r -a segments <<< "$value"
+  for part in "${segments[@]}"; do
+    [[ "$part" =~ ^[A-Za-z0-9_.-]+$ && "$part" != "." && "$part" != ".." && "$part" != ".git" ]] ||
+      die "Unsafe path segment: $part"
+  done
+}
+validate_path "$checkout"
+validate_path "$plan_file"
+validate_path "$plan_flake"
+validate_path "$nix_checkout"
+[[ "$rev" =~ ^[0-9a-f]{40}$ && "$nix_rev" =~ ^[0-9a-f]{40}$ ]] || die "Full 40-character Git revisions required"
+[[ "$target" =~ ^[A-Za-z0-9_.-]+$ ]] || die "PLAN_TARGET must name an app without #"
+[[ "$gate" =~ ^[A-Za-z0-9_.-]+$ ]] || die "Invalid PLAN_GATE"
+[[ "$retain" == 0 || "$retain" == 1 ]] || die "RETAIN must be 0 or 1"
+[[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] || die "Invalid Linux execution system"
+
+# Apple Container does not provide the rootless Podman socket, host systemd,
+# or KVM acceleration used by Nix-Alpine's x86 disposable host adapter.
+case "$provider" in
+  container)
+    [[ "$requires" == nix-exec ]] ||
+      die "Apple provider supports only PLAN_CAPABILITIES=nix-exec; host-runtime qualification must use a compatible Linux provider"
+    [[ "$retain" == 0 ]] || die "RETAIN=1 requires the disposable Linux host runtime"
+    ;;
+  podman)
+    [[ "$requires" == nix-exec ]] ||
+      die "Persistent runner is Nix-only; host Podman/systemd qualification requires the x86 Nix-Alpine host adapter"
+    [[ "$retain" == 0 ]] || die "RETAIN=1 requires the disposable Linux host runtime"
+    ;;
+  *) die "Unknown provider: $provider" ;;
+esac
+
+# Manifests are part of the x86 protocol, but host-socket and bind-mount
+# semantics differ on Apple. Refuse rather than silently discard them.
+[[ -z "$sources" ]] || die "PLAN_SOURCES requires manifest synchronization support (not yet implemented on ARM)"
+[[ -z "$artifacts" ]] || die "PLAN_ARTIFACT_MANIFEST requires read-only manifest transport (not yet implemented on ARM)"
+
+echo "Plan source: $repo@$rev"
+bash "$self_dir/bin/nix-xd-sync" "$repo" "$branch" "$root" "$checkout" "$rev"
+bash "$self_dir/bin/nix-xd-sync" dash-xd/nix-alpine codex/nixxd-refresh-reset "$root" "$nix_checkout" "$nix_rev"
+[[ -f "$root/$checkout/$plan_file" ]] || die "Missing plan file: $checkout/$plan_file"
+[[ -f "$root/$checkout/$plan_flake/flake.nix" ]] || die "Missing plan flake: $checkout/$plan_flake/flake.nix"
+
+export NIX_XD_CHECKOUT="$checkout"
+bash "$self_dir/bin/nix-xd-task" stage
+export NIX_XD_CHECKOUT="$nix_checkout"
+bash "$self_dir/bin/nix-xd-task" stage
+
+# Contract names match dash-xd/nix-alpine's plan runner. The application
+# validates schemaVersion/protocolVersion, dependencies, phases, and evidence.
+ref="/workspaces/$checkout/$plan_flake#$target"
+echo "Invoking plan app: $ref (gate: $gate, capabilities: $requires)"
+case "$provider" in
+  container|podman)
+    "$provider" exec "$scope" nix --option system "$system" run --no-write-lock-file "$ref" -- \
+      --plan "/workspaces/$checkout/$plan_file" \
+      --gate "$gate" \
+      --workspaces /workspaces \
+      --toolbox "$scope" \
+      --nix-alpine-local "/workspaces/$nix_checkout/local" \
+      --scope "$scope" \
+      --plan-checkout "$checkout"
+    ;;
+esac
