@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+action="${1:?store-export or store-import required}"
+provider="${NIX_XD_PROVIDER:-container}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+store_path="${NIX_XD_STORE_PATH:?STORE_PATH must be an existing /nix/store path}"
+
+[[ "$action" == store-export || "$action" == store-import ]] ||
+  { echo "Unsupported store copy action" >&2; exit 2; }
+[[ "$provider" == container || "$provider" == podman ]] ||
+  { echo "Unsupported provider" >&2; exit 2; }
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] ||
+  { echo "Invalid scope" >&2; exit 2; }
+[[ "$store_path" =~ ^/nix/store/[0-9a-z]{32}-[A-Za-z0-9+._-]+$ ]] ||
+  { echo "STORE_PATH must be a single, absolute Nix store path" >&2; exit 2; }
+
+case "$action" in
+  store-export)
+    "$provider" exec "$scope" /bin/bash -ec '
+      set -euo pipefail
+      test -w /exchange/nix-cache
+      nix path-info "$1" >/dev/null
+      nix copy --to file:///exchange/nix-cache "$1"
+      echo "Published Nix closure: $1"
+    ' bash "$store_path"
+    ;;
+  store-import)
+    "$provider" exec "$scope" /bin/bash -ec '
+      set -euo pipefail
+      test -r /exchange/nix-cache
+      # Local trusted producer, not a signed public substituter.
+      nix copy --no-check-sigs --from file:///exchange/nix-cache "$1"
+      nix path-info "$1" >/dev/null
+      echo "Imported Nix closure: $1"
+    ' bash "$store_path"
+    ;;
+esac
