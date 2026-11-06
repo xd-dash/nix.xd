@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$(uname -s)" == Darwin ]] || { echo 'macOS host required' >&2; exit 2; }
-command -v age-keygen >/dev/null || {
-  echo 'age-keygen unavailable. Install age (for example: brew install age).' >&2
-  exit 2
-}
+if ! command -v age-keygen >/dev/null 2>&1; then
+  command -v brew >/dev/null 2>&1 || {
+    echo 'age-keygen unavailable and Homebrew missing; cannot provision age identity' >&2
+    exit 2
+  }
+  echo 'Installing age with Homebrew for local identity provisioning'
+  brew install age
+fi
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 target="$HOME/.config/nix.xd/age/keys.txt"
 standard="$HOME/.config/sops/age/keys.txt"
