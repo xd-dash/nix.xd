@@ -6,6 +6,7 @@ on:
       - arm/bootstrap-macos.sh
       - arm/bootstrap-podman.sh
       - arm/bootstrap-container.sh
+      - bin/nix-xd-inventory
       - bin/nix-xd-container
       - bin/nix-xd-task
       - bin/nix-xd-sync
@@ -31,6 +32,7 @@ on:
       - arm/bootstrap-macos.sh
       - arm/bootstrap-podman.sh
       - arm/bootstrap-container.sh
+      - bin/nix-xd-inventory
       - bin/nix-xd-container
       - bin/nix-xd-task
       - bin/nix-xd-sync
@@ -82,6 +84,8 @@ jobs:
           make -n bootstrap PROVIDER=podman OS=Darwin
           make -n PROVIDER=container OS=Darwin build FLAKE=compositions/agni TARGET='#test'
           make -n PROVIDER=podman qualify-process FLAKE=compositions/agni
+          make -n PROVIDER=podman OS=Darwin refresh
+          make -n PROVIDER=podman OS=Darwin inventory
           make -n PROVIDER=container OS=Darwin smoke
           make -n PROVIDER=container OS=Darwin workspace-check
           make -n PROVIDER=container OS=Darwin share-check READER_SCOPE=nix-xd-smoke-reader
