@@ -16,6 +16,7 @@ on:
       - tests/plan-contract.sh
       - tests/stage-contract.sh
       - tests/apple-mount-contract.sh
+      - tests/workspace-mount-contract.sh
       - tests/plan-fixture/**
       - tests/plan-fixture-test.sh
       - tests/plan-make-exit-contract.sh
@@ -37,6 +38,7 @@ on:
       - tests/plan-contract.sh
       - tests/stage-contract.sh
       - tests/apple-mount-contract.sh
+      - tests/workspace-mount-contract.sh
       - tests/plan-fixture/**
       - tests/plan-fixture-test.sh
       - tests/plan-make-exit-contract.sh
@@ -61,6 +63,8 @@ jobs:
         run: bash tests/plan-make-exit-contract.sh
       - name: Verify Apple workspace bind mount bootstrap
         run: bash tests/apple-mount-contract.sh
+      - name: Verify host/guest workspace identity
+        run: bash tests/workspace-mount-contract.sh
       - name: Verify both provider command interfaces
         run: |
           make help
