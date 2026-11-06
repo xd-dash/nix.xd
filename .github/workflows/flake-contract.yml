@@ -4,6 +4,8 @@ on:
     paths:
       - flake.nix
       - flake.lock
+      - tests/plan-fixture/flake.nix
+      - tests/plan-fixture/flake.lock
       - bin/nix-xd-entry
       - .github/workflows/flake-contract.yml
   workflow_dispatch:
@@ -16,7 +18,8 @@ jobs:
       - name: Verify pinned Nix-Alpine input
         run: |
           nix flake metadata --json >/dev/null
-          git diff --exit-code -- flake.lock
+          nix flake metadata --json ./tests/plan-fixture >/dev/null
+          git diff --exit-code -- flake.lock tests/plan-fixture/flake.lock
       - name: Evaluate Linux and Darwin app outputs
         run: |
           nix eval --json --apply builtins.attrNames .#apps
