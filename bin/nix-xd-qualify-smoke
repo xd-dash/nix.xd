@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+scope="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
+step=preflight
+completed=()
+summary() {
+  rc=$?
+  trap - EXIT
+  if (( rc == 0 )); then
+    printf 'QUALIFICATION_RESULT=PASS scope=%s gates=%s\n' "$scope" "${completed[*]}"
+  else
+    printf 'QUALIFICATION_RESULT=FAIL scope=%s gate=%s exit=%s completed=%s\n' \
+      "$scope" "$step" "$rc" "${completed[*]}" >&2
+  fi
+  exit "$rc"
+}
+trap summary EXIT
+gate() {
+  step="$1"
+  shift
+  printf '\n========== GATE=%s START ==========\n' "$step"
+  "$@"
+  completed+=("$step")
+  printf '========== GATE=%s PASS ==========\n' "$step"
+}
+guest() { podman --connection "$machine" exec "$scope" "$@"; }
+smoke() {
+  guest nix develop /workspaces/nix-alpine/nix-alpine/toolbox#go -c \
+    bash /workspaces/compositions/smoke/tools/nix-alpine.sh "$1"
+}
+preflight() {
+  [[ "$(uname -s)" == Darwin && -f "$root/compositions/smoke/go.mod" ]] ||
+    { echo 'Missing macOS host or Smoke checkout' >&2; return 2; }
+  podman machine inspect "$machine" --format '{{.State}}'
+  guest nix --version
+  guest /bin/bash -ec '
+    set -euo pipefail
+    test "$(id -u)" = 1000 && test "$(id -g)" = 1000
+    test -w /nix && test -w /workspaces
+    test -r /workspaces/compositions/smoke/go.mod
+  '
+  git -C "$root/compositions/smoke" rev-parse HEAD
+}
+workspace() {
+  NIX_XD_PROVIDER=podman NIX_XD_MACHINE="$machine" NIX_XD_SCOPE="$scope" \
+    NIX_XD_WORKSPACES="$root" NIX_XD_WORKSPACE_MODE=bind \
+    bash "$root/bin/nix-xd-workspace-check"
+}
+inspect_binary() {
+  guest /bin/bash -ec '
+    set -euo pipefail
+    test -x /workspaces/.smoke-state/bin/smoke
+    sha256sum /workspaces/.smoke-state/bin/smoke
+    stat -c "SMOKE_OWNER=%u:%g MODE=%a PATH=%n" /workspaces/.smoke-state/bin/smoke
+  '
+  test -x "$root/.smoke-state/bin/smoke"
+  shasum -a 256 "$root/.smoke-state/bin/smoke"
+}
+snapshot() {
+  binary_sha="$(shasum -a 256 "$root/.smoke-state/bin/smoke")"
+  binary_sha="${binary_sha%% *}"
+  profile="$(guest /bin/bash -ec 'readlink -f "$HOME/.nix-profile"')"
+  [[ "$profile" == /nix/store/* ]] || return 1
+  guest nix path-info "$profile"
+  volume="$(podman --connection "$machine" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')"
+  [[ "$volume" == "$scope-store" ]] || { echo "Unexpected Nix volume: $volume" >&2; return 1; }
+  printf 'PERSISTENCE_BEFORE sha256=%s profile=%s volume=%s\n' "$binary_sha" "$profile" "$volume"
+}
+refresh() {
+  make --no-print-directory bootstrap PROVIDER=podman \
+    MACHINE="$machine" SCOPE="$scope" WORKSPACES="$root"
+}
+service() {
+  podman machine ssh "$machine" systemctl --user is-active --quiet "$scope.service"
+  podman --connection "$machine" inspect "$scope" \
+    --format 'CONTAINER_RUNNING={{.State.Running}} IMAGE={{.ImageName}}'
+}
+persistence() {
+  local current current_volume
+  current="$(shasum -a 256 "$root/.smoke-state/bin/smoke")"
+  current="${current%% *}"
+  [[ "$current" == "$binary_sha" ]] || { echo 'Smoke binary changed on refresh' >&2; return 1; }
+  guest nix path-info "$profile"
+  current_volume="$(podman --connection "$machine" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')"
+  [[ "$current_volume" == "$volume" ]] || { echo 'Nix volume changed on refresh' >&2; return 1; }
+  guest test -x /workspaces/.smoke-state/bin/smoke
+  printf 'PERSISTENCE_AFTER sha256=%s profile=%s volume=%s\n' "$current" "$profile" "$current_volume"
+}
+printf 'QUALIFICATION_SCOPE=%s MACHINE=%s\n' "$scope" "$machine"
+gate preflight preflight
+gate workspace workspace
+gate smoke-refresh smoke refresh
+gate smoke-test smoke test
+gate smoke-vet smoke vet
+gate smoke-build smoke build
+gate smoke-binary inspect_binary
+gate persistence-before snapshot
+gate runtime-refresh refresh
+gate service-after-refresh service
+gate workspace-after-refresh workspace
+gate persistence-after persistence
+gate smoke-test-after-refresh smoke test
