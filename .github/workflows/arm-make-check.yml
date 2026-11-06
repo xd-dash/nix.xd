@@ -11,9 +11,11 @@ on:
       - bin/nix-xd-sync
       - bin/nix-xd-plan
       - bin/nix-xd-smoke
+      - bin/nix-xd-workspace-check
       - bin/nix-xd-entry
       - tests/plan-contract.sh
       - tests/stage-contract.sh
+      - tests/apple-mount-contract.sh
       - tests/plan-fixture/**
       - tests/plan-fixture-test.sh
       - tests/plan-make-exit-contract.sh
@@ -30,9 +32,11 @@ on:
       - bin/nix-xd-sync
       - bin/nix-xd-plan
       - bin/nix-xd-smoke
+      - bin/nix-xd-workspace-check
       - bin/nix-xd-entry
       - tests/plan-contract.sh
       - tests/stage-contract.sh
+      - tests/apple-mount-contract.sh
       - tests/plan-fixture/**
       - tests/plan-fixture-test.sh
       - tests/plan-make-exit-contract.sh
@@ -55,6 +59,8 @@ jobs:
         run: bash tests/plan-fixture-test.sh
       - name: Verify Make plan error propagation through logger
         run: bash tests/plan-make-exit-contract.sh
+      - name: Verify Apple workspace bind mount bootstrap
+        run: bash tests/apple-mount-contract.sh
       - name: Verify both provider command interfaces
         run: |
           make help
@@ -65,5 +71,6 @@ jobs:
           make -n PROVIDER=container OS=Darwin build FLAKE=compositions/agni TARGET='#test'
           make -n PROVIDER=podman qualify-process FLAKE=compositions/agni
           make -n PROVIDER=container OS=Darwin smoke
+          make -n PROVIDER=container OS=Darwin workspace-check
           make -n PROVIDER=container OS=Darwin stage CHECKOUT=compositions/agni
           make -n PROVIDER=container OS=Darwin qualify-plan PLAN_REPO=example/test PLAN_REV=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa PLAN_CHECKOUT=compositions/test PLAN_FILE=plan.json PLAN_FLAKE=qualify PLAN_CAPABILITIES=nix-exec
