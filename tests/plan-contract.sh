@@ -32,7 +32,7 @@ export PLAN_REV=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 export NIX_ALPINE_REV=037290d6713cb5efc548982c42b26f77f467e58a
 export PLAN_CHECKOUT=compositions/plan PLAN_FILE=qualifications/plan.json
 export PLAN_FLAKE=qualifications PLAN_TARGET=qualify-plan PLAN_GATE=all
-export NIX_XD_PROVIDER=container NIX_XD_SCOPE=nix-xd-arm
+export NIX_XD_PROVIDER=container NIX_XD_SCOPE=nix-xd-arm NIX_XD_WORKSPACE_MODE=staged
 export NIX_XD_WORKSPACES="$tmp/workspaces" PLAN_CAPABILITIES=nix-exec
 
 bash "$tmp/bin/nix-xd-plan"
