@@ -62,7 +62,7 @@ REMOTE
 
 say "Synchronizing pinned upstream Nix-Alpine source (no forced reset)"
 bash "$repo/bin/nix-xd-sync" \
-  dash-xd/nix-alpine codex/nixxd-refresh-reset \
+  dash-xd/nix-alpine codex/sops-age-native-bootstrap \
   "$workspaces" "$checkout" "$pin"
 
 say "Delegating to canonical Nix-Alpine Linux Quadlet bootstrap"
