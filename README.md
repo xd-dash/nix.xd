@@ -104,3 +104,60 @@ evidence of successful CoreOS boot or Fatline lifecycle qualification.
 
 The current Alpine image and Nix installer have upstream network inputs not
 fully locked by content digest. Source flakes should commit `flake.lock`.
+
+## Shared Smoke source and cross-container Nix closures
+
+Smoke remains the application owner. The generic Apple adapter can mount a
+dedicated **writable Smoke checkout** at `/smoke`, and a host-owned exchange
+directory at `/exchange`, separately from the default read-only
+`/workspaces` source tree. The first Nix-Alpine runner is the single source
+and exchange writer. A second runner mounts both read-only and uses a
+**different** persistent `/nix` volume.
+
+On macOS, once the Smoke branch checkout exists:
+
+```sh
+mkdir -p shared/smoke/nix-cache
+printf '%s\n' nix-xd-smoke-exchange-v1 > shared/smoke/.nix-xd-exchange
+
+make bootstrap PROVIDER=container SCOPE=nix-xd-smoke \
+  SMOKE_SOURCE="$HOME/workspace/smoke-arm" \
+  EXCHANGE_ROOT="$PWD/shared/smoke"
+
+make bootstrap PROVIDER=container SCOPE=nix-xd-smoke-reader \
+  SMOKE_SOURCE="$HOME/workspace/smoke-arm" \
+  SMOKE_ACCESS=readonly \
+  EXCHANGE_ROOT="$PWD/shared/smoke" \
+  EXCHANGE_ACCESS=readonly
+```
+
+The optional mount variables only affect newly created runners. Existing
+containers that lack the mounts fail instead of being replaced. The Smoke
+checkout and its exchange are bound into each VM; a second container **must
+not attach the writer's named Nix store**.
+
+Smoke supplies `tools/nix-alpine.sh`, an application-owned source refresh and
+test entry point. Nix-Alpine supplies Go from the pinned toolbox:
+
+```sh
+make exec PROVIDER=container SCOPE=nix-xd-smoke \
+  CMD="nix develop /workspaces/nix-alpine/nix-alpine/toolbox#go -c bash /smoke/tools/nix-alpine.sh refresh-test"
+```
+
+For any built Nix store output, the writer publishes the complete closure to
+a shared local file binary cache, and the reader imports it to its own store:
+
+```sh
+make store-export PROVIDER=container SCOPE=nix-xd-smoke STORE_PATH=/nix/store/<path>
+make store-import PROVIDER=container SCOPE=nix-xd-smoke-reader STORE_PATH=/nix/store/<path>
+```
+
+The path must already be built in the writer. Both commands are logged. The
+file cache is trusted local input; the reader opts out of signature checks
+because the producer is trusted. This is not a mechanism for downloading
+untrusted binary caches, sharing Nix SQLite state, or bypassing per-container
+store ownership. Nix store paths are architecture-sensitive.
+
+Smoke's existing `go.work` and `tools/go.mod` environment composition,
+immutable snapshots, and in-process command registration remain authoritative
+for Smoke. Nix-Alpine does not duplicate that composition graph in Make.
