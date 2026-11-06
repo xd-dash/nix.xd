@@ -2,7 +2,9 @@
 set -euo pipefail
 
 action="${1:?store-export or store-import required}"
-provider="${NIX_XD_PROVIDER:-container}"
+provider="${NIX_XD_PROVIDER:-podman}"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+cache="${NIX_XD_CACHE_DIR:-}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 store_path="${NIX_XD_STORE_PATH:?STORE_PATH must be an existing /nix/store path}"
 
@@ -15,22 +17,43 @@ store_path="${NIX_XD_STORE_PATH:?STORE_PATH must be an existing /nix/store path}
 [[ "$store_path" =~ ^/nix/store/[0-9a-z]{32}-[A-Za-z0-9+._-]+$ ]] ||
   { echo "STORE_PATH must be a single, absolute Nix store path" >&2; exit 2; }
 
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
+  { echo "Invalid Podman Machine" >&2; exit 2; }
+if [[ -z "$cache" ]]; then
+  if [[ "$provider" == podman ]]; then
+    cache=/workspaces/.cache/nix
+  else
+    cache=/exchange/nix-cache
+  fi
+fi
+[[ "$cache" == /workspaces/.cache/nix || "$cache" == /exchange/nix-cache ]] ||
+  { echo "Unsupported cache location" >&2; exit 2; }
+
+in_container() {
+  if [[ "$provider" == podman && "$(uname -s)" == Darwin ]]; then
+    podman machine ssh "$machine" podman exec "$scope" "$@"
+  else
+    "$provider" exec "$scope" "$@"
+  fi
+}
+
 case "$action" in
   store-export)
-    "$provider" exec "$scope" /bin/bash -ec '
+    in_container /bin/bash -ec '
       set -euo pipefail
-      test -w /exchange/nix-cache
+      mkdir -p "$2"
+      test -w "$2"
       nix path-info "$1" >/dev/null
-      nix copy --to file:///exchange/nix-cache "$1"
+      nix copy --to "file://$2" "$1"
       echo "Published Nix closure: $1"
-    ' bash "$store_path"
+    ' bash "$store_path" "$cache"
     ;;
   store-import)
     "$provider" exec "$scope" /bin/bash -ec '
       set -euo pipefail
-      test -r /exchange/nix-cache
+      test -r "$2"
       # Local trusted producer, not a signed public substituter.
-      nix copy --no-check-sigs --from file:///exchange/nix-cache "$1"
+      nix copy --no-check-sigs --from "file://$2" "$1"
       nix path-info "$1" >/dev/null
       echo "Imported Nix closure: $1"
     ' bash "$store_path"
