@@ -24,7 +24,7 @@ export NIX_XD_PROVIDER=container NIX_XD_SCOPE=nix-xd-bind
 export NIX_XD_WORKSPACES="$tmp/workspaces" NIX_XD_WORKSPACE_MODE=bind
 
 bash "$repo/bin/nix-xd-workspace-check" >"$tmp/ok"
-grep -Fq 'PASS: live read-only workspace mount' "$tmp/ok"
+grep -Fq 'PASS: container mounted workspace' "$tmp/ok"
 
 if WRONG_MOUNT=1 bash "$repo/bin/nix-xd-workspace-check" >"$tmp/bad" 2>&1; then
   echo 'Mismatched mounted workspace was accepted' >&2
