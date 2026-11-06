@@ -60,11 +60,11 @@ help:
 	  'make compose|qualify|qualify-process|qualify-service|qualify-composition' \
 	  'make qualify-plan PLAN_REPO=... PLAN_REV=... PLAN_CHECKOUT=... PLAN_FILE=... PLAN_FLAKE=...' \
 	  'make start|stop|restart|status|logs|shell|exec|ps|inspect|store-info' \
-	  'make smoke PROVIDER=container               Logged non-destructive ARM runtime probe' \
-	  'make workspace-check PROVIDER=container     Verify live read-only workspace mount' \
-	  'make store-export STORE_PATH=/nix/store/...   Publish closure into /exchange/nix-cache' \
-	  'make store-import STORE_PATH=/nix/store/...   Import closure from /exchange/nix-cache' \
-	  'make share-check READER_SCOPE=...             Verify cross-container shared read/write' \
+	  'make smoke PROVIDER=container               Legacy Apple runtime probe (rollback only)' \
+	  'make workspace-check PROVIDER=podman        Verify VM mount, keep-id, persistent /nix' \
+	  'make store-export STORE_PATH=/nix/store/...  Publish closure in mounted workspace cache' \
+	  'make store-import STORE_PATH=/nix/store/...  Import closure into isolated Nix store' \
+	  'make share-check READER_SCOPE=...            Legacy Apple VM sharing diagnostic' \
 	  'make check-static                            Host-independent static checks'
 
 bootstrap:
