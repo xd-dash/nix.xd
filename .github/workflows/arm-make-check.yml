@@ -13,8 +13,7 @@ on:
       - bin/nix-xd-plan
       - bin/nix-xd-smoke
       - bin/nix-xd-qualify-smoke
-      - bin/nix-xd-qualify-ghxd
-      - bin/nix-xd-age-setup
+      - bin/nix-xd-qualify-ghxd-auth
       - bin/nix-xd-ghxd-auth
       - bin/nix-xd-ghxd-token-check
       - bin/nix-xd-workspace-check
@@ -49,8 +48,7 @@ on:
       - bin/nix-xd-plan
       - bin/nix-xd-smoke
       - bin/nix-xd-qualify-smoke
-      - bin/nix-xd-qualify-ghxd
-      - bin/nix-xd-age-setup
+      - bin/nix-xd-qualify-ghxd-auth
       - bin/nix-xd-ghxd-auth
       - bin/nix-xd-ghxd-token-check
       - bin/nix-xd-workspace-check
@@ -116,6 +114,7 @@ jobs:
           make -n PROVIDER=podman qualify-process FLAKE=compositions/agni
           make -n PROVIDER=podman OS=Darwin refresh
           make -n PROVIDER=podman OS=Darwin qualify-ghxd
+          make -n PROVIDER=podman OS=Darwin qualify-ghxd-auth
           make -n PROVIDER=podman OS=Darwin ghxd-auth
           make -n PROVIDER=podman OS=Darwin ghxd-token-check
           make -n PROVIDER=podman OS=Darwin qualify-smoke
