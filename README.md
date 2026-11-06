@@ -86,6 +86,25 @@ owned by Smoke. `nix.xd` does not parse or execute application module
 graphs. Go tests, vet, self-composition and environment mutation are Smoke's
 responsibility; Nix-Alpine provides the pinned Go toolchain.
 
+## One-command evidence collection
+
+Once a Smoke checkout is present under `compositions/smoke`, run
+`make qualify-smoke PROVIDER=podman MACHINE=podman-machine-default
+SCOPE=nix-xd-smoke-podman`. This is the **single** command for the Mac
+qualification, including source refresh, complete Go test suite, vet, binary
+build, shared-workspace identity, UID/GID checks, canonical Quadlet refresh,
+and verification that the named Nix store, Nix profile closure and Smoke
+binary persist.
+
+The target records `GATE=<name> START/PASS`, `PERSISTENCE_BEFORE`,
+`PERSISTENCE_AFTER`, and a terminal `QUALIFICATION_RESULT=PASS|FAIL`.
+`bin/nix-xd-log` writes the exact exit status into the diagnostic file.
+Upload `logs/nix-xd-smoke-podman-qualify-smoke-*.log` for review; do not
+manually interpret partial command output or delete old stores. The
+qualification intentionally performs a full pinned bootstrap refresh and
+may fetch build dependencies. It does **not** remove the previous Apple
+Container instances or volumes.
+
 ## Other flakes and a second container
 
 ```bash
