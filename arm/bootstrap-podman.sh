@@ -7,12 +7,12 @@ say() { printf '==> %s\n' "$*"; }
 
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] ||
   die "Podman Machine bootstrap requires Apple Silicon macOS"
-repo="$(cd "$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
-machine="\${NIX_XD_MACHINE:-podman-machine-default}"
-scope="\${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
-workspaces="\${NIX_XD_WORKSPACES:-$repo}"
-pin="\${NIX_ALPINE_REV:?Pinned NIX_ALPINE_REV required}"
-checkout="\${NIX_ALPINE_CHECKOUT:-nix-alpine/nix-alpine}"
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+scope="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
+workspaces="${NIX_XD_WORKSPACES:-$repo}"
+pin="${NIX_ALPINE_REV:?Pinned NIX_ALPINE_REV required}"
+checkout="${NIX_ALPINE_CHECKOUT:-nix-alpine/nix-alpine}"
 [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "Invalid machine"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
 [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || die "NIX_ALPINE_REV must be a full commit"
