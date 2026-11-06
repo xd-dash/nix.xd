@@ -19,6 +19,7 @@ on:
       - tests/plan-contract.sh
       - tests/stage-contract.sh
       - tests/apple-mount-contract.sh
+      - tests/podman-bootstrap-contract.sh
       - tests/store-copy-contract.sh
       - tests/workspace-mount-contract.sh
       - tests/plan-fixture/**
@@ -45,6 +46,7 @@ on:
       - tests/plan-contract.sh
       - tests/stage-contract.sh
       - tests/apple-mount-contract.sh
+      - tests/podman-bootstrap-contract.sh
       - tests/store-copy-contract.sh
       - tests/workspace-mount-contract.sh
       - tests/plan-fixture/**
@@ -69,6 +71,8 @@ jobs:
         run: bash tests/plan-fixture-test.sh
       - name: Verify Make plan error propagation through logger
         run: bash tests/plan-make-exit-contract.sh
+      - name: Verify Podman Machine canonical bootstrap
+        run: bash tests/podman-bootstrap-contract.sh
       - name: Verify Apple workspace bind mount bootstrap
         run: bash tests/apple-mount-contract.sh
       - name: Verify Nix store closure transfer contract
