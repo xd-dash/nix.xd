@@ -153,6 +153,16 @@ cache_offline_after_refresh() {
   printf 'GO_CACHE_OFFLINE_REUSE=PASS\n'
 }
 
+token_status() {
+  if [[ ! -f "$root/.private/sops/ghxd.enc.json" ]]; then
+    printf 'GHXD_CREDENTIAL=PENDING_DEVICE_AUTHORIZATION (synthetic SOPS verification already qualified)\n'
+    return 0
+  fi
+  for scope in "$writer" "$reader"; do
+    security "$scope" /workspaces/.smoke-state/bin/smoke ghxd status
+  done
+  printf 'GHXD_CREDENTIAL_CROSS_CONTAINER=PASS\n'
+}
 printf 'QUALIFICATION=GHXD_MINIMAL MACHINE=%s WRITER=%s READER=%s\n' "$machine" "$writer" "$reader"
 gate age-init init_age
 gate smoke-source sync_smoke
@@ -168,3 +178,4 @@ gate decrypt-synthetic decrypt_probe
 gate writer-refresh refresh_writer
 gate go-cache-offline cache_offline_after_refresh
 gate mount-after-refresh verify_mounts
+gate ghxd-token-status token_status
