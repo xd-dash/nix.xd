@@ -15,7 +15,7 @@ host_hash="${host_hash%% *}"
 echo "Workspace host: $(cd "$root" && pwd -P)"
 echo "Provider: $provider; scope: $scope"
 if [[ "$provider" == podman && "$(uname -s)" == Darwin ]]; then
-  guest() { podman machine ssh "$machine" podman exec "$scope" "$@"; }
+  guest() { podman --connection "$machine" exec "$scope" "$@"; }
 else
   guest() { "$provider" exec "$scope" "$@"; }
 fi
