@@ -14,6 +14,7 @@ provider="${NIX_XD_PROVIDER:-podman}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 root="${NIX_XD_WORKSPACES:?NIX_XD_WORKSPACES required}"
 system="${NIX_XD_SYSTEM:-aarch64-linux}"
+workspace_mode="${NIX_XD_WORKSPACE_MODE:-bind}"
 requires="${PLAN_CAPABILITIES:-}"
 retain="${RETAIN:-0}"
 sources="${PLAN_SOURCES:-}"
@@ -70,10 +71,20 @@ bash "$self_dir/bin/nix-xd-sync" dash-xd/nix-alpine codex/nixxd-refresh-reset "$
 [[ -f "$root/$checkout/$plan_file" ]] || die "Missing plan file: $checkout/$plan_file"
 [[ -f "$root/$checkout/$plan_flake/flake.nix" ]] || die "Missing plan flake: $checkout/$plan_flake/flake.nix"
 
-export NIX_XD_CHECKOUT="$checkout"
-bash "$self_dir/bin/nix-xd-task" stage
-export NIX_XD_CHECKOUT="$nix_checkout"
-bash "$self_dir/bin/nix-xd-task" stage
+if [[ "$workspace_mode" == staged ]]; then
+  export NIX_XD_CHECKOUT="$checkout"
+  bash "$self_dir/bin/nix-xd-task" stage
+  export NIX_XD_CHECKOUT="$nix_checkout"
+  bash "$self_dir/bin/nix-xd-task" stage
+elif [[ "$workspace_mode" == bind ]]; then
+  echo "Plan sources available through read-only /workspaces mount; no staging required"
+  if [[ "$provider" == container ]]; then
+    "$provider" exec "$scope" /bin/bash -ec 'grep -Eq "[[:space:]]/workspaces[[:space:]]" /proc/mounts && test ! -w /workspaces' ||
+      die "Missing read-only workspace mount"
+  fi
+else
+  die "Unsupported workspace mode: $workspace_mode"
+fi
 
 # Contract names match dash-xd/nix-alpine's plan runner. The application
 # validates schemaVersion/protocolVersion, dependencies, phases, and evidence.
