@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+writer="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
+reader="${NIX_XD_READER_SCOPE:-$writer-reader}"
+age_volume="$writer-age"
+smoke=/workspaces/.smoke-ghxd-state/bin/smoke
+security=/workspaces/nix-alpine/nix-alpine/toolbox#security
+probe=/workspaces/.private/sops/.qualification-probe.enc.json
+step=preflight
+completed=()
+probe_created=0
+[[ "$writer" =~ ^[a-z][a-z0-9-]{0,39}$ && "$reader" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
+[[ "$writer" != "$reader" ]] || exit 2
+
+finish() {
+  local status=$?
+  trap - EXIT
+  if (( probe_created )); then
+    podman --connection "$machine" exec "$writer" rm -f "$probe" >/dev/null 2>&1 || :
+  fi
+  if (( status == 0 )); then
+    printf 'QUALIFICATION_RESULT=PASS scope=%s reader=%s gates=%s\n' "$writer" "$reader" "${completed[*]}"
+  else
+    printf 'QUALIFICATION_RESULT=FAIL gate=%s code=%d completed=%s\n' "$step" "$status" "${completed[*]}" >&2
+  fi
+  exit "$status"
+}
+trap finish EXIT
+
+gate() {
+  step="$1"; shift
+  printf '\n========== GATE=%s START ==========\n' "$step"
+  "$@"
+  completed+=("$step")
+  printf '========== GATE=%s PASS ==========\n' "$step"
+}
+guest() { local scope="$1"; shift; podman --connection "$machine" exec "$scope" "$@"; }
+init_source() {
+  bash "$root/bin/nix-xd-sync" xd-dash/smoke codex/sops-age-native-bootstrap "$root" compositions/smoke
+  git -C "$root/compositions/smoke" rev-parse HEAD
+}
+bootstrap_scope() {
+  local scope="$1" workspace="$2" key_access="$3"
+  make --no-print-directory bootstrap PROVIDER=podman MACHINE="$machine" \
+    SCOPE="$scope" WORKSPACES="$root" WORKSPACE_ACCESS="$workspace" \
+    AGE_VOLUME="$age_volume" AGE_ACCESS="$key_access"
+}
+key_contract() {
+  local scope access
+  for scope in "$writer" "$reader"; do
+    access=rw
+    [[ "$scope" == "$reader" ]] && access=ro
+    guest "$scope" /bin/bash -ec '
+      set -euo pipefail
+      test -r "$SOPS_AGE_KEY_FILE"
+      test "$(id -u)" = 1000
+      test "$(id -g)" = 1000
+      test -w /nix
+      test -r /workspaces/compositions/smoke/go.mod
+      if [[ "$1" == ro ]]; then test ! -w /workspaces && test ! -w /run/secrets/age; else
+        test -w /workspaces && test -w /run/secrets/age; fi
+      test "$(stat -c %a "$SOPS_AGE_KEY_FILE")" = 600
+    ' bash "$access"
+  done
+  local a b
+  a="$(podman --connection "$machine" inspect "$writer" --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/age"}}{{.Name}}{{end}}{{end}}')"
+  b="$(podman --connection "$machine" inspect "$reader" --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/age"}}{{.Name}}{{end}}{{end}}')"
+  [[ "$a" == "$age_volume" && "$b" == "$a" ]] || { echo 'The reader is not using the bootstrap-owned age volume' >&2; return 1; }
+  echo 'AGE_KEY_SINGLE_SOURCE=PASS owner=bootstrap writer_mount=rw reader_mount=ro'
+}
+smoke_build() {
+  podman --connection "$machine" exec --env SMOKE_STATE_DIR=/workspaces/.smoke-ghxd-state \
+    "$writer" nix develop "$security" -c bash /workspaces/compositions/smoke/tools/nix-alpine.sh test
+  podman --connection "$machine" exec --env SMOKE_STATE_DIR=/workspaces/.smoke-ghxd-state \
+    "$writer" nix develop "$security" -c bash /workspaces/compositions/smoke/tools/nix-alpine.sh build
+  guest "$writer" test -x "$smoke"
+  guest "$writer" "$smoke" commands | grep -Fx secrets
+}
+synthetic_seal() {
+  guest "$writer" test ! -e "$probe"
+  printf '{"probe":"synthetic-only"}\n' |
+    podman --connection "$machine" exec -i "$writer" "$smoke" secrets seal-json "$probe"
+  probe_created=1
+}
+synthetic_verify() {
+  guest "$writer" "$smoke" secrets verify-json "$probe"
+  guest "$reader" "$smoke" secrets verify-json "$probe"
+  printf 'SOPS_NATIVE_CROSS_CONTAINER=PASS\n'
+}
+interactive_authorize() {
+  if [[ -f "$root/.private/sops/ghxd.enc.json" ]]; then
+    echo 'GHXD_DEVICE_FLOW=REUSED_ENCRYPTED_CREDENTIAL'
+    return
+  fi
+  local client_id="${GITHUB_CLIENT_ID:-}"
+  if [[ -z "$client_id" ]]; then
+    [[ -r /dev/tty ]] || { echo 'Device authorization requires interactive terminal for GitHub App client ID' >&2; return 2; }
+    printf 'GitHub App client ID: ' >/dev/tty
+    IFS= read -r client_id </dev/tty
+  fi
+  [[ "$client_id" =~ ^[A-Za-z0-9_-]{4,128}$ ]] || { echo 'Invalid GitHub App client ID' >&2; return 2; }
+  [[ -w /dev/tty ]] || { echo 'Interactive terminal required for GitHub verification code' >&2; return 2; }
+  echo 'GHXD_DEVICE_FLOW=AWAITING_USER_APPROVAL (verification code only on controlling TTY, excluded from log)'
+  # The device code is written directly to the real terminal, never to the
+  # log wrapper's stdout/stderr streams. OAuth token bytes never leave Smoke.
+  podman --connection "$machine" exec -it --env "GITHUB_CLIENT_ID=$client_id" \
+    "$writer" "$smoke" ghxd auth </dev/tty >/dev/tty 2>/dev/tty
+  echo 'GHXD_DEVICE_FLOW=APPROVED_AND_SOPS_ENCRYPTED'
+}
+token_verification() {
+  guest "$writer" "$smoke" ghxd status
+  guest "$reader" "$smoke" ghxd status
+  echo 'GHXD_ENCRYPTED_TOKEN_CROSS_CONTAINER=PASS'
+}
+reuse_check() {
+  local digest_before digest_after
+  digest_before="$(shasum -a 256 "$root/.private/sops/ghxd.enc.json")"
+  bootstrap_scope "$writer" rw rw
+  digest_after="$(shasum -a 256 "$root/.private/sops/ghxd.enc.json")"
+  [[ "$digest_before" == "$digest_after" ]] || { echo 'Encrypted credential mutated during runtime restart' >&2; return 1; }
+  guest "$writer" "$smoke" ghxd status
+  echo 'GHXD_TOKEN_PERSISTENCE=PASS'
+}
+
+printf 'QUALIFICATION=GHXD_NATIVE_SOPS MACHINE=%s WRITER=%s READER=%s\n' "$machine" "$writer" "$reader"
+gate smoke-source init_source
+gate bootstrap-writer bootstrap_scope "$writer" rw rw
+gate native-secrets-build smoke_build
+gate bootstrap-reader bootstrap_scope "$reader" ro ro
+gate age-volume-and-permissions key_contract
+gate sops-native-encrypt synthetic_seal
+gate sops-native-decrypt-both synthetic_verify
+gate github-device-authorization interactive_authorize
+gate github-token-decrypt-both token_verification
+gate bootstrap-refresh-persistence reuse_check
