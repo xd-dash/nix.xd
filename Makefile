@@ -44,7 +44,7 @@ OS := $(shell uname -s)
 TASK_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SYSTEM='$(LINUX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_WORKSPACE_MODE='$(WORKSPACE_MODE)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
-.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan smoke workspace-check refresh inventory store-export store-import share-check check-static
+.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan qualify-smoke smoke workspace-check refresh inventory store-export store-import share-check check-static
 
 help:
 	@printf '%s\n' \
@@ -62,6 +62,7 @@ help:
 	  'make start|stop|restart|status|logs|shell|exec|ps|inspect|store-info' \
 	  'make smoke PROVIDER=container               Legacy Apple runtime probe (rollback only)' \
 	  'make workspace-check PROVIDER=podman        Verify VM mount, keep-id, persistent /nix' \
+	  'make qualify-smoke PROVIDER=podman         Full logged Smoke test, build and refresh qualification' \
 	  'make store-export STORE_PATH=/nix/store/...  Publish closure in mounted workspace cache' \
 	  'make store-import STORE_PATH=/nix/store/...  Import closure into isolated Nix store' \
 	  'make share-check READER_SCOPE=...            Legacy Apple VM sharing diagnostic' \
@@ -117,6 +118,10 @@ refresh:
 
 inventory:
 	@bash bin/nix-xd-inventory "$(MACHINE)"
+
+qualify-smoke:
+	@test "$(PROVIDER)" = podman || { echo 'qualify-smoke requires PROVIDER=podman' >&2; exit 2; }
+	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' bash bin/nix-xd-log "$(SCOPE)" qualify-smoke bash bin/nix-xd-qualify-smoke
 
 workspace-check:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" workspace-check bash bin/nix-xd-workspace-check
@@ -176,7 +181,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-store-copy
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@echo 'Static command checks passed; no ARM runtime executed.'
