@@ -4,7 +4,7 @@ SHELL := /bin/bash
 
 PROVIDER ?= podman
 MACHINE ?= podman-machine-default
-SCOPE ?= nix-xd-arm
+SCOPE ?= nix-xd-smoke-podman
 IMAGE ?= localhost/nix-xd:arm64
 WORKSPACES ?= $(abspath $(CURDIR))
 WORKSPACE_MODE ?= bind
@@ -41,14 +41,16 @@ PLAN_CAPABILITIES ?=
 RETAIN ?= 0
 OS := $(shell uname -s)
 
-TASK_ENV = NIX_XD_SYSTEM='$(LINUX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_WORKSPACE_MODE='$(WORKSPACE_MODE)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
+TASK_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SYSTEM='$(LINUX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_WORKSPACE_MODE='$(WORKSPACE_MODE)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
-.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan smoke workspace-check store-export store-import share-check check-static
+.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan smoke workspace-check refresh inventory store-export store-import share-check check-static
 
 help:
 	@printf '%s\n' \
-	  'make bootstrap PROVIDER=podman|container       Bootstrap ARM host (default podman)' \
+	  'make bootstrap PROVIDER=podman                  Canonical Linux Quadlet inside Podman Machine' \
+	  'make refresh PROVIDER=podman                    Rebuild pinned toolbox; preserve store' \
+	  'make inventory                                  Read-only Podman/Apple resource inventory' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
 	  'WORKSPACE_MODE=bind|staged                  Bind mount is default for new runners' \
 	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path]' \
@@ -110,8 +112,14 @@ qualify-plan:
 smoke:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" smoke bash bin/nix-xd-smoke
 
+refresh:
+	@$(MAKE) --no-print-directory bootstrap PROVIDER="$(PROVIDER)" MACHINE="$(MACHINE)" SCOPE="$(SCOPE)" WORKSPACES="$(WORKSPACES)"
+
+inventory:
+	@bash bin/nix-xd-inventory "$(MACHINE)"
+
 workspace-check:
-	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" workspace-check bash bin/nix-xd-workspace-check bin/nix-xd-store-copy bin/nix-xd-share-check
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" workspace-check bash bin/nix-xd-workspace-check bin/nix-xd-store-copy bin/nix-xd-share-check bin/nix-xd-inventory
 
 store-export store-import:
 	@$(TASK_ENV) NIX_XD_STORE_PATH="$(STORE_PATH)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-copy "$@"
@@ -151,8 +159,8 @@ status:
 logs:
 	@journalctl --user --no-pager -u "$(SCOPE).service" -n 100
 endif
-image-build: machine-start
-	@podman build --platform linux/arm64 -t "$(IMAGE)" ./arm
+image-build:
+	@$(MAKE) --no-print-directory bootstrap PROVIDER=podman MACHINE="$(MACHINE)" SCOPE="$(SCOPE)" WORKSPACES="$(WORKSPACES)"
 else ifeq ($(PROVIDER),container)
 ifeq ($(OS),Darwin)
 APPLE = NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-container
