@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+machine="${1:-podman-machine-default}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
+  { echo "Invalid Podman Machine" >&2; exit 2; }
+
+printf '\n== macOS Podman machines ==\n'
+if command -v podman >/dev/null 2>&1; then
+  podman machine list
+  if podman machine inspect "$machine" >/dev/null 2>&1; then
+    state="$(podman machine inspect "$machine" --format '{{.State}}')"
+    if [[ "$state" == running ]]; then
+      printf '\n== Rootless containers in %s ==\n' "$machine"
+      podman machine ssh "$machine" podman ps -a \
+        --format '{{.Names}}\t{{.Status}}\t{{.Image}}'
+      printf '\n== Nix-Alpine Quadlets in %s ==\n' "$machine"
+      podman machine ssh "$machine" bash -ec '
+        dir="$HOME/.config/containers/systemd"
+        if [[ -d "$dir" ]]; then
+          find "$dir" -maxdepth 1 -type f \( -name "*nix*.container" -o -name "*nix*.volume" \) -print
+        fi
+      '
+      printf '\n== Rootless volumes in %s ==\n' "$machine"
+      podman machine ssh "$machine" podman volume ls \
+        --format '{{.Name}}'
+    fi
+  fi
+else
+  printf 'Podman not installed\n'
+fi
+
+if command -v container >/dev/null 2>&1; then
+  printf '\n== Legacy Apple containers (read-only inventory) ==\n'
+  container list --all || true
+  printf '\n== Legacy Apple named volumes ==\n'
+  container volume list || true
+fi
+
+printf '\nNo resources were changed. Store volumes are not safe to delete without verifying their contents and owners.\n'
