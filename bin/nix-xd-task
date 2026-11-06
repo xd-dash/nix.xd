@@ -6,6 +6,7 @@ provider="${NIX_XD_PROVIDER:-podman}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 system="${NIX_XD_SYSTEM:-aarch64-linux}"
 root="${NIX_XD_WORKSPACES:-$HOME/workspace/nix.xd}"
+workspace_mode="${NIX_XD_WORKSPACE_MODE:-bind}"
 checkout="${NIX_XD_CHECKOUT:-}"
 flake="${NIX_XD_FLAKE:-.}"
 target="${NIX_XD_TARGET:-}"
@@ -15,6 +16,7 @@ cmd="${NIX_XD_CMD:-nix --version}"
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$provider" == podman || "$provider" == container ]] || fail "Unsupported provider: $provider"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid scope"
+[[ "$workspace_mode" == bind || "$workspace_mode" == staged ]] || fail "Invalid workspace mode"
 [[ "$system" == aarch64-linux ]] || fail "ARM runner requires aarch64-linux"
 runtime="$provider"
 if [[ "$provider" == container ]]; then
@@ -36,6 +38,7 @@ validate_checkout() {
   done
 }
 stage() (
+  [[ "$workspace_mode" == staged ]] || fail "Staging disabled with WORKSPACE_MODE=bind; run Nix directly against the mounted workspace"
   validate_checkout
   [[ -d "$root" ]] || fail "Workspace root does not exist: $root"
   local src="$root/$checkout" root_real src_real tmp
@@ -100,7 +103,14 @@ flake_ref() {
   [[ -z "$target" || "$target" =~ ^#[A-Za-z0-9_.-]+$ ]] || fail "TARGET must be empty or #output"
   ref="$path$target"
 }
+verify_workspace_mount() {
+  if [[ "$provider" == container && "$workspace_mode" == bind ]]; then
+    inside /bin/bash -ec 'grep -Eq "[[:space:]]/workspaces[[:space:]]" /proc/mounts && test -r /workspaces/flake.nix && test ! -w /workspaces' ||
+      fail "Missing readable read-only /workspaces bind mount; bootstrap a new scope with WORKSPACE_MODE=bind"
+  fi
+}
 nix_task() {
+  verify_workspace_mount
   flake_ref
   case "$action" in
     show) inside nix --option system "$system" flake show --no-write-lock-file "$ref" ;;
@@ -121,7 +131,7 @@ case "$action" in
   stage) stage ;;
   show|check|build|path-info|run|qualify|develop) nix_task ;;
   shell) interactive bash ;;
-  exec) inside bash -c "$cmd" ;;
+  exec) verify_workspace_mount; inside bash -c "$cmd" ;;
   store-info) inside nix store info ;;
   ps) "$runtime" ps -a ;;
   inspect) "$runtime" inspect "$scope" ;;
