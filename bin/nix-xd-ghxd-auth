@@ -10,7 +10,6 @@ scope="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
 }
 # This command is deliberately NOT run through the log wrapper:
 # an authorization user_code is a short-lived credential.
-podman --connection "$machine" exec \
+podman --connection "$machine" exec -it \
   --env "GITHUB_CLIENT_ID=$GITHUB_CLIENT_ID" \
-  "$scope" nix develop /workspaces/nix-alpine/nix-alpine/toolbox#security \
-  -c /workspaces/.smoke-state/bin/smoke ghxd auth
+  "$scope" /workspaces/.smoke-ghxd-state/bin/smoke ghxd auth </dev/tty >/dev/tty 2>/dev/tty
