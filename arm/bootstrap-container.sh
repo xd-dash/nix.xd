@@ -19,6 +19,25 @@ workspace_mode="${NIX_XD_WORKSPACE_MODE:-bind}"
 [[ -d "$workspaces" ]] || die "Host workspace directory does not exist: $workspaces"
 workspaces="$(cd "$workspaces" && pwd -P)"
 [[ "$workspaces" != / && "$workspaces" != *:* ]] || die "Unsafe workspace mount source"
+smoke_source="${NIX_XD_SMOKE_SOURCE:-}"
+exchange_root="${NIX_XD_EXCHANGE_ROOT:-}"
+smoke_access="${NIX_XD_SMOKE_ACCESS:-readwrite}"
+exchange_access="${NIX_XD_EXCHANGE_ACCESS:-readwrite}"
+[[ "$smoke_access" == readwrite || "$smoke_access" == readonly ]] || die "Invalid Smoke access"
+[[ "$exchange_access" == readwrite || "$exchange_access" == readonly ]] || die "Invalid exchange access"
+if [[ -n "$smoke_source" || -n "$exchange_root" ]]; then
+  [[ "$workspace_mode" == bind && -n "$smoke_source" && -n "$exchange_root" ]] ||
+    die "Smoke and exchange must both be mounted with WORKSPACE_MODE=bind"
+  [[ -d "$smoke_source" && -f "$smoke_source/go.mod" ]] || die "Smoke Go checkout missing"
+  [[ -d "$exchange_root" && -f "$exchange_root/.nix-xd-exchange" ]] ||
+    die "Exchange directory must exist with .nix-xd-exchange marker"
+  smoke_source="$(cd "$smoke_source" && pwd -P)"
+  exchange_root="$(cd "$exchange_root" && pwd -P)"
+  for path in "$smoke_source" "$exchange_root"; do
+    [[ "$path" != / && "$path" != *:* && "$path" != *","* ]] || die "Unsafe shared source path"
+  done
+  [[ "$smoke_source" != "$exchange_root" ]] || die "Smoke and exchange must differ"
+fi
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
 
 if ! command -v container >/dev/null 2>&1; then
@@ -69,11 +88,34 @@ if container inspect "$scope" >/dev/null 2>&1; then
   if ! container exec "$scope" /bin/true >/dev/null 2>&1; then
     container start "$scope"
   fi
+  if [[ -n "$smoke_source" ]]; then
+    container exec "$scope" /bin/bash -ec '
+      grep -Eq "[[:space:]]/smoke[[:space:]]" /proc/mounts
+      grep -Eq "[[:space:]]/exchange[[:space:]]" /proc/mounts
+      test -r /smoke/go.mod
+      test -r /exchange/.nix-xd-exchange
+    ' || die "Existing runner lacks Smoke/exchange mounts; use a new scope"
+    local_hash="$(shasum -a 256 "$smoke_source/go.mod")"
+    guest_hash="$(container exec "$scope" sha256sum /smoke/go.mod)"
+    [[ "${local_hash%% *}" == "${guest_hash%% *}" ]] || die "Smoke mount mismatch"
+    local_hash="$(shasum -a 256 "$exchange_root/.nix-xd-exchange")"
+    guest_hash="$(container exec "$scope" sha256sum /exchange/.nix-xd-exchange)"
+    [[ "${local_hash%% *}" == "${guest_hash%% *}" ]] || die "Exchange mount mismatch"
+  fi
+
 else
   say "Starting persistent ARM Nix-Alpine container"
   mount_args=()
   if [[ "$workspace_mode" == bind ]]; then
     mount_args+=(--mount "type=bind,source=$workspaces,target=/workspaces,readonly")
+    if [[ -n "$smoke_source" ]]; then
+      smoke_opts=""
+      exchange_opts=""
+      [[ "$smoke_access" == readonly ]] && smoke_opts=",readonly"
+      [[ "$exchange_access" == readonly ]] && exchange_opts=",readonly"
+      mount_args+=(--mount "type=bind,source=$smoke_source,target=/smoke$smoke_opts")
+      mount_args+=(--mount "type=bind,source=$exchange_root,target=/exchange$exchange_opts")
+    fi
   fi
   container run -d --name "$scope" \
     --volume "$volume:/nix" \
@@ -88,6 +130,24 @@ if [[ "$workspace_mode" == bind ]]; then
     test -r /workspaces/flake.nix
     test ! -w /workspaces
   ' || die "Read-only workspace mount could not be verified"
+fi
+if [[ -n "$smoke_source" ]]; then
+  container exec "$scope" /bin/bash -ec '
+    grep -Eq "[[:space:]]/smoke[[:space:]]" /proc/mounts
+    grep -Eq "[[:space:]]/exchange[[:space:]]" /proc/mounts
+    test -r /smoke/go.mod
+    test -r /exchange/.nix-xd-exchange
+  ' || die "Smoke/exchange mounts not established"
+  if [[ "$smoke_access" == readonly ]]; then
+    container exec "$scope" test ! -w /smoke || die "Smoke mount unexpectedly writable"
+  else
+    container exec "$scope" test -w /smoke || die "Smoke mount unexpectedly read-only"
+  fi
+  if [[ "$exchange_access" == readonly ]]; then
+    container exec "$scope" test ! -w /exchange || die "Exchange unexpectedly writable"
+  else
+    container exec "$scope" test -w /exchange || die "Exchange not writable"
+  fi
 fi
 say "Apple container provider ready: $scope (workspace mode: $workspace_mode)"
 say "Use: make status PROVIDER=container; make shell PROVIDER=container"
