@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$(uname -s)" == Darwin ]] || { echo 'macOS host required' >&2; exit 2; }
+command -v age-keygen >/dev/null || {
+  echo 'age-keygen unavailable. Install age (for example: brew install age).' >&2
+  exit 2
+}
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+target="$HOME/.config/nix.xd/age/keys.txt"
+standard="$HOME/.config/sops/age/keys.txt"
+mac_default="$HOME/Library/Application Support/sops/age/keys.txt"
+if [[ -f "$target" ]]; then
+  echo 'Existing canonical age identity found; preserving it'
+elif [[ -f "$standard" || -f "$mac_default" ]]; then
+  source="$standard"
+  [[ -f "$source" ]] || source="$mac_default"
+  mkdir -p "$(dirname "$target")"
+  chmod 0700 "$(dirname "$target")"
+  (umask 077; cp "$source" "$target")
+  echo 'Existing local age identity copied to canonical secure path'
+else
+  if [[ -d "$root/.private" ]] && find "$root/.private" -type f -name '*.enc.json' -print -quit | grep -q .; then
+    echo 'Encrypted local data exists but no age identity was found. Refusing to replace historical identity.' >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$target")"
+  chmod 0700 "$(dirname "$target")"
+  (umask 077; age-keygen -o "$target" >/dev/null)
+  echo 'Generated new local age identity'
+fi
+[[ ! -L "$target" && -f "$target" ]] || { echo 'Invalid canonical key file' >&2; exit 1; }
+chmod 0600 "$target"
+recipient="$(age-keygen -y "$target")"
+[[ "$recipient" == age1* ]] || { echo 'Invalid age public recipient' >&2; exit 1; }
+mkdir -p "$root/.private/sops"
+chmod 0700 "$root/.private" "$root/.private/sops"
+printf 'creation_rules:\n  - path_regex: .*\\.enc\\.json$\n    age: %s\n' "$recipient" >"$root/.private/sops/.sops.yaml"
+chmod 0600 "$root/.private/sops/.sops.yaml"
+printf 'AGE_SETUP=PASS identity=%s recipient=%s\n' "$target" "$recipient"
+printf 'Private identity contents were never printed or included in the repository.\n'
