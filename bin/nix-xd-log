@@ -18,5 +18,5 @@ set +e
 "$@" 2>&1 | tee "$log"
 rc=${PIPESTATUS[0]}
 set -e
-printf 'Result: %s (exit %s)\n' "$log" "$rc"
+printf 'Result: %s (exit %s)\n' "$log" "$rc" | tee -a "$log"
 exit "$rc"
