@@ -120,6 +120,8 @@ reuse_check() {
   local digest_before digest_after
   digest_before="$(shasum -a 256 "$root/.private/sops/ghxd.enc.json")"
   bootstrap_scope "$writer" rw rw
+  key_contract
+  guest "$reader" "$smoke" secrets inspect /workspaces/.private/sops/ghxd.enc.json
   digest_after="$(shasum -a 256 "$root/.private/sops/ghxd.enc.json")"
   [[ "$digest_before" == "$digest_after" ]] || { echo 'Encrypted credential mutated during runtime restart' >&2; return 1; }
   guest "$writer" "$smoke" ghxd-secrets status
