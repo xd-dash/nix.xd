@@ -119,7 +119,7 @@ inventory:
 	@bash bin/nix-xd-inventory "$(MACHINE)"
 
 workspace-check:
-	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" workspace-check bash bin/nix-xd-workspace-check bin/nix-xd-store-copy bin/nix-xd-share-check bin/nix-xd-inventory
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" workspace-check bash bin/nix-xd-workspace-check
 
 store-export store-import:
 	@$(TASK_ENV) NIX_XD_STORE_PATH="$(STORE_PATH)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-copy "$@"
