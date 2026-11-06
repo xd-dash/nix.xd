@@ -13,6 +13,10 @@ on:
       - bin/nix-xd-plan
       - bin/nix-xd-smoke
       - bin/nix-xd-qualify-smoke
+      - bin/nix-xd-qualify-ghxd
+      - bin/nix-xd-age-setup
+      - bin/nix-xd-ghxd-auth
+      - bin/nix-xd-ghxd-token-check
       - bin/nix-xd-workspace-check
       - bin/nix-xd-store-copy
       - bin/nix-xd-share-check
@@ -24,6 +28,7 @@ on:
       - tests/podman-task-contract.sh
       - tests/podman-workspace-command-contract.sh
       - tests/smoke-qualification-contract.sh
+      - tests/age-setup-contract.sh
       - tests/store-copy-contract.sh
       - tests/workspace-mount-contract.sh
       - tests/plan-fixture/**
@@ -44,6 +49,10 @@ on:
       - bin/nix-xd-plan
       - bin/nix-xd-smoke
       - bin/nix-xd-qualify-smoke
+      - bin/nix-xd-qualify-ghxd
+      - bin/nix-xd-age-setup
+      - bin/nix-xd-ghxd-auth
+      - bin/nix-xd-ghxd-token-check
       - bin/nix-xd-workspace-check
       - bin/nix-xd-store-copy
       - bin/nix-xd-share-check
@@ -55,6 +64,7 @@ on:
       - tests/podman-task-contract.sh
       - tests/podman-workspace-command-contract.sh
       - tests/smoke-qualification-contract.sh
+      - tests/age-setup-contract.sh
       - tests/store-copy-contract.sh
       - tests/workspace-mount-contract.sh
       - tests/plan-fixture/**
@@ -87,6 +97,8 @@ jobs:
         run: bash tests/podman-workspace-command-contract.sh
       - name: Verify fail-closed Smoke qualification and persisted exit status
         run: bash tests/smoke-qualification-contract.sh
+      - name: Verify local age identity protection and reuse
+        run: bash tests/age-setup-contract.sh
       - name: Verify Apple workspace bind mount bootstrap
         run: bash tests/apple-mount-contract.sh
       - name: Verify Nix store closure transfer contract
@@ -103,6 +115,9 @@ jobs:
           make -n PROVIDER=container OS=Darwin build FLAKE=compositions/agni TARGET='#test'
           make -n PROVIDER=podman qualify-process FLAKE=compositions/agni
           make -n PROVIDER=podman OS=Darwin refresh
+          make -n PROVIDER=podman OS=Darwin qualify-ghxd
+          make -n PROVIDER=podman OS=Darwin ghxd-auth
+          make -n PROVIDER=podman OS=Darwin ghxd-token-check
           make -n PROVIDER=podman OS=Darwin qualify-smoke
           make -n PROVIDER=podman OS=Darwin inventory
           make -n PROVIDER=container OS=Darwin smoke
