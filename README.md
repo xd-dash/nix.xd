@@ -124,69 +124,66 @@ closures with `make store-export` and `make store-import` using
 `/workspaces/.cache/nix`. Only import from a trusted local producer because
 the local cache import deliberately uses `--no-check-sigs`.
 
-## ARM ghxd minimal workspace and encrypted local credentials
+## Native SOPS/age and minimal ghxd qualification
 
-The additional, application-owned Smoke branch
-`xd-dash/smoke:codex/ghxd-minimal-sops` compiles a small Smoke binary
-without Logmash. The canonical Nix-Alpine Quadlet supports:
+On the isolated `codex/sops-age-native-bootstrap` branches, the canonical
+Nix-Alpine Quadlet owns an **age identity named volume**, created only in
+the rootless Podman Machine: `nix-xd-smoke-podman-age`.
 
-- Persistent `GOMODCACHE=/workspaces/.cache/go/mod` and
-  `GOCACHE=/workspaces/.cache/go/build` for the writer, qualified with
-  `GOPROXY=off` after a full runtime refresh
-- A second scoped Quadlet with `WORKSPACE_ACCESS=ro`, sharing source and a
-  file-backed Nix binary cache, but **not** the writable `/nix` volume
-- An optional `AGE_SOURCE` outside `WORKSPACES`, mounted read-only at
-  `/run/secrets/age/keys.txt`, exposed via `SOPS_AGE_KEY_FILE` (path only)
-- A local ignored ciphertext directory `.private/sops`; the private age
-  identity remains outside `nix.xd` at
-  `~/.config/nix.xd/age/keys.txt`, mode `0600`
+Nix-Alpine's pinned `toolbox#security` development shell provides
+`age` and `sops` for *initial key creation and optional diagnostics*
+without adding them to the minimal image. The bootstrap writer ensures
+the volume contains a `0600` identity at
+`/run/secrets/age/keys.txt`. Subsequent bootstraps reuse the same volume.
+The reader mounts it read-only and retains its own isolated Nix store.
 
-The original huram-abi workflow reused or generated a SOPS/age identity
-and uploaded it to GitHub Actions secrets. This local design reuses an
-existing SOPS identity from the standard macOS paths when available, but
-does **not** upload a private key to GitHub or store it in a flake or image.
-If old ciphertext exists but its age identity is unavailable, creating a
-new key cannot recover it. Local identity setup is deliberately idempotent.
+Smoke's optional compiled Go secrets component performs **real SOPS
+encryption and authenticated decryption in-process**, using the
+`filippo.io/age` and pinned `getsops/sops` APIs. It also implements
+`exec-env` by Linux process replacement and `exec-file` through a
+sealed Linux memfd. The minimal ghxd executable includes this component,
+but not Logmash. No third-party CLI subprocess is used for normal secrets.
 
-**One logged qualification**, before any real token authorization:
+One logged qualification performs the sequence automatically:
 
 ```bash
 cd ~/workspace/nix.xd
+git switch codex/sops-age-native-bootstrap
 git pull --ff-only
-make qualify-ghxd PROVIDER=podman MACHINE=podman-machine-default \
+make qualify-ghxd-auth PROVIDER=podman MACHINE=podman-machine-default \
   SCOPE=nix-xd-smoke-podman
 ```
 
-The complete `logs/nix-xd-smoke-podman-qualify-ghxd-*.log` records
-permissions, Go tests/build, Go module cache reuse across refresh,
-independent Nix closure import into the reader and decryption of synthetic
-SOPS ciphertext by both authorized scopes. It reports
-`GHXD_CREDENTIAL=PENDING_DEVICE_AUTHORIZATION` until a real token exists.
+This bootstraps or reuses the age volume, builds minimal Smoke from
+`xd-dash/smoke:codex/sops-age-native-bootstrap`, creates a second
+reader scope with the same age volume mounted read-only, and checks a
+synthetic SOPS ciphertext round-trip. If an encrypted GitHub credential
+does not yet exist, the qualification asks for the **public GitHub App
+client ID** (unless `GITHUB_CLIENT_ID` was supplied), then displays
+the device code directly on the controlling terminal so the user can
+approve it at GitHub. The verification code and private tokens do not
+enter the log. Smoke requires both access and refresh tokens, encrypts
+them natively with SOPS, and saves only
+`/workspaces/.private/sops/ghxd.enc.json` (gitignored).
 
-For the one-time GitHub OAuth user approval, set the **public client ID**
-of the relevant GitHub App and invoke:
+The final gates confirm writer/reader decryption and credential
+persistence across bootstrap refresh. The log ends with
+`QUALIFICATION_RESULT=PASS` or `FAIL`, including the failing gate.
 
-```bash
-GITHUB_CLIENT_ID=<your-app-client-id> \
-  make ghxd-auth PROVIDER=podman MACHINE=podman-machine-default \
-  SCOPE=nix-xd-smoke-podman
-```
+This is intentionally the *secrets and device-auth prerequisite*
+qualification, not a claim that the earlier Go cache and isolated Nix
+closure tests have been requalified against the new branch. Existing
+Apple Container resources remain untouched.
 
-This command deliberately **does not log** the ephemeral GitHub device
-verification code. The program exchanges it for a token after the user
-authorizes on GitHub, encrypts access/refresh token material directly
-through SOPS, and atomically saves the encrypted JSON locally. A separate
-logged `make ghxd-token-check` reads the encrypted token in each
-authorized scope and prints only redacted metadata; it never prints the
-tokens themselves.
+The historical `xd-dash/huram-abi` setup stored an age identity in
+GitHub Actions secrets. This local design never uploads the identity
+and never places it inside the Mac host config, repository, OCI image,
+or Nix store. Losing the named age volume means losing access to its
+ciphertext unless an independent backup exists. Backups and rotation
+remain explicit future tasks.
 
-The device-flow credential is a GitHub App *user* token, not an
-installation token, and it cannot be assumed to have the older huram-abi
-Actions-secrets permissions. Token refresh and safe credential rotation
-require additional implementation; the initial bootstrap refuses to
-overwrite an existing encrypted credential. Do not place decrypted
-credentials in the Nix store or logs. See
-`xd-dash/smoke/docs/ghxd-minimal-sops.md`.
+See `xd-dash/smoke/docs/ghxd-minimal-sops.md` for native SOPS command
+semantics, memfd limitations, and the credential trust boundary.
 
 ## Migration and cleanup safety
 
