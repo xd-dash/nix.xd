@@ -23,7 +23,7 @@ runtime="$provider"
 if [[ "$provider" == podman && "$(uname -s)" == Darwin ]]; then
   [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid Podman Machine"
   # Execute via the named VM, never the client's mutable default connection.
-  podman_vm() { podman machine ssh "$machine" podman "$@"; }
+  podman_vm() { podman --connection "$machine" "$@"; }
   runtime=podman_vm
 fi
 if [[ "$provider" == container ]]; then
