@@ -18,11 +18,18 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid scope"
 [[ "$workspace_mode" == bind || "$workspace_mode" == staged ]] || fail "Invalid workspace mode"
 [[ "$system" == aarch64-linux ]] || fail "ARM runner requires aarch64-linux"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
 runtime="$provider"
+if [[ "$provider" == podman && "$(uname -s)" == Darwin ]]; then
+  [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid Podman Machine"
+  # Execute via the named VM, never the client's mutable default connection.
+  podman_vm() { podman machine ssh "$machine" podman "$@"; }
+  runtime=podman_vm
+fi
 if [[ "$provider" == container ]]; then
   [[ "$(uname -s)" == Darwin ]] || fail "Apple container requires macOS"
 fi
-command -v "$runtime" >/dev/null || fail "Runtime not installed: $runtime"
+command -v "$provider" >/dev/null || fail "Runtime not installed: $provider"
 
 inside() { "$runtime" exec "$scope" "$@"; }
 interactive() { "$runtime" exec -it "$scope" "$@"; }
@@ -104,9 +111,12 @@ flake_ref() {
   ref="$path$target"
 }
 verify_workspace_mount() {
-  if [[ "$provider" == container && "$workspace_mode" == bind ]]; then
+  if [[ "$workspace_mode" == bind && "$provider" == container ]]; then
     inside /bin/bash -ec 'grep -Eq "[[:space:]]/workspaces[[:space:]]" /proc/mounts && test -r /workspaces/flake.nix && test ! -w /workspaces' ||
       fail "Missing readable read-only /workspaces bind mount; bootstrap a new scope with WORKSPACE_MODE=bind"
+  elif [[ "$workspace_mode" == bind && "$provider" == podman ]]; then
+    inside /bin/bash -ec 'test -w /workspaces && test -r /workspaces/flake.nix && test -w /nix' ||
+      fail "Podman workspace/store not writable; verify keep-id and canonical Quadlet"
   fi
 }
 nix_task() {
