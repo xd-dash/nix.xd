@@ -204,7 +204,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-qualify-ghxd bin/nix-xd-qualify-ghxd-auth bin/nix-xd-ghxd-auth bin/nix-xd-ghxd-token-check bin/nix-xd-age-setup bin/nix-xd-store-copy
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-qualify-ghxd-auth bin/nix-xd-ghxd-auth bin/nix-xd-ghxd-token-check bin/nix-xd-store-copy
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@echo 'Static command checks passed; no ARM runtime executed.'
