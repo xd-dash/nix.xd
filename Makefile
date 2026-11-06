@@ -12,6 +12,7 @@ SMOKE_SOURCE ?=
 SMOKE_ACCESS ?= readwrite
 EXCHANGE_ROOT ?=
 EXCHANGE_ACCESS ?= readwrite
+READER_SCOPE ?=
 STORE_PATH ?=
 LINUX_SYSTEM ?= aarch64-linux
 NIX_ALPINE_REV ?= 037290d6713cb5efc548982c42b26f77f467e58a
@@ -43,7 +44,7 @@ OS := $(shell uname -s)
 TASK_ENV = NIX_XD_SYSTEM='$(LINUX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_WORKSPACE_MODE='$(WORKSPACE_MODE)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
-.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan smoke workspace-check store-export store-import check-static
+.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan smoke workspace-check store-export store-import share-check check-static
 
 help:
 	@printf '%s\n' \
@@ -61,6 +62,7 @@ help:
 	  'make workspace-check PROVIDER=container     Verify live read-only workspace mount' \
 	  'make store-export STORE_PATH=/nix/store/...   Publish closure into /exchange/nix-cache' \
 	  'make store-import STORE_PATH=/nix/store/...   Import closure from /exchange/nix-cache' \
+	  'make share-check READER_SCOPE=...             Verify cross-container shared read/write' \
 	  'make check-static                            Host-independent static checks'
 
 bootstrap:
@@ -109,10 +111,13 @@ smoke:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" smoke bash bin/nix-xd-smoke
 
 workspace-check:
-	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" workspace-check bash bin/nix-xd-workspace-check bin/nix-xd-store-copy
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" workspace-check bash bin/nix-xd-workspace-check bin/nix-xd-store-copy bin/nix-xd-share-check
 
 store-export store-import:
 	@$(TASK_ENV) NIX_XD_STORE_PATH="$(STORE_PATH)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-copy "$@"
+
+share-check:
+	@$(TASK_ENV) NIX_XD_READER_SCOPE="$(READER_SCOPE)" NIX_XD_SMOKE_SOURCE="$(SMOKE_SOURCE)" NIX_XD_EXCHANGE_ROOT="$(EXCHANGE_ROOT)" bash bin/nix-xd-log "$(SCOPE)" share-check bash bin/nix-xd-share-check
 
 ifeq ($(PROVIDER),podman)
 ifeq ($(OS),Darwin)
