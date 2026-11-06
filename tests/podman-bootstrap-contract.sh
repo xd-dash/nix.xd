@@ -45,7 +45,7 @@ export NIX_XD_WORKSPACES="$tmp"
 export NIX_ALPINE_REV=ddb5f5e5d0cda8ebe82f2087664e320059ceb353
 bash "$tmp/arm/bootstrap-podman.sh" >"$tmp/bootlog"
 
-grep -Fq 'dash-xd/nix-alpine codex/nixxd-refresh-reset' "$tmp/commands"
+grep -Fq 'dash-xd/nix-alpine codex/sops-age-native-bootstrap' "$tmp/commands"
 grep -Fq "$NIX_ALPINE_REV" "$tmp/commands"
 grep -Fq 'bash "$source/local/bootstrap.sh"' "$tmp/ssh-script"
 grep -Fq 'export VOLUME="$scope-store"' "$tmp/ssh-script"
