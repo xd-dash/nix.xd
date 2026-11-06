@@ -1,131 +1,84 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Apple Silicon host bootstrap. Run from a checkout of xd-dash/nix.xd.
-# The host only needs Homebrew/Podman; Nix and Quadlet live in the Linux VM.
-
+# macOS is a Podman Machine client; the canonical Linux bootstrap owns Quadlets.
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 say() { printf '==> %s\n' "$*"; }
 
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] ||
-  die "Requires Apple Silicon macOS"
-
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-[[ -f "$repo/arm/Dockerfile" ]] || die "Missing arm/Dockerfile"
-
-machine="${NIX_XD_MACHINE:-podman-machine-default}"
-scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+  die "Podman Machine bootstrap requires Apple Silicon macOS"
+repo="$(cd "$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
+machine="\${NIX_XD_MACHINE:-podman-machine-default}"
+scope="\${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
+workspaces="\${NIX_XD_WORKSPACES:-$repo}"
+pin="\${NIX_ALPINE_REV:?Pinned NIX_ALPINE_REV required}"
+checkout="\${NIX_ALPINE_CHECKOUT:-nix-alpine/nix-alpine}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "Invalid machine"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
-[[ "$machine" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || die "Invalid machine name"
-image="localhost/nix-xd:arm64"
-unit="$scope.service"
+[[ "$pin" =~ ^[0-9a-f]{40}$ ]] || die "NIX_ALPINE_REV must be a full commit"
+[[ "$checkout" == nix-alpine/nix-alpine ]] || die "Unsupported Nix-Alpine checkout location"
+[[ -d "$workspaces" ]] || die "Missing workspace root"
+workspaces="$(cd "$workspaces" && pwd -P)"
+[[ "$workspaces" != / && "$workspaces" != *" "* ]] || die "Unsafe workspace path"
+[[ "$workspaces" == "$repo" ]] || die "Podman bootstrap requires WORKSPACES=nix.xd root"
 
-if ! command -v podman >/dev/null 2>&1; then
-  command -v brew >/dev/null 2>&1 || die "Install Homebrew first"
-  say "Installing Podman"
-  brew install podman
-fi
-
+command -v podman >/dev/null 2>&1 || die "Podman is required (already installed)"
+command -v git >/dev/null 2>&1 || die "Git is required"
 if ! podman machine inspect "$machine" >/dev/null 2>&1; then
-  say "Creating rootless Podman Machine: $machine"
-  podman machine init --provider applehv \
-    --cpus "${NIX_XD_CPUS:-6}" \
-    --memory "${NIX_XD_MEMORY_MIB:-12288}" \
-    --disk-size "${NIX_XD_DISK_GIB:-120}" \
-    --rootful=false "$machine"
+  say "Initializing rootless Podman Machine $machine"
+  podman machine init --provider applehv --rootful=false "$machine"
+fi
+state="$(podman machine inspect "$machine" --format '{{.State}}')"
+if [[ "$state" != running ]]; then
+  say "Starting Podman Machine $machine"
+  podman machine start --update-connection=false "$machine"
 fi
 
-if [[ "$(podman machine inspect "$machine" --format '{{.State}}')" != running ]]; then
-  say "Starting Podman Machine: $machine"
-  podman machine start "$machine"
-fi
-
-# The machine's rootless SSH connection is used explicitly in VM operations.
-podman machine ssh "$machine" 'test "$(uname -m)" = aarch64' ||
-  die "Machine is not ARM64"
-podman machine ssh "$machine" 'test "$(podman info --format "{{.Host.Security.Rootless}}")" = true' ||
-  die "Machine Podman is not rootless"
-
-say "Building the ARM64 image"
-podman build --platform linux/arm64 -t "$image" "$repo/arm"
-podman run --rm "$image" nix --version
-podman volume exists "$scope-store" || podman volume create "$scope-store" >/dev/null
-
-say "Installing rootless Quadlet"
-# The VM's user service manager supervises the container; no macOS daemon needed.
-podman machine ssh "$machine" bash -se -- "$scope" "$image" <<'REMOTE'
+# All container operations run inside the selected VM. The macOS default
+# Podman connection may otherwise target a different machine or rootful store.
+say "Validating rootless Podman Machine and shared host workspace"
+podman machine ssh "$machine" bash -se -- "$workspaces" <<'REMOTE'
 set -euo pipefail
-scope="$1"
-image="$2"
-dir="$HOME/.config/containers/systemd"
-mkdir -p "$dir"
-file="$dir/$scope.container"
-tmp="$(mktemp "$dir/.nix-xd.XXXXXX")"
-trap 'rm -f "$tmp"' EXIT
-cat >"$tmp" <<EOF
-[Unit]
-Description=Nix-Alpine ARM64 ($scope)
-
-[Container]
-Image=$image
-ContainerName=$scope
-Pull=never
-Volume=$scope-store:/nix
-Exec=sleep infinity
-
-[Service]
-Restart=on-failure
-TimeoutStartSec=300
-
-[Install]
-WantedBy=default.target
-EOF
-if [[ -e "$file" ]]; then
-  cmp -s "$tmp" "$file" || { echo "Existing Quadlet differs: $file" >&2; exit 1; }
-else
-  install -m 600 "$tmp" "$file"
-fi
-systemctl --user daemon-reload
-systemctl --user start "$scope.service"
-systemctl --user is-active --quiet "$scope.service"
-if [[ "$(loginctl show-user "$USER" -p Linger --value)" != yes ]]; then
-  sudo loginctl enable-linger "$USER"
-fi
+root="$1"
+[[ "$(uname -m)" == aarch64 ]] || { echo "Wrong VM architecture" >&2; exit 1; }
+[[ "$(podman info --format '{{.Host.Security.Rootless}}')" == true ]] ||
+  { echo "Podman in VM must be rootless" >&2; exit 1; }
+[[ -f "$root/flake.nix" && -w "$root" ]] ||
+  { echo "Mac workspace is not writable inside VM: $root" >&2; exit 1; }
+for cmd in podman git systemctl realpath id bash; do
+  command -v "$cmd" >/dev/null || { echo "VM missing $cmd" >&2; exit 1; }
+done
+systemctl --user show-environment >/dev/null ||
+  { echo "VM user systemd is unavailable" >&2; exit 1; }
 REMOTE
 
-say "Installing opt-in zsh helper"
-mkdir -p "$HOME/.config/nix-xd" "$HOME/Library/Caches/nix-xd"
-helper="$HOME/.config/nix-xd/macos.zsh"
-if [[ ! -e "$helper" ]]; then
-  cat >"$helper" <<'ZSH'
-: "${NIX_XD_AUTO_START:=0}"
-: "${NIX_XD_MACHINE:=podman-machine-default}"
-: "${NIX_XD_SCOPE:=nix-xd-arm}"
+say "Synchronizing pinned upstream Nix-Alpine source (no forced reset)"
+bash "$repo/bin/nix-xd-sync" \
+  dash-xd/nix-alpine codex/nixxd-refresh-reset \
+  "$workspaces" "$checkout" "$pin"
 
-nxd-up() {
-  local state
-  state="$(podman machine inspect "$NIX_XD_MACHINE" --format '{{.State}}' 2>/dev/null)" || return 1
-  [[ "$state" == running ]] && return 0
-  lockf -t 0 "$HOME/Library/Caches/nix-xd/machine.lock" \
-    podman machine start "$NIX_XD_MACHINE"
-}
-nxd-down() { podman machine stop "$NIX_XD_MACHINE"; }
-nxd-status() { podman machine list; }
-nxd-shell() { podman exec -it "$NIX_XD_SCOPE" bash -l; }
-
-if [[ -o interactive && "$NIX_XD_AUTO_START" == 1 ]]; then
-  nxd-up
-fi
-ZSH
-fi
-touch "$HOME/.zshrc"
-line='[[ -f "$HOME/.config/nix-xd/macos.zsh" ]] && source "$HOME/.config/nix-xd/macos.zsh"'
-grep -Fqx "$line" "$HOME/.zshrc" || printf '\n%s\n' "$line" >>"$HOME/.zshrc"
-
-say "Checking service"
-podman machine ssh "$machine" systemctl --user is-active "$unit"
-podman exec "$scope" nix --version
-
-printf '\nReady: %s on %s\n' "$unit" "$machine"
-printf 'Open a new zsh shell: nxd-status | nxd-up | nxd-shell | nxd-down\n'
-printf 'To auto-start on shell open, export NIX_XD_AUTO_START=1 BEFORE sourcing the helper.\n'
+say "Delegating to canonical Nix-Alpine Linux Quadlet bootstrap"
+podman machine ssh "$machine" bash -se -- "$workspaces" "$scope" "$checkout" <<'REMOTE'
+set -euo pipefail
+root="$1"
+scope="$2"
+checkout="$3"
+source="$root/$checkout"
+[[ -f "$source/local/bootstrap.sh" ]] || { echo "Nix-Alpine bootstrap missing" >&2; exit 1; }
+[[ -f "$source/local/seed-store-volume.sh" ]] ||
+  { echo "Pinned Nix-Alpine lacks safe volume seeding; update the pin" >&2; exit 1; }
+export NIX_XD_ROOT="$root" WORKSPACES="$root"
+export NIX_ALPINE_ROOT="$source"
+export SCOPE="$scope" CONTAINER="$scope" SERVICE="$scope.service"
+export VOLUME="$scope-store"
+bash "$source/local/bootstrap.sh"
+podman exec "$scope" bash -ec '
+  test "$(id -u)" = 1000
+  test "$(id -g)" = 1000
+  test -w /nix
+  test -w /workspaces
+  test -r /workspaces/flake.nix
+'
+systemctl --user is-active --quiet "$scope.service"
+REMOTE
+say "Rootless Podman Nix-Alpine ready: $scope on $machine"
