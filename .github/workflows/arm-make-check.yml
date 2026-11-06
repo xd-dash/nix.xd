@@ -20,6 +20,7 @@ on:
       - tests/stage-contract.sh
       - tests/apple-mount-contract.sh
       - tests/podman-bootstrap-contract.sh
+      - tests/podman-task-contract.sh
       - tests/store-copy-contract.sh
       - tests/workspace-mount-contract.sh
       - tests/plan-fixture/**
@@ -47,6 +48,7 @@ on:
       - tests/stage-contract.sh
       - tests/apple-mount-contract.sh
       - tests/podman-bootstrap-contract.sh
+      - tests/podman-task-contract.sh
       - tests/store-copy-contract.sh
       - tests/workspace-mount-contract.sh
       - tests/plan-fixture/**
@@ -73,6 +75,8 @@ jobs:
         run: bash tests/plan-make-exit-contract.sh
       - name: Verify Podman Machine canonical bootstrap
         run: bash tests/podman-bootstrap-contract.sh
+      - name: Verify Podman Machine generic Nix execution
+        run: bash tests/podman-task-contract.sh
       - name: Verify Apple workspace bind mount bootstrap
         run: bash tests/apple-mount-contract.sh
       - name: Verify Nix store closure transfer contract
