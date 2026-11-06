@@ -12,4 +12,4 @@ scope="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
 # an authorization user_code is a short-lived credential.
 podman --connection "$machine" exec -it \
   --env "GITHUB_CLIENT_ID=$GITHUB_CLIENT_ID" \
-  "$scope" /workspaces/.smoke-ghxd-state/bin/smoke ghxd auth </dev/tty >/dev/tty 2>/dev/tty
+  "$scope" /workspaces/.smoke-ghxd-state/bin/smoke ghxd-secrets auth </dev/tty >/dev/tty 2>/dev/tty
