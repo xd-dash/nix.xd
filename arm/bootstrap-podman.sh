@@ -65,13 +65,14 @@ bash "$repo/bin/nix-xd-sync" \
   "$workspaces" "$checkout" "$pin"
 
 say "Delegating to canonical Nix-Alpine Linux Quadlet bootstrap"
-podman machine ssh "$machine" bash -se -- "$workspaces" "$scope" "$checkout" "$workspace_access" "$age_source" <<'REMOTE'
+podman machine ssh "$machine" bash -se -- "$workspaces" "$scope" "$checkout" "$workspace_access" "${age_source:-none}" <<'REMOTE'
 set -euo pipefail
 root="$1"
 scope="$2"
 checkout="$3"
 workspace_access="$4"
 age_source="$5"
+[[ "$age_source" != none ]] || age_source=""
 source="$root/$checkout"
 if [[ -n "$age_source" ]]; then
   [[ -f "$age_source" && -r "$age_source" ]] || { echo "Age identity unavailable to Podman VM" >&2; exit 1; }
