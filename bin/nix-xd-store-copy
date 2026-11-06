@@ -31,7 +31,7 @@ fi
 
 in_container() {
   if [[ "$provider" == podman && "$(uname -s)" == Darwin ]]; then
-    podman machine ssh "$machine" podman exec "$scope" "$@"
+    podman --connection "$machine" exec "$scope" "$@"
   else
     "$provider" exec "$scope" "$@"
   fi
@@ -49,13 +49,13 @@ case "$action" in
     ' bash "$store_path" "$cache"
     ;;
   store-import)
-    "$provider" exec "$scope" /bin/bash -ec '
+    in_container /bin/bash -ec '
       set -euo pipefail
       test -r "$2"
       # Local trusted producer, not a signed public substituter.
       nix copy --no-check-sigs --from "file://$2" "$1"
       nix path-info "$1" >/dev/null
       echo "Imported Nix closure: $1"
-    ' bash "$store_path"
+    ' bash "$store_path" "$cache"
     ;;
 esac
