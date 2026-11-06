@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+provider="${NIX_XD_PROVIDER:-container}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+root="${NIX_XD_WORKSPACES:?NIX_XD_WORKSPACES required}"
+mode="${NIX_XD_WORKSPACE_MODE:-bind}"
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || { echo 'Invalid scope' >&2; exit 2; }
+[[ "$mode" == bind ]] || { echo 'Workspace check requires WORKSPACE_MODE=bind' >&2; exit 2; }
+[[ -f "$root/flake.nix" ]] || { echo 'Host workspace root is missing flake.nix' >&2; exit 2; }
+
+host_hash="$(shasum -a 256 "$root/flake.nix")"
+host_hash="${host_hash%% *}"
+echo "Workspace host: $(cd "$root" && pwd -P)"
+echo "Provider: $provider; scope: $scope"
+guest_hash="$("$provider" exec "$scope" /bin/bash -ec '
+  set -euo pipefail
+  grep -Eq "[[:space:]]/workspaces[[:space:]]" /proc/mounts
+  test -r /workspaces/flake.nix
+  test ! -w /workspaces
+  test -w /nix
+  sha256sum /workspaces/flake.nix
+')"
+guest_hash="${guest_hash%% *}"
+[[ "$guest_hash" == "$host_hash" ]] || {
+  echo "Workspace mount content differs from host source (expected $host_hash, got $guest_hash)" >&2
+  exit 1
+}
+printf 'PASS: live read-only workspace mount, content sha256 %s, persistent writable Nix store\n' "$guest_hash"
