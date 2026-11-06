@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
       - name: Resolve canonical Podman Nix-Alpine candidate
-        run: nix flake prefetch --json github:dash-xd/nix-alpine/ddb5f5e5d0cda8ebe82f2087664e320059ceb353
+        run: nix flake prefetch --json github:dash-xd/nix-alpine/1799cb480f3a2c2e90d4ebd0ce88e435c2c08dce
       - name: Verify pinned Nix-Alpine input
         run: |
           nix flake metadata --json >/dev/null
