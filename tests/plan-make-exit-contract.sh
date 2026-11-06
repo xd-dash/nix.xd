@@ -27,7 +27,7 @@ export PATH="$tmp/bin:$PATH" NIX_XD_LOG_DIR="$tmp/logs"
 # attempting any provider execution, and the logger must preserve the exit.
 set +e
 make --no-print-directory -s -C "$repo" qualify-plan \
-  PROVIDER=container SCOPE=nix-xd-arm \
+  PROVIDER=container OS=Darwin SCOPE=nix-xd-arm \
   PLAN_REPO=example/fixture PLAN_CHECKOUT=compositions/fixture \
   PLAN_FILE=tests/plan-fixture/plan.json PLAN_FLAKE=tests/plan-fixture \
   PLAN_CAPABILITIES=nix-exec WORKSPACES="$tmp/workspaces" \
