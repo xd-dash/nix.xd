@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+provider="${NIX_XD_PROVIDER:-container}"
+writer="${NIX_XD_SCOPE:-nix-xd-smoke}"
+reader="${NIX_XD_READER_SCOPE:?READER_SCOPE required}"
+smoke_source="${NIX_XD_SMOKE_SOURCE:?SMOKE_SOURCE required}"
+exchange_root="${NIX_XD_EXCHANGE_ROOT:?EXCHANGE_ROOT required}"
+[[ "$provider" == container ]] || { echo "Apple Container required" >&2; exit 2; }
+[[ "$writer" =~ ^[a-z][a-z0-9-]{0,39}$ && "$reader" =~ ^[a-z][a-z0-9-]{0,39}$ && "$writer" != "$reader" ]] ||
+  { echo "Invalid writer/reader scope" >&2; exit 2; }
+
+[[ -f "$smoke_source/go.mod" && -f "$exchange_root/.nix-xd-exchange" ]] ||
+  { echo "Missing host Smoke/exchange sources" >&2; exit 2; }
+
+# Validate the same checkout and exchange marker in each scoped VM.
+for file in smoke/go.mod exchange/.nix-xd-exchange; do
+  if [[ "$file" == smoke/* ]]; then host="$smoke_source/${file#smoke/}"
+  else host="$exchange_root/${file#exchange/}"; fi
+  expected="$(shasum -a 256 "$host")"
+  expected="${expected%% *}"
+  for scope in "$writer" "$reader"; do
+    actual="$("$provider" exec "$scope" sha256sum "/$file")"
+    [[ "${actual%% *}" == "$expected" ]] || {
+      echo "Mount mismatch: $scope /$file" >&2; exit 1;
+    }
+  done
+done
+
+"$provider" exec "$writer" /bin/bash -ec 'test -w /smoke && test -w /exchange'
+"$provider" exec "$reader" /bin/bash -ec 'test ! -w /smoke && test ! -w /exchange'
+
+smoke_test=""
+exchange_test=""
+cleanup() {
+  [[ -z "$smoke_test" ]] || "$provider" exec "$writer" rm -f "$smoke_test" >/dev/null || :
+  [[ -z "$exchange_test" ]] || "$provider" exec "$writer" rm -f "$exchange_test" >/dev/null || :
+}
+trap cleanup EXIT
+
+smoke_test="$("$provider" exec "$writer" mktemp /smoke/.nix-xd-share-XXXXXXXX)"
+exchange_test="$("$provider" exec "$writer" mktemp /exchange/.nix-xd-share-XXXXXXXX)"
+"$provider" exec "$writer" /bin/bash -ec '
+  printf "shared-source-test\n" > "$1"
+  printf "shared-exchange-test\n" > "$2"
+' bash "$smoke_test" "$exchange_test"
+
+verify_shared_file() {
+  local guest="$1" host="$2" expected actual
+  expected="$(shasum -a 256 "$host")"
+  expected="${expected%% *}"
+  actual="$("$provider" exec "$reader" sha256sum "$guest")"
+  [[ "${actual%% *}" == "$expected" ]] || {
+    echo "Shared filesystem content mismatch: $guest" >&2; exit 1;
+  }
+}
+verify_shared_file "$smoke_test" "$smoke_source/${smoke_test##*/}"
+verify_shared_file "$exchange_test" "$exchange_root/${exchange_test##*/}"
+
+printf 'PASS: producer writes Smoke source and exchange; host and isolated reader see identical content\n'
