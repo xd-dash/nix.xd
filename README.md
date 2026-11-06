@@ -124,6 +124,70 @@ closures with `make store-export` and `make store-import` using
 `/workspaces/.cache/nix`. Only import from a trusted local producer because
 the local cache import deliberately uses `--no-check-sigs`.
 
+## ARM ghxd minimal workspace and encrypted local credentials
+
+The additional, application-owned Smoke branch
+`xd-dash/smoke:codex/ghxd-minimal-sops` compiles a small Smoke binary
+without Logmash. The canonical Nix-Alpine Quadlet supports:
+
+- Persistent `GOMODCACHE=/workspaces/.cache/go/mod` and
+  `GOCACHE=/workspaces/.cache/go/build` for the writer, qualified with
+  `GOPROXY=off` after a full runtime refresh
+- A second scoped Quadlet with `WORKSPACE_ACCESS=ro`, sharing source and a
+  file-backed Nix binary cache, but **not** the writable `/nix` volume
+- An optional `AGE_SOURCE` outside `WORKSPACES`, mounted read-only at
+  `/run/secrets/age/keys.txt`, exposed via `SOPS_AGE_KEY_FILE` (path only)
+- A local ignored ciphertext directory `.private/sops`; the private age
+  identity remains outside `nix.xd` at
+  `~/.config/nix.xd/age/keys.txt`, mode `0600`
+
+The original huram-abi workflow reused or generated a SOPS/age identity
+and uploaded it to GitHub Actions secrets. This local design reuses an
+existing SOPS identity from the standard macOS paths when available, but
+does **not** upload a private key to GitHub or store it in a flake or image.
+If old ciphertext exists but its age identity is unavailable, creating a
+new key cannot recover it. Local identity setup is deliberately idempotent.
+
+**One logged qualification**, before any real token authorization:
+
+```bash
+cd ~/workspace/nix.xd
+git pull --ff-only
+make qualify-ghxd PROVIDER=podman MACHINE=podman-machine-default \
+  SCOPE=nix-xd-smoke-podman
+```
+
+The complete `logs/nix-xd-smoke-podman-qualify-ghxd-*.log` records
+permissions, Go tests/build, Go module cache reuse across refresh,
+independent Nix closure import into the reader and decryption of synthetic
+SOPS ciphertext by both authorized scopes. It reports
+`GHXD_CREDENTIAL=PENDING_DEVICE_AUTHORIZATION` until a real token exists.
+
+For the one-time GitHub OAuth user approval, set the **public client ID**
+of the relevant GitHub App and invoke:
+
+```bash
+GITHUB_CLIENT_ID=<your-app-client-id> \
+  make ghxd-auth PROVIDER=podman MACHINE=podman-machine-default \
+  SCOPE=nix-xd-smoke-podman
+```
+
+This command deliberately **does not log** the ephemeral GitHub device
+verification code. The program exchanges it for a token after the user
+authorizes on GitHub, encrypts access/refresh token material directly
+through SOPS, and atomically saves the encrypted JSON locally. A separate
+logged `make ghxd-token-check` reads the encrypted token in each
+authorized scope and prints only redacted metadata; it never prints the
+tokens themselves.
+
+The device-flow credential is a GitHub App *user* token, not an
+installation token, and it cannot be assumed to have the older huram-abi
+Actions-secrets permissions. Token refresh and safe credential rotation
+require additional implementation; the initial bootstrap refuses to
+overwrite an existing encrypted credential. Do not place decrypted
+credentials in the Nix store or logs. See
+`xd-dash/smoke/docs/ghxd-minimal-sops.md`.
+
 ## Migration and cleanup safety
 
 Run `make inventory` **before** cleanup. It only reports resource state:
