@@ -4,3 +4,5 @@ shared/
 compositions/
 .smoke-state/
 .cache/
+
+.private/
