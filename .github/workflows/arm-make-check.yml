@@ -12,6 +12,7 @@ on:
       - bin/nix-xd-sync
       - bin/nix-xd-plan
       - bin/nix-xd-smoke
+      - bin/nix-xd-qualify-smoke
       - bin/nix-xd-workspace-check
       - bin/nix-xd-store-copy
       - bin/nix-xd-share-check
@@ -41,6 +42,7 @@ on:
       - bin/nix-xd-sync
       - bin/nix-xd-plan
       - bin/nix-xd-smoke
+      - bin/nix-xd-qualify-smoke
       - bin/nix-xd-workspace-check
       - bin/nix-xd-store-copy
       - bin/nix-xd-share-check
@@ -97,6 +99,7 @@ jobs:
           make -n PROVIDER=container OS=Darwin build FLAKE=compositions/agni TARGET='#test'
           make -n PROVIDER=podman qualify-process FLAKE=compositions/agni
           make -n PROVIDER=podman OS=Darwin refresh
+          make -n PROVIDER=podman OS=Darwin qualify-smoke
           make -n PROVIDER=podman OS=Darwin inventory
           make -n PROVIDER=container OS=Darwin smoke
           make -n PROVIDER=container OS=Darwin workspace-check
