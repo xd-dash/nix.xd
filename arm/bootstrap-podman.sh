@@ -65,8 +65,8 @@ scope="$2"
 checkout="$3"
 source="$root/$checkout"
 [[ -f "$source/local/bootstrap.sh" ]] || { echo "Nix-Alpine bootstrap missing" >&2; exit 1; }
-[[ -f "$source/local/seed-store-volume.sh" ]] ||
-  { echo "Pinned Nix-Alpine lacks safe volume seeding; update the pin" >&2; exit 1; }
+[[ -f "$source/local/seed-store-volume.sh" && -f "$source/local/prepare-store-volume.sh" ]] ||
+  { echo "Pinned Nix-Alpine lacks rootless volume ownership preparation; update the pin" >&2; exit 1; }
 export NIX_XD_ROOT="$root" WORKSPACES="$root"
 export NIX_ALPINE_ROOT="$source"
 export SCOPE="$scope" CONTAINER="$scope" SERVICE="$scope.service"
