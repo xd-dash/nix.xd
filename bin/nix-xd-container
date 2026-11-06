@@ -5,8 +5,6 @@ set -euo pipefail
 action="${1:-status}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
-workspace="${NIX_XD_WORKSPACE:-}"
-workdir="${NIX_XD_WORKDIR:-/home/nixuser/workspace}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 die() { echo "error: $*" >&2; exit 1; }
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
@@ -32,18 +30,10 @@ case "$action" in
     container inspect "$scope"
     ;;
   logs) container logs "$scope" ;;
-  shell) exec container exec -it "$scope" bash -l ;;
-  exec|run) exec container exec "$scope" bash -lc "${NIX_XD_CMD:-nix --version}" ;;
-  sync)
-    [[ -n "$workspace" && -d "$workspace" ]] || die "Set WORKSPACE to a local application checkout"
-    container exec "$scope" mkdir -p "$workdir"
-    container cp "$workspace/." "$scope:$workdir/"
-    ;;
-  compose)
-    [[ -n "$workspace" && -d "$workspace" ]] || die "Set WORKSPACE to a local application checkout"
-    container exec "$scope" mkdir -p "$workdir"
-    container cp "$workspace/." "$scope:$workdir/"
-    exec container exec -w "$workdir" "$scope" bash -lc "${NIX_XD_COMPOSE_CMD:-pwd}"
+  shell) exec container exec -it "$scope" bash ;;
+  exec|run) exec container exec "$scope" bash -c "${NIX_XD_CMD:-nix --version}" ;;
+  sync|compose)
+    die "Use make sync for host Git checkouts or make run FLAKE=path TARGET=#app for mounted flakes"
     ;;
   *) die "Unsupported action: $action" ;;
 esac
