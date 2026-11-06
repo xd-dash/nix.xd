@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-provider="${NIX_XD_PROVIDER:-container}"
-scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+provider="${NIX_XD_PROVIDER:-podman}"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+scope="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
 root="${NIX_XD_WORKSPACES:?NIX_XD_WORKSPACES required}"
 mode="${NIX_XD_WORKSPACE_MODE:-bind}"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || { echo 'Invalid scope' >&2; exit 2; }
@@ -13,17 +14,28 @@ host_hash="$(shasum -a 256 "$root/flake.nix")"
 host_hash="${host_hash%% *}"
 echo "Workspace host: $(cd "$root" && pwd -P)"
 echo "Provider: $provider; scope: $scope"
-guest_hash="$("$provider" exec "$scope" /bin/bash -ec '
+if [[ "$provider" == podman && "$(uname -s)" == Darwin ]]; then
+  guest() { podman machine ssh "$machine" podman exec "$scope" "$@"; }
+else
+  guest() { "$provider" exec "$scope" "$@"; }
+fi
+guest_hash="$(guest /bin/bash -ec '
   set -euo pipefail
   grep -Eq "[[:space:]]/workspaces[[:space:]]" /proc/mounts
   test -r /workspaces/flake.nix
-  test ! -w /workspaces
+  if [[ "$1" == podman ]]; then
+    test -w /workspaces
+    test "$(id -u)" = 1000
+    test "$(id -g)" = 1000
+  else
+    test ! -w /workspaces
+  fi
   test -w /nix
   sha256sum /workspaces/flake.nix
-')"
+' bash "$provider")"
 guest_hash="${guest_hash%% *}"
 [[ "$guest_hash" == "$host_hash" ]] || {
   echo "Workspace mount content differs from host source (expected $host_hash, got $guest_hash)" >&2
   exit 1
 }
-printf 'PASS: live read-only workspace mount, content sha256 %s, persistent writable Nix store\n' "$guest_hash"
+printf 'PASS: %s mounted workspace, content sha256 %s, persistent writable Nix store\n' "$provider" "$guest_hash"
