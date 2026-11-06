@@ -8,6 +8,11 @@ SCOPE ?= nix-xd-arm
 IMAGE ?= localhost/nix-xd:arm64
 WORKSPACES ?= $(abspath $(CURDIR))
 WORKSPACE_MODE ?= bind
+SMOKE_SOURCE ?=
+SMOKE_ACCESS ?= readwrite
+EXCHANGE_ROOT ?=
+EXCHANGE_ACCESS ?= readwrite
+STORE_PATH ?=
 LINUX_SYSTEM ?= aarch64-linux
 NIX_ALPINE_REV ?= 037290d6713cb5efc548982c42b26f77f467e58a
 NIX_ALPINE_CHECKOUT ?= nix-alpine/nix-alpine
@@ -38,7 +43,7 @@ OS := $(shell uname -s)
 TASK_ENV = NIX_XD_SYSTEM='$(LINUX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_WORKSPACE_MODE='$(WORKSPACE_MODE)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
-.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan smoke workspace-check check-static
+.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan smoke workspace-check store-export store-import check-static
 
 help:
 	@printf '%s\n' \
@@ -54,11 +59,13 @@ help:
 	  'make start|stop|restart|status|logs|shell|exec|ps|inspect|store-info' \
 	  'make smoke PROVIDER=container               Logged non-destructive ARM runtime probe' \
 	  'make workspace-check PROVIDER=container     Verify live read-only workspace mount' \
+	  'make store-export STORE_PATH=/nix/store/...   Publish closure into /exchange/nix-cache' \
+	  'make store-import STORE_PATH=/nix/store/...   Import closure from /exchange/nix-cache' \
 	  'make check-static                            Host-independent static checks'
 
 bootstrap:
 	@test "$(OS)" = Darwin || { echo "macOS bootstrap requires Darwin" >&2; exit 1; }
-	@NIX_XD_PROVIDER="$(PROVIDER)" NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" NIX_XD_WORKSPACES="$(WORKSPACES)" NIX_XD_WORKSPACE_MODE="$(WORKSPACE_MODE)" bash bin/nix-xd-log "$(SCOPE)" bootstrap bash arm/bootstrap-macos.sh
+	@NIX_XD_PROVIDER="$(PROVIDER)" NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" NIX_XD_WORKSPACES="$(WORKSPACES)" NIX_XD_WORKSPACE_MODE="$(WORKSPACE_MODE)" NIX_XD_SMOKE_SOURCE="$(SMOKE_SOURCE)" NIX_XD_SMOKE_ACCESS="$(SMOKE_ACCESS)" NIX_XD_EXCHANGE_ROOT="$(EXCHANGE_ROOT)" NIX_XD_EXCHANGE_ACCESS="$(EXCHANGE_ACCESS)" bash bin/nix-xd-log "$(SCOPE)" bootstrap bash arm/bootstrap-macos.sh
 
 plan:
 	@printf 'Host=%s Provider=%s Machine=%s Scope=%s Workspaces=%s Flake=%s%s\n' '$(OS)' '$(PROVIDER)' '$(MACHINE)' '$(SCOPE)' '$(WORKSPACES)' '$(FLAKE)' '$(TARGET)'
@@ -99,7 +106,10 @@ smoke:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" smoke bash bin/nix-xd-smoke
 
 workspace-check:
-	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" workspace-check bash bin/nix-xd-workspace-check
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" workspace-check bash bin/nix-xd-workspace-check bin/nix-xd-store-copy
+
+store-export store-import:
+	@$(TASK_ENV) NIX_XD_STORE_PATH="$(STORE_PATH)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-copy "$@"
 
 ifeq ($(PROVIDER),podman)
 ifeq ($(OS),Darwin)
