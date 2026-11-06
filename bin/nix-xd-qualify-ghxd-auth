@@ -108,12 +108,12 @@ interactive_authorize() {
   # The device code is written directly to the real terminal, never to the
   # log wrapper's stdout/stderr streams. OAuth token bytes never leave Smoke.
   podman --connection "$machine" exec -it --env "GITHUB_CLIENT_ID=$client_id" \
-    "$writer" "$smoke" ghxd auth </dev/tty >/dev/tty 2>/dev/tty
+    "$writer" "$smoke" ghxd-secrets auth </dev/tty >/dev/tty 2>/dev/tty
   echo 'GHXD_DEVICE_FLOW=APPROVED_AND_SOPS_ENCRYPTED'
 }
 token_verification() {
-  guest "$writer" "$smoke" ghxd status
-  guest "$reader" "$smoke" ghxd status
+  guest "$writer" "$smoke" ghxd-secrets status
+  guest "$reader" "$smoke" ghxd-secrets status
   echo 'GHXD_ENCRYPTED_TOKEN_CROSS_CONTAINER=PASS'
 }
 reuse_check() {
@@ -122,7 +122,7 @@ reuse_check() {
   bootstrap_scope "$writer" rw rw
   digest_after="$(shasum -a 256 "$root/.private/sops/ghxd.enc.json")"
   [[ "$digest_before" == "$digest_after" ]] || { echo 'Encrypted credential mutated during runtime restart' >&2; return 1; }
-  guest "$writer" "$smoke" ghxd status
+  guest "$writer" "$smoke" ghxd-secrets status
   echo 'GHXD_TOKEN_PERSISTENCE=PASS'
 }
 
