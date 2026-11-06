@@ -23,9 +23,9 @@ export NIX_XD_SYSTEM=aarch64-linux NIX_XD_WORKSPACE_MODE=bind
 export NIX_XD_FLAKE=tests/plan-fixture NIX_XD_TARGET=
 bash "$root/bin/nix-xd-task" show
 
-grep -Fq 'machine ssh podman-machine-default podman exec nix-xd-smoke-podman' "$tmp/log"
+grep -Fq -- '--connection podman-machine-default exec nix-xd-smoke-podman' "$tmp/log"
 grep -Fq 'flake show --no-write-lock-file /workspaces/tests/plan-fixture' "$tmp/log"
-if grep -Fq 'machine ssh unrelated-machine' "$tmp/log"; then
+if grep -Fq -- '--connection unrelated-machine' "$tmp/log"; then
   echo 'Podman task used unrelated machine' >&2
   exit 1
 fi
