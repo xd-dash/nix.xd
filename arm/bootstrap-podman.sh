@@ -20,7 +20,7 @@ checkout="${NIX_ALPINE_CHECKOUT:-nix-alpine/nix-alpine}"
 [[ -d "$workspaces" ]] || die "Missing workspace root"
 workspaces="$(cd "$workspaces" && pwd -P)"
 [[ "$workspaces" != / && "$workspaces" != *" "* ]] || die "Unsafe workspace path"
-[[ "$workspaces" == "$repo" ]] || die "Podman bootstrap requires WORKSPACES=nix.xd root"
+[[ -f "$workspaces/flake.nix" ]] || die "WORKSPACES must contain a flake.nix"
 
 command -v podman >/dev/null 2>&1 || die "Podman is required (already installed)"
 command -v git >/dev/null 2>&1 || die "Git is required"
