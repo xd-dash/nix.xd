@@ -12,10 +12,12 @@ on:
       - bin/nix-xd-plan
       - bin/nix-xd-smoke
       - bin/nix-xd-workspace-check
+      - bin/nix-xd-store-copy
       - bin/nix-xd-entry
       - tests/plan-contract.sh
       - tests/stage-contract.sh
       - tests/apple-mount-contract.sh
+      - tests/store-copy-contract.sh
       - tests/workspace-mount-contract.sh
       - tests/plan-fixture/**
       - tests/plan-fixture-test.sh
@@ -34,10 +36,12 @@ on:
       - bin/nix-xd-plan
       - bin/nix-xd-smoke
       - bin/nix-xd-workspace-check
+      - bin/nix-xd-store-copy
       - bin/nix-xd-entry
       - tests/plan-contract.sh
       - tests/stage-contract.sh
       - tests/apple-mount-contract.sh
+      - tests/store-copy-contract.sh
       - tests/workspace-mount-contract.sh
       - tests/plan-fixture/**
       - tests/plan-fixture-test.sh
@@ -63,6 +67,8 @@ jobs:
         run: bash tests/plan-make-exit-contract.sh
       - name: Verify Apple workspace bind mount bootstrap
         run: bash tests/apple-mount-contract.sh
+      - name: Verify Nix store closure transfer contract
+        run: bash tests/store-copy-contract.sh
       - name: Verify host/guest workspace identity
         run: bash tests/workspace-mount-contract.sh
       - name: Verify both provider command interfaces
