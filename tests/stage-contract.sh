@@ -24,7 +24,7 @@ chmod +x "$tmp/bin/podman"
 
 export PATH="$tmp/bin:$PATH"
 export NIX_XD_TEST_RECORD="$tmp/calls"
-export NIX_XD_PROVIDER=podman NIX_XD_SCOPE=nix-xd-arm
+export NIX_XD_PROVIDER=podman NIX_XD_SCOPE=nix-xd-arm NIX_XD_WORKSPACE_MODE=staged
 export NIX_XD_WORKSPACES="$tmp/workspaces" NIX_XD_CHECKOUT=compositions/demo
 export NIX_XD_SYSTEM=aarch64-linux
 export TMPDIR="$tmp"
