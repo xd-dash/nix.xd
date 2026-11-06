@@ -77,8 +77,11 @@ sync clone:
 stage show check build path-info run:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-task "$@"
 
-develop shell exec ps inspect store-info:
+develop shell ps inspect store-info:
 	@$(TASK) $@
+
+exec:
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" exec bash bin/nix-xd-task exec
 
 # Qualifiers call Nix app outputs owned by the selected checkout.
 # No claimed success when the selected output or host capability is missing.
