@@ -9,7 +9,9 @@ IMAGE ?= localhost/nix-xd:arm64
 WORKSPACES ?= $(abspath $(CURDIR))
 WORKSPACE_MODE ?= bind
 WORKSPACE_ACCESS ?= rw
-AGE_SOURCE ?=
+AGE_VOLUME ?=
+AGE_ACCESS ?= ro
+GITHUB_CLIENT_ID ?=
 SMOKE_SOURCE ?=
 SMOKE_ACCESS ?= readwrite
 EXCHANGE_ROOT ?=
@@ -46,7 +48,7 @@ OS := $(shell uname -s)
 TASK_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SYSTEM='$(LINUX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_WORKSPACE_MODE='$(WORKSPACE_MODE)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
-.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan qualify-smoke qualify-ghxd ghxd-auth ghxd-token-check age-setup smoke workspace-check refresh inventory store-export store-import share-check check-static
+.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan qualify-smoke qualify-ghxd qualify-ghxd-auth ghxd-auth ghxd-token-check age-setup smoke workspace-check refresh inventory store-export store-import share-check check-static
 
 help:
 	@printf '%s\n' \
@@ -73,7 +75,7 @@ help:
 
 bootstrap:
 	@test "$(OS)" = Darwin || { echo "macOS bootstrap requires Darwin" >&2; exit 1; }
-	@NIX_XD_PROVIDER="$(PROVIDER)" NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" NIX_XD_WORKSPACES="$(WORKSPACES)" NIX_ALPINE_REV="$(NIX_ALPINE_REV)" NIX_ALPINE_CHECKOUT="$(NIX_ALPINE_CHECKOUT)" NIX_XD_WORKSPACE_MODE="$(WORKSPACE_MODE)" NIX_XD_WORKSPACE_ACCESS="$(WORKSPACE_ACCESS)" NIX_XD_AGE_SOURCE="$(AGE_SOURCE)" NIX_XD_SMOKE_SOURCE="$(SMOKE_SOURCE)" NIX_XD_SMOKE_ACCESS="$(SMOKE_ACCESS)" NIX_XD_EXCHANGE_ROOT="$(EXCHANGE_ROOT)" NIX_XD_EXCHANGE_ACCESS="$(EXCHANGE_ACCESS)" bash bin/nix-xd-log "$(SCOPE)" bootstrap bash arm/bootstrap-macos.sh
+	@NIX_XD_PROVIDER="$(PROVIDER)" NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" NIX_XD_WORKSPACES="$(WORKSPACES)" NIX_ALPINE_REV="$(NIX_ALPINE_REV)" NIX_ALPINE_CHECKOUT="$(NIX_ALPINE_CHECKOUT)" NIX_XD_WORKSPACE_MODE="$(WORKSPACE_MODE)" NIX_XD_WORKSPACE_ACCESS="$(WORKSPACE_ACCESS)" NIX_XD_AGE_VOLUME="$(AGE_VOLUME)" NIX_XD_AGE_ACCESS="$(AGE_ACCESS)" NIX_XD_SMOKE_SOURCE="$(SMOKE_SOURCE)" NIX_XD_SMOKE_ACCESS="$(SMOKE_ACCESS)" NIX_XD_EXCHANGE_ROOT="$(EXCHANGE_ROOT)" NIX_XD_EXCHANGE_ACCESS="$(EXCHANGE_ACCESS)" bash bin/nix-xd-log "$(SCOPE)" bootstrap bash arm/bootstrap-macos.sh
 
 plan:
 	@printf 'Host=%s Provider=%s Machine=%s Scope=%s Workspaces=%s Flake=%s%s\n' '$(OS)' '$(PROVIDER)' '$(MACHINE)' '$(SCOPE)' '$(WORKSPACES)' '$(FLAKE)' '$(TARGET)'
@@ -129,11 +131,16 @@ ghxd-token-check:
 	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' bash bin/nix-xd-log "$(SCOPE)" ghxd-token-check bash bin/nix-xd-ghxd-token-check
 
 age-setup:
-	@bash bin/nix-xd-log "$(SCOPE)" age-setup bash bin/nix-xd-age-setup
+	@$(MAKE) --no-print-directory bootstrap PROVIDER=podman MACHINE="$(MACHINE)" SCOPE="$(SCOPE)" WORKSPACES="$(WORKSPACES)" WORKSPACE_ACCESS=rw AGE_VOLUME="$(SCOPE)-age" AGE_ACCESS=rw
+
+qualify-ghxd-auth:
+	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' GITHUB_CLIENT_ID='$(GITHUB_CLIENT_ID)' \
+	  bash bin/nix-xd-log "$(SCOPE)" qualify-ghxd-auth bash bin/nix-xd-qualify-ghxd-auth
 
 qualify-ghxd:
-	@test "$(PROVIDER)" = podman || { echo 'qualify-ghxd requires Podman' >&2; exit 2; }
-	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' bash bin/nix-xd-log "$(SCOPE)" qualify-ghxd bash bin/nix-xd-qualify-ghxd
+	@$(MAKE) --no-print-directory qualify-ghxd-auth PROVIDER=podman MACHINE="$(MACHINE)" SCOPE="$(SCOPE)" GITHUB_CLIENT_ID="$(GITHUB_CLIENT_ID)"
+	@echo 'Native SOPS and GitHub device qualification passed; full cache/closure qualification remains separate.'
+
 
 qualify-smoke:
 	@test "$(PROVIDER)" = podman || { echo 'qualify-smoke requires PROVIDER=podman' >&2; exit 2; }
@@ -197,7 +204,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-qualify-ghxd bin/nix-xd-ghxd-auth bin/nix-xd-ghxd-token-check bin/nix-xd-age-setup bin/nix-xd-store-copy
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-qualify-ghxd bin/nix-xd-qualify-ghxd-auth bin/nix-xd-ghxd-auth bin/nix-xd-ghxd-token-check bin/nix-xd-age-setup bin/nix-xd-store-copy
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@echo 'Static command checks passed; no ARM runtime executed.'
