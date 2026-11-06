@@ -6,3 +6,5 @@ compositions/
 .cache/
 
 .private/
+
+.smoke-ghxd-state/
