@@ -17,10 +17,10 @@ export NIX_XD_STORE_PATH=/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-smoke-test
 
 bash "$repo/bin/nix-xd-store-copy" store-export
 bash "$repo/bin/nix-xd-store-copy" store-import
-grep -Fq 'nix copy --to file:///exchange/nix-cache' "$tmp/calls" || {
+grep -Fq 'nix copy --to "file://$2"' "$tmp/calls" || {
   echo 'Missing binary cache publish call' >&2; exit 1;
 }
-grep -Fq 'nix copy --no-check-sigs --from file:///exchange/nix-cache' "$tmp/calls" || {
+grep -Fq 'nix copy --no-check-sigs --from "file://$2"' "$tmp/calls" || {
   echo 'Missing binary cache import call' >&2; exit 1;
 }
 if NIX_XD_STORE_PATH=/etc/passwd bash "$repo/bin/nix-xd-store-copy" store-export >/dev/null 2>&1; then
@@ -29,4 +29,5 @@ fi
 if FAIL_COPY=1 bash "$repo/bin/nix-xd-store-copy" store-export >/dev/null 2>&1; then
   echo 'Failed publish was reported as successful' >&2; exit 1
 fi
+grep -Fq '/exchange/nix-cache' "$tmp/calls"
 echo 'PASS: file cache transfer commands, path validation, failure propagation'
