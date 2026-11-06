@@ -13,6 +13,13 @@ scope="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
 workspaces="${NIX_XD_WORKSPACES:-$repo}"
 pin="${NIX_ALPINE_REV:?Pinned NIX_ALPINE_REV required}"
 checkout="${NIX_ALPINE_CHECKOUT:-nix-alpine/nix-alpine}"
+workspace_access="${NIX_XD_WORKSPACE_ACCESS:-rw}"
+age_source="${NIX_XD_AGE_SOURCE:-}"
+[[ "$workspace_access" == rw || "$workspace_access" == ro ]] || die "Invalid workspace mode"
+if [[ -n "$age_source" ]]; then
+  [[ -f "$age_source" && ! -L "$age_source" ]] || die "Age identity unavailable or is a symlink"
+  age_source="$(cd "$(dirname "$age_source")" && pwd -P)/$(basename "$age_source")"
+fi
 [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "Invalid machine"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
 [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || die "NIX_ALPINE_REV must be a full commit"
@@ -58,12 +65,17 @@ bash "$repo/bin/nix-xd-sync" \
   "$workspaces" "$checkout" "$pin"
 
 say "Delegating to canonical Nix-Alpine Linux Quadlet bootstrap"
-podman machine ssh "$machine" bash -se -- "$workspaces" "$scope" "$checkout" <<'REMOTE'
+podman machine ssh "$machine" bash -se -- "$workspaces" "$scope" "$checkout" "$workspace_access" "$age_source" <<'REMOTE'
 set -euo pipefail
 root="$1"
 scope="$2"
 checkout="$3"
+workspace_access="$4"
+age_source="$5"
 source="$root/$checkout"
+if [[ -n "$age_source" ]]; then
+  [[ -f "$age_source" && -r "$age_source" ]] || { echo "Age identity unavailable to Podman VM" >&2; exit 1; }
+fi
 [[ -f "$source/local/bootstrap.sh" ]] || { echo "Nix-Alpine bootstrap missing" >&2; exit 1; }
 [[ -f "$source/local/seed-store-volume.sh" && -f "$source/local/prepare-store-volume.sh" ]] ||
   { echo "Pinned Nix-Alpine lacks rootless volume ownership preparation; update the pin" >&2; exit 1; }
@@ -71,6 +83,8 @@ export NIX_XD_ROOT="$root" WORKSPACES="$root"
 export NIX_ALPINE_ROOT="$source"
 export SCOPE="$scope" CONTAINER="$scope" SERVICE="$scope.service"
 export VOLUME="$scope-store"
+export NIX_ALPINE_WORKSPACE_ACCESS="$workspace_access"
+export NIX_ALPINE_SOPS_AGE_SOURCE="$age_source"
 bash "$source/local/bootstrap.sh"
 podman exec "$scope" bash -ec '
   test "$(id -u)" = 1000
