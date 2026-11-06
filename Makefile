@@ -7,6 +7,7 @@ MACHINE ?= podman-machine-default
 SCOPE ?= nix-xd-arm
 IMAGE ?= localhost/nix-xd:arm64
 WORKSPACES ?= $(abspath $(CURDIR))
+WORKSPACE_MODE ?= bind
 LINUX_SYSTEM ?= aarch64-linux
 NIX_ALPINE_REV ?= 037290d6713cb5efc548982c42b26f77f467e58a
 NIX_ALPINE_CHECKOUT ?= nix-alpine/nix-alpine
@@ -34,7 +35,7 @@ PLAN_CAPABILITIES ?=
 RETAIN ?= 0
 OS := $(shell uname -s)
 
-TASK_ENV = NIX_XD_SYSTEM='$(LINUX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
+TASK_ENV = NIX_XD_SYSTEM='$(LINUX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_WORKSPACE_MODE='$(WORKSPACE_MODE)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
 .PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan smoke check-static
@@ -43,8 +44,9 @@ help:
 	@printf '%s\n' \
 	  'make bootstrap PROVIDER=podman|container       Bootstrap ARM host (default podman)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
+	  'WORKSPACE_MODE=bind|staged                  Bind mount is default for new runners' \
 	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path]' \
-	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \
+	  'make stage CHECKOUT=path                     Legacy snapshot mode only; bind mode needs no staging' \
 	  'make show|check|build|path-info FLAKE=path TARGET=$(HASH)output' \
 	  'make run FLAKE=path TARGET=$(HASH)app ARGS="..."' \
 	  'make compose|qualify|qualify-process|qualify-service|qualify-composition' \
@@ -55,7 +57,7 @@ help:
 
 bootstrap:
 	@test "$(OS)" = Darwin || { echo "macOS bootstrap requires Darwin" >&2; exit 1; }
-	@NIX_XD_PROVIDER="$(PROVIDER)" NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" bootstrap bash arm/bootstrap-macos.sh
+	@NIX_XD_PROVIDER="$(PROVIDER)" NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" NIX_XD_WORKSPACES="$(WORKSPACES)" NIX_XD_WORKSPACE_MODE="$(WORKSPACE_MODE)" bash bin/nix-xd-log "$(SCOPE)" bootstrap bash arm/bootstrap-macos.sh
 
 plan:
 	@printf 'Host=%s Provider=%s Machine=%s Scope=%s Workspaces=%s Flake=%s%s\n' '$(OS)' '$(PROVIDER)' '$(MACHINE)' '$(SCOPE)' '$(WORKSPACES)' '$(FLAKE)' '$(TARGET)'
