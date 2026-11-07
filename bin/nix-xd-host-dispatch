@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Local host-side entry point. No socket or host credentials are mounted into guests.
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+provider="${NIX_XD_PROVIDER:-podman}"
+scope="${NIX_XD_SCOPE:-}"
+action="${1:-}"
+allowed="${NIX_XD_HOST_ALLOWED_ACTIONS:-status}"
+[[ "$provider" == podman ]] || { echo 'HOST_DISPATCH=DENIED unsupported-provider' >&2; exit 2; }
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || { echo 'HOST_DISPATCH=DENIED invalid-scope' >&2; exit 2; }
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo 'HOST_DISPATCH=DENIED invalid-machine' >&2; exit 2; }
+[[ "$#" == 1 ]] || { echo 'HOST_DISPATCH=DENIED unexpected-arguments' >&2; exit 2; }
+case "$action" in
+  status|start|stop|restart) ;;
+  *) echo 'HOST_DISPATCH=DENIED unknown-action' >&2; exit 2 ;;
+esac
+case ",$allowed," in
+  *,"$action",*) ;;
+  *) echo 'HOST_DISPATCH=DENIED action-not-allowed' >&2; exit 2 ;;
+esac
+command -v podman >/dev/null || { echo 'HOST_DISPATCH=DENIED runtime-missing' >&2; exit 2; }
+if [[ "$(uname -s)" == Darwin ]]; then
+  command -v podman >/dev/null
+  dispatch=(podman machine ssh "$machine" systemctl --user)
+else
+  dispatch=(systemctl --user)
+fi
+unit="$scope.service"
+case "$action" in
+  status) "${dispatch[@]}" is-active "$unit" ;;
+  start|stop|restart) "${dispatch[@]}" "$action" "$unit" ;;
+esac
+printf 'HOST_DISPATCH=PASS action=%s scope=%s\n' "$action" "$scope"
