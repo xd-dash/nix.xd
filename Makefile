@@ -225,7 +225,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-qualify-ghxd-auth bin/nix-xd-qualify-ghxd-runtime bin/nix-xd-ghxd-auth bin/nix-xd-ghxd-client-id bin/nix-xd-ghxd-token-check bin/nix-xd-store-copy bin/nix-xd-host-dispatch bin/nix-xd-qualify-go-cache bin/nix-xd-smoke-source
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-qualify-ghxd-auth bin/nix-xd-qualify-ghxd-runtime bin/nix-xd-ghxd-auth bin/nix-xd-ghxd-client-id bin/nix-xd-ghxd-token-check bin/nix-xd-store-copy bin/nix-xd-host-dispatch bin/nix-xd-qualify-go-cache bin/nix-xd-smoke-source tests/host-dispatch-contract.sh tests/smoke-source-contract.sh
 	@bash tests/smoke-source-contract.sh
 	@bash tests/host-dispatch-contract.sh
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
