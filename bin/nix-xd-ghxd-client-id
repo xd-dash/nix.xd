@@ -5,13 +5,38 @@ if [[ -n "${GITHUB_CLIENT_ID:-}" ]]; then
   client_id="$GITHUB_CLIENT_ID"
 else
   if ! command -v gh >/dev/null 2>&1; then
-    echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=missing-gh-cli; install gh and authenticate to GitHub' >&2
-    exit 2
+    if [[ "$(uname -s)" != Darwin ]] || ! command -v brew >/dev/null 2>&1; then
+      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=missing-gh-and-homebrew' >&2
+      exit 2
+    fi
+    echo 'GHXD_CLIENT_ID_SETUP=installing-github-cli'
+    HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_UPGRADE=1 \
+      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install gh >&2
+    command -v gh >/dev/null 2>&1 || {
+      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=gh-install-failed' >&2
+      exit 2
+    }
   fi
-  # Canonical, non-secret Actions variable from the actual huram-abi-master repo.
-  # Disable prompts because this resolver runs inside a logged qualification.
-  if ! client_id="$(GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 gh variable get APP_CLIENT_ID --repo xd-dash/huram-abi-master 2>/dev/null)"; then
-    echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=actions-variable; check gh auth and xd-dash/huram-abi-master access' >&2
+
+  if ! GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 gh auth status --hostname github.com >/dev/null 2>&1; then
+    if [[ ! -r /dev/tty || ! -w /dev/tty ]]; then
+      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=github-cli-auth-required-no-tty' >&2
+      exit 2
+    fi
+    echo 'GHXD_CLIENT_ID_SETUP=github-cli-auth-required (login interaction excluded from log)' >&2
+    # Do not route a browser verification code or OAuth response through tee.
+    gh auth login --hostname github.com --git-protocol https --web \
+      </dev/tty >/dev/tty 2>/dev/tty || {
+      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=github-cli-auth-failed' >&2
+      exit 2
+    }
+  fi
+
+  # This is the public OAuth client ID, not the GitHub App numeric ID.
+  # The variable is authoritative in the original huram-abi-master repo.
+  if ! client_id="$(GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 \
+      gh variable get APP_CLIENT_ID --repo xd-dash/huram-abi-master 2>/dev/null)"; then
+    echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=huram-abi-master-actions-variable' >&2
     exit 2
   fi
 fi
@@ -20,6 +45,4 @@ fi
   echo 'GHXD_CLIENT_ID=INVALID reason=format' >&2
   exit 2
 }
-# Output is only the public OAuth client identifier; never an app private key
-# or an installation token. The caller captures stdout without printing it.
 printf '%s\n' "$client_id"
