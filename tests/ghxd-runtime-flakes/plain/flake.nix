@@ -12,7 +12,7 @@
           pkgs = import nixpkgs { inherit system; };
           runner = pkgs.writeShellScriptBin "ghxd-plain" ''
             set -euo pipefail
-            exec /workspaces/.smoke-ghxd-state/bin/smoke ghxd-secrets probe
+            exec bash /workspaces/bin/nix-xd-smoke-source ghxd-secrets probe
           '';
         in { default = runner; });
       apps = each (system: {
