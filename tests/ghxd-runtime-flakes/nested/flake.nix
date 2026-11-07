@@ -12,10 +12,10 @@
           pkgs = import nixpkgs { inherit system; };
           runner = pkgs.writeShellScriptBin "ghxd-nested" ''
             set -euo pipefail
-            depth="${NIX_XD_NESTING_DEPTH:-0}"
+            depth="''${NIX_XD_NESTING_DEPTH:-0}"
 [[ "$depth" =~ ^[0-4]$ ]] || { echo 'GHXD_NESTING=FAIL reason=depth-bound' >&2; exit 2; }
 export NIX_XD_NESTING_DEPTH="$((depth+1))"
-if [[ -n "${NIX_XD_PLAIN_RUNNER:-}" ]]; then
+if [[ -n "''${NIX_XD_PLAIN_RUNNER:-}" ]]; then
   exec "$NIX_XD_PLAIN_RUNNER"
 fi
 exec nix --offline run --no-write-lock-file /workspaces/tests/ghxd-runtime-flakes/plain#default
