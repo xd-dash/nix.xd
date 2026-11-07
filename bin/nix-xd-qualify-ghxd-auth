@@ -91,14 +91,23 @@ synthetic_verify() {
   guest "$reader" "$smoke" secrets verify-json "$probe"
   printf 'SOPS_NATIVE_CROSS_CONTAINER=PASS\n'
 }
+resolved_client_id=""
+client_id_preflight() {
+  if [[ -f "$root/.private/sops/ghxd.enc.json" ]]; then
+    echo 'GHXD_CLIENT_ID=SKIPPED reason=existing-encrypted-credential'
+    return 0
+  fi
+  resolved_client_id="$(NIX_XD_MACHINE="$machine" NIX_XD_SCOPE="$writer" \
+    bash "$root/bin/nix-xd-ghxd-client-id")" || return
+  echo 'GHXD_CLIENT_ID_SOURCE=xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID (or explicit override)'
+}
 interactive_authorize() {
   if [[ -f "$root/.private/sops/ghxd.enc.json" ]]; then
     echo 'GHXD_DEVICE_FLOW=REUSED_ENCRYPTED_CREDENTIAL'
     return
   fi
-  local client_id
-  client_id="$(bash "$root/bin/nix-xd-ghxd-client-id")" || return
-  echo 'GHXD_CLIENT_ID_SOURCE=xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID (or explicit override)'
+  local client_id="$resolved_client_id"
+  [[ -n "$client_id" ]] || { echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=preflight-missing' >&2; return 2; }
   [[ -w /dev/tty ]] || { echo 'Interactive terminal required for GitHub verification code' >&2; return 2; }
   echo 'GHXD_DEVICE_FLOW=AWAITING_USER_APPROVAL (verification code only on controlling TTY, excluded from log)'
   # The device code is written directly to the real terminal, never to the
@@ -127,6 +136,7 @@ reuse_check() {
 printf 'QUALIFICATION=GHXD_NATIVE_SOPS MACHINE=%s WRITER=%s READER=%s\n' "$machine" "$writer" "$reader"
 gate smoke-source init_source
 gate bootstrap-writer bootstrap_scope "$writer" rw rw
+gate github-client-id-preflight client_id_preflight
 gate native-secrets-build smoke_build
 gate bootstrap-reader bootstrap_scope "$reader" ro ro
 gate age-volume-and-permissions key_contract
