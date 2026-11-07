@@ -11,7 +11,10 @@ WORKSPACE_MODE ?= bind
 WORKSPACE_ACCESS ?= rw
 AGE_VOLUME ?=
 AGE_ACCESS ?= ro
-GITHUB_CLIENT_ID ?=
+# Existing Huram GitHub App public OAuth client ID, verified in
+# xd-dash/huram-abi-master Actions environment "master" (2026-11-06).
+# Never substitute the numeric App ID or generate a new token to look it up.
+GITHUB_CLIENT_ID ?= Iv23liMVk7y7cjktnJAR
 SMOKE_SOURCE ?=
 SMOKE_ACCESS ?= readwrite
 EXCHANGE_ROOT ?=
