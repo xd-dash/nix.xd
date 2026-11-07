@@ -158,7 +158,7 @@ This bootstraps or reuses the age volume, builds minimal Smoke from
 `xd-dash/smoke:codex/sops-age-native-bootstrap`, creates a second
 reader scope with the same age volume mounted read-only, and checks a
 synthetic SOPS ciphertext round-trip. If an encrypted GitHub credential
-does not yet exist, the qualification reads the **public GitHub App client ID** from the GitHub Actions environment `master` variable `APP_CLIENT_ID` in `xd-dash/huram-abi-master` (with a repository-variable fallback) using `gh` supplied by the Nix-Alpine `toolbox#security` flake inside the bootstrap container (unless `GITHUB_CLIENT_ID` was explicitly supplied). It never prompts for that identifier. If Nix-Alpine has no GitHub CLI authentication, the guest `gh auth login` runs interactively with the device code kept out of logs; unavailable repository permissions fail closed. Homebrew is not invoked. It then displays
+does not yet exist, the qualification uses the **existing Huram GitHub App public OAuth client ID** `Iv23liMVk7y7cjktnJAR`, verified from the `master` Actions environment of `xd-dash/huram-abi-master` and pinned as the `GITHUB_CLIENT_ID` Makefile default. No repository-variable lookup, `gh auth login`, Homebrew installation, or token migration is required for client-ID discovery. The `GITHUB_CLIENT_ID` override remains available. It then displays
 the device code directly on the controlling terminal so the user can
 approve it at GitHub. The verification code and private tokens do not
 enter the log. Smoke requires both access and refresh tokens, encrypts
