@@ -29,7 +29,7 @@ The existing local `/workspaces/.private/sops/ghxd.enc.json` is an **ignored run
 
 For the ARM writer and independent reader: prove separate flake invocations can consume the existing encrypted credential in memory; both can perform an authenticated GitHub API operation; writer can serialize a single refresh and atomically publish the replacement; both can consume the replacement; independent-store closure export/import works; all secret values and age private keys remain absent from store paths, logged output, and tracked Git files.
 
-**Existing evidence:** native SOPS encryption, cross-container decryption, local device authorization, and ciphertext persistence after bootstrap refresh passed. Live cross-flake token consumption, OAuth refresh, and independent-store closure import are implemented as a new local qualification but remain unqualified on the target Mac until executed.
+**Existing evidence:** native SOPS encryption, cross-container decryption, device authorization, ciphertext persistence, authenticated cross-flake use, token refresh, independent-store wrapper closure transfer, and non-rotating reuse all passed on the target Mac using the earlier binary-backed qualifier. The source-driven variant below requires a separate local run.
 
 Run the new qualification against the already bootstrapped writer/reader:
 
@@ -45,7 +45,7 @@ make qualify-ghxd-runtime PROVIDER=podman MACHINE=podman-machine-default SCOPE=n
 make qualify-ghxd-runtime PROVIDER=podman MACHINE=podman-machine-default SCOPE=nix-xd-smoke-podman ROTATE=1
 ```
 
-The plain flake uses a fresh Nix-launched wrapper. The nested flake dispatches that plain flake with bounded recursion. The reader executes imported closures directly rather than re-evaluating nixpkgs in a separate store; both invoke the same workspace-mounted Smoke executable and SOPS credential. This proves flake *runtime closure* transfer, not a Nix-built Smoke artifact or a generic host-admin RPC.
+The plain flake uses a Nix-launched wrapper that invokes `/workspaces/bin/nix-xd-smoke-source`, which enters Nix-Alpine's Go toolchain and runs Smoke from the source checkout via `go run`. The nested flake dispatches the plain wrapper with bounded recursion. The reader executes imported wrapper closures directly, while its source-level Smoke invocation may independently evaluate the Nix Go devShell and compile from source. Only wrappers are copied between stores; no Smoke application binary is exported or installed. This proves wrapper closure transfer plus source-level application execution, not independent Smoke binary packaging or generic host-admin RPC.
 
 ## Integration-first follow-up (2026-11)
 
@@ -61,9 +61,8 @@ Do not repeat credential rotation merely to exercise an unrelated runner gate.
   require explicitly supplying `HOST_ALLOWED_ACTIONS=status,restart` (or
   another narrow action list). The default allows only status. This is a
   local control-plane primitive, **not yet a guest-to-host RPC endpoint**.
-- An independent store-built Smoke executable remains a distinct gate.
-  The current plain/nested wrappers execute the shared workspace Smoke binary;
-  do not label the wrapper closure result as independent Smoke packaging.
+- Independent store-built Smoke binaries are intentionally deferred while Smoke's interface changes. The GHXD qualifiers now use `go run` through the Nix-Alpine toolchain; wrapper closures remain the only Nix application artifacts under test.
+- The older `qualify-smoke` target still checks a workspace-installed binary's persistence across a bootstrap refresh. It remains a separate legacy qualification and is not part of source-driven GHXD gates.
 
 Security checks should follow the trust boundary: no age identity or plaintext
 credential in Nix evaluation/build inputs; runtime-only decryption; ciphertext
@@ -71,3 +70,7 @@ checkpoint permissions; intentionally redacted errors and bounded command
 output. Never introduce literal production-token fixtures or literal-token
 searching into qualification tests. A small number of synthetic fixtures is
 sufficient where tests exercise the native secrets interface.
+
+## Source execution qualification
+
+Run `make check-static` followed by `make qualify-ghxd-runtime ROTATE=0` on the existing writer and reader. This source-driven run verifies current Smoke source execution and authenticated API access without any new OAuth exchange. Run `ROTATE=1` only when intentionally testing refresh, not simply to verify the new Go execution path. If the access token has expired, the non-rotating test may fail even when source execution itself is correct.
