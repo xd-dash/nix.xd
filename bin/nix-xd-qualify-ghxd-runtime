@@ -69,6 +69,13 @@ preflight() {
   guest "$reader" test ! -w /workspaces
   guest "$writer" test -w /nix
   guest "$reader" test -w /nix
+  local writer_store reader_store
+  writer_store="$(podman --connection "$machine" inspect "$writer" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')"
+  reader_store="$(podman --connection "$machine" inspect "$reader" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')"
+  [[ "$writer_store" == "$writer-store" && "$reader_store" == "$reader-store" ]] || {
+    echo 'Independent Nix store volumes are missing or unexpectedly shared' >&2
+    return 1
+  }
   guest "$writer" test -r /workspaces/tests/ghxd-runtime-flakes/plain/flake.nix
   guest "$reader" test -r /workspaces/tests/ghxd-runtime-flakes/nested/flake.nix
   guest "$writer" test ! -e /nix/store/ghxd.enc.json
