@@ -145,7 +145,7 @@ qualify-ghxd-auth:
 # ROTATE=1 explicitly authorizes a single GitHub refresh-token exchange.
 # ROTATE=0 verifies live use, nested flakes and independent Nix stores read-only.
 qualify-ghxd-runtime:
-	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_ROTATE='$(ROTATE)' GITHUB_CLIENT_ID='$(GITHUB_CLIENT_ID)' \\
+	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_ROTATE='$(ROTATE)' GITHUB_CLIENT_ID='$(GITHUB_CLIENT_ID)' \
 	  bash bin/nix-xd-log "$(SCOPE)" qualify-ghxd-runtime bash bin/nix-xd-qualify-ghxd-runtime
 
 qualify-ghxd:
