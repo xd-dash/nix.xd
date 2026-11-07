@@ -5,33 +5,43 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
-
-cat > "$tmp/bin/gh" <<'MOCK'
+cat > "$tmp/bin/podman" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "$*" == 'auth status --hostname github.com' ]]; then exit 0; fi
-[[ "${GH_PROMPT_DISABLED:-}" == 1 && "${GIT_TERMINAL_PROMPT:-}" == 0 ]]
-[[ "$*" == 'variable get APP_CLIENT_ID --repo xd-dash/huram-abi-master' ]]
-printf '%s\n' 'Iv1.synthetic-test-public-id'
+[[ "$1" == --connection && "$2" == podman-machine-default ]]
+shift 2
+[[ "$1" == exec && "$2" == nix-xd-smoke-podman ]]
+shift 2
+[[ "$1" == nix && "$2" == develop ]]
+[[ "$3" == /workspaces/nix-alpine/nix-alpine/toolbox#security && "$4" == -c ]]
+shift 4
+[[ "$1" == gh ]]
+shift
+case "$*" in
+  'auth status --hostname github.com') exit 0 ;;
+  'variable get APP_CLIENT_ID --repo xd-dash/huram-abi-master') printf '%s\n' 'Iv1.synthetic-public-client-id' ;;
+  *) exit 39 ;;
+esac
 MOCK
-chmod +x "$tmp/bin/gh"
+chmod +x "$tmp/bin/podman"
 
-result="$(env -u GITHUB_CLIENT_ID PATH="$tmp/bin:$PATH" bash "$root/bin/nix-xd-ghxd-client-id" </dev/null)"
-[[ "$result" == Iv1.synthetic-test-public-id ]] || { echo 'Wrong client ID source' >&2; exit 1; }
-result="$(GITHUB_CLIENT_ID=Iv1.explicit-public-client-id PATH="$tmp/bin:$PATH" bash "$root/bin/nix-xd-ghxd-client-id" </dev/null)"
-[[ "$result" == Iv1.explicit-public-client-id ]] || { echo 'Explicit client ID override failed' >&2; exit 1; }
+result="$(env -u GITHUB_CLIENT_ID NIX_XD_MACHINE=podman-machine-default NIX_XD_SCOPE=nix-xd-smoke-podman PATH="$tmp/bin:$PATH" bash "$root/bin/nix-xd-ghxd-client-id" </dev/null)"
+[[ "$result" == Iv1.synthetic-public-client-id ]]
+result="$(GITHUB_CLIENT_ID=Iv1.explicit-client-id PATH="$tmp/bin:$PATH" bash "$root/bin/nix-xd-ghxd-client-id" </dev/null)"
+[[ "$result" == Iv1.explicit-client-id ]]
 
-cat > "$tmp/bin/gh" <<'MOCK'
+cat > "$tmp/bin/podman" <<'MOCK'
 #!/usr/bin/env bash
-exit 1
+exit 27
 MOCK
-chmod +x "$tmp/bin/gh"
+chmod +x "$tmp/bin/podman"
 if env -u GITHUB_CLIENT_ID PATH="$tmp/bin:$PATH" bash "$root/bin/nix-xd-ghxd-client-id" </dev/null >"$tmp/out" 2>"$tmp/err"; then
-  echo 'Resolver did not fail closed when repository variable unavailable' >&2
+  echo 'Client ID discovery accepted a failed Nix guest authentication' >&2
   exit 1
 fi
 [[ ! -s "$tmp/out" ]]
 grep -Fq 'GHXD_CLIENT_ID=UNAVAILABLE' "$tmp/err"
-! grep -Fq 'GitHub App client ID: ' "$root/bin/nix-xd-qualify-ghxd-auth"
+! grep -Fq 'brew' "$root/bin/nix-xd-ghxd-client-id"
+grep -Fq 'toolbox#security' "$root/bin/nix-xd-ghxd-client-id"
 grep -Fq 'bin/nix-xd-ghxd-client-id' "$root/bin/nix-xd-qualify-ghxd-auth"
-echo 'PASS: existing gh session resolves huram-abi-master Actions variable without prompts; unavailable credentials fail closed'
+echo 'PASS: gh is supplied by Nix-Alpine flake, not host Homebrew; no client-ID prompt'
