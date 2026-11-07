@@ -7,7 +7,7 @@ machine="${NIX_XD_MACHINE:-podman-machine-default}"
 writer="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
 reader="${NIX_XD_READER_SCOPE:-$writer-reader}"
 age_volume="$writer-age"
-smoke=/workspaces/.smoke-ghxd-state/bin/smoke
+smoke=/workspaces/bin/nix-xd-smoke-source
 security=/workspaces/nix-alpine/nix-alpine/toolbox#security
 probe=/workspaces/.private/sops/.qualification-probe.enc.json
 step=preflight
@@ -75,20 +75,20 @@ key_contract() {
 smoke_build() {
   podman --connection "$machine" exec --env SMOKE_STATE_DIR=/workspaces/.smoke-ghxd-state \
     "$writer" nix develop "$security" -c bash /workspaces/compositions/smoke/tools/nix-alpine.sh test
-  podman --connection "$machine" exec --env SMOKE_STATE_DIR=/workspaces/.smoke-ghxd-state \
-    "$writer" nix develop "$security" -c bash /workspaces/compositions/smoke/tools/nix-alpine.sh build
-  guest "$writer" test -x "$smoke"
-  guest "$writer" "$smoke" commands | grep -Fx secrets
+  guest "$writer" test -r "$smoke"
+  guest "$reader" test -r "$smoke"
+  guest "$writer" bash "$smoke" commands | grep -Fx secrets
+  echo 'SMOKE_EXECUTION=SOURCE go_run=true binary_install=false'
 }
 synthetic_seal() {
   guest "$writer" test ! -e "$probe"
   printf '{"probe":"synthetic-only"}\n' |
-    podman --connection "$machine" exec -i "$writer" "$smoke" secrets seal-json "$probe"
+    podman --connection "$machine" exec -i "$writer" bash "$smoke" secrets seal-json "$probe"
   probe_created=1
 }
 synthetic_verify() {
-  guest "$writer" "$smoke" secrets verify-json "$probe"
-  guest "$reader" "$smoke" secrets verify-json "$probe"
+  guest "$writer" bash "$smoke" secrets verify-json "$probe"
+  guest "$reader" bash "$smoke" secrets verify-json "$probe"
   printf 'SOPS_NATIVE_CROSS_CONTAINER=PASS\n'
 }
 resolved_client_id=""
@@ -113,12 +113,12 @@ interactive_authorize() {
   # The device code is written directly to the real terminal, never to the
   # log wrapper's stdout/stderr streams. OAuth token bytes never leave Smoke.
   podman --connection "$machine" exec -it --env "GITHUB_CLIENT_ID=$client_id" \
-    "$writer" "$smoke" ghxd-secrets auth </dev/tty >/dev/tty 2>/dev/tty
+    "$writer" bash "$smoke" ghxd-secrets auth </dev/tty >/dev/tty 2>/dev/tty
   echo 'GHXD_DEVICE_FLOW=APPROVED_AND_SOPS_ENCRYPTED'
 }
 token_verification() {
-  guest "$writer" "$smoke" ghxd-secrets status
-  guest "$reader" "$smoke" ghxd-secrets status
+  guest "$writer" bash "$smoke" ghxd-secrets status
+  guest "$reader" bash "$smoke" ghxd-secrets status
   echo 'GHXD_ENCRYPTED_TOKEN_CROSS_CONTAINER=PASS'
 }
 reuse_check() {
@@ -126,10 +126,10 @@ reuse_check() {
   digest_before="$(shasum -a 256 "$root/.private/sops/ghxd.enc.json")"
   bootstrap_scope "$writer" rw rw
   key_contract
-  guest "$reader" "$smoke" secrets inspect /workspaces/.private/sops/ghxd.enc.json
+  guest "$reader" bash "$smoke" secrets inspect /workspaces/.private/sops/ghxd.enc.json
   digest_after="$(shasum -a 256 "$root/.private/sops/ghxd.enc.json")"
   [[ "$digest_before" == "$digest_after" ]] || { echo 'Encrypted credential mutated during runtime restart' >&2; return 1; }
-  guest "$writer" "$smoke" ghxd-secrets status
+  guest "$writer" bash "$smoke" ghxd-secrets status
   echo 'GHXD_TOKEN_PERSISTENCE=PASS'
 }
 
