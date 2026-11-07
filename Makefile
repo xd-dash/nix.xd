@@ -73,7 +73,7 @@ help:
 	  'make workspace-check PROVIDER=podman        Verify VM mount, keep-id, persistent /nix' \
 	  'make qualify-smoke PROVIDER=podman         Full logged Smoke test, build and refresh qualification' \
 	  'make qualify-ghxd                        Two-runner Go cache, Nix, SOPS/age qualification' \
-	  'make qualify-ghxd-runtime ROTATE=1        Live GHXD, nested flakes, closure transfer, and explicit token refresh' \
+	  'make qualify-ghxd-runtime ROTATE=0        Source-driven GHXD, nested flakes, closure transfer; ROTATE=1 refreshes' \
 	  'make store-export STORE_PATH=/nix/store/...  Publish closure in mounted workspace cache' \
 	  'make store-import STORE_PATH=/nix/store/...  Import closure into isolated Nix store' \
 	  'make share-check READER_SCOPE=...            Legacy Apple VM sharing diagnostic' \
@@ -225,7 +225,8 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-qualify-ghxd-auth bin/nix-xd-qualify-ghxd-runtime bin/nix-xd-ghxd-auth bin/nix-xd-ghxd-client-id bin/nix-xd-ghxd-token-check bin/nix-xd-store-copy bin/nix-xd-host-dispatch bin/nix-xd-qualify-go-cache
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-qualify-ghxd-auth bin/nix-xd-qualify-ghxd-runtime bin/nix-xd-ghxd-auth bin/nix-xd-ghxd-client-id bin/nix-xd-ghxd-token-check bin/nix-xd-store-copy bin/nix-xd-host-dispatch bin/nix-xd-qualify-go-cache bin/nix-xd-smoke-source
+	@bash tests/smoke-source-contract.sh
 	@bash tests/host-dispatch-contract.sh
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
