@@ -46,3 +46,28 @@ make qualify-ghxd-runtime PROVIDER=podman MACHINE=podman-machine-default SCOPE=n
 ```
 
 The plain flake uses a fresh Nix-launched wrapper. The nested flake dispatches that plain flake with bounded recursion. The reader executes imported closures directly rather than re-evaluating nixpkgs in a separate store; both invoke the same workspace-mounted Smoke executable and SOPS credential. This proves flake *runtime closure* transfer, not a Nix-built Smoke artifact or a generic host-admin RPC.
+
+## Integration-first follow-up (2026-11)
+
+The successful ROTATE=1 and ROTATE=0 qualifications remain the evidence for
+native credential rotation and cross-container Nix *wrapper* closure execution.
+Do not repeat credential rotation merely to exercise an unrelated runner gate.
+
+- `make qualify-go-cache PROVIDER=podman SCOPE=nix-xd-smoke-podman`
+  checks native Go test result cache reuse. It is read-only with respect to
+  GitHub credentials.
+- `make host-dispatch PROVIDER=podman SCOPE=nix-xd-smoke-podman HOST_ACTION=status`
+  runs a local host-side allowlisted status query. State-changing actions
+  require explicitly supplying `HOST_ALLOWED_ACTIONS=status,restart` (or
+  another narrow action list). The default allows only status. This is a
+  local control-plane primitive, **not yet a guest-to-host RPC endpoint**.
+- An independent store-built Smoke executable remains a distinct gate.
+  The current plain/nested wrappers execute the shared workspace Smoke binary;
+  do not label the wrapper closure result as independent Smoke packaging.
+
+Security checks should follow the trust boundary: no age identity or plaintext
+credential in Nix evaluation/build inputs; runtime-only decryption; ciphertext
+checkpoint permissions; intentionally redacted errors and bounded command
+output. Never introduce literal production-token fixtures or literal-token
+searching into qualification tests. A small number of synthetic fixtures is
+sufficient where tests exercise the native secrets interface.
