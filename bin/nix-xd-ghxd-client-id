@@ -1,41 +1,33 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+scope="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
+flake=/workspaces/nix-alpine/nix-alpine/toolbox#security
 
 if [[ -n "${GITHUB_CLIENT_ID:-}" ]]; then
   client_id="$GITHUB_CLIENT_ID"
 else
-  if ! command -v gh >/dev/null 2>&1; then
-    if [[ "$(uname -s)" != Darwin ]] || ! command -v brew >/dev/null 2>&1; then
-      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=missing-gh-and-homebrew' >&2
+  # The macOS host is only a Podman transport. Both gh and the auth
+  # session run in the Nix-provided guest toolchain.
+  if ! podman --connection "$machine" exec "$scope" \
+      nix develop "$flake" -c gh auth status --hostname github.com >/dev/null 2>&1; then
+    [[ -r /dev/tty && -w /dev/tty ]] || {
+      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=guest-gh-auth-needs-tty' >&2
       exit 2
-    fi
-    echo 'GHXD_CLIENT_ID_SETUP=installing-github-cli'
-    HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_UPGRADE=1 \
-      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install gh >&2
-    command -v gh >/dev/null 2>&1 || {
-      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=gh-install-failed' >&2
+    }
+    echo 'GHXD_CLIENT_ID_SETUP=guest-gh-auth (interaction excluded from log)' >&2
+    podman --connection "$machine" exec -it "$scope" \
+      nix develop "$flake" -c gh auth login \
+        --hostname github.com --git-protocol https --web \
+        </dev/tty >/dev/tty 2>/dev/tty || {
+      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=guest-gh-auth-failed' >&2
       exit 2
     }
   fi
-
-  if ! GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 gh auth status --hostname github.com >/dev/null 2>&1; then
-    if [[ ! -r /dev/tty || ! -w /dev/tty ]]; then
-      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=github-cli-auth-required-no-tty' >&2
-      exit 2
-    fi
-    echo 'GHXD_CLIENT_ID_SETUP=github-cli-auth-required (login interaction excluded from log)' >&2
-    # Do not route a browser verification code or OAuth response through tee.
-    gh auth login --hostname github.com --git-protocol https --web \
-      </dev/tty >/dev/tty 2>/dev/tty || {
-      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=github-cli-auth-failed' >&2
-      exit 2
-    }
-  fi
-
-  # This is the public OAuth client ID, not the GitHub App numeric ID.
-  # The variable is authoritative in the original huram-abi-master repo.
-  if ! client_id="$(GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 \
-      gh variable get APP_CLIENT_ID --repo xd-dash/huram-abi-master 2>/dev/null)"; then
+  if ! client_id="$(podman --connection "$machine" exec "$scope" \
+    nix develop "$flake" -c gh variable get APP_CLIENT_ID \
+      --repo xd-dash/huram-abi-master 2>/dev/null)"; then
     echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=huram-abi-master-actions-variable' >&2
     exit 2
   fi
