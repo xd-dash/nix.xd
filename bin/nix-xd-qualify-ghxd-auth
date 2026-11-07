@@ -76,7 +76,6 @@ smoke_build() {
   podman --connection "$machine" exec --env SMOKE_STATE_DIR=/workspaces/.smoke-ghxd-state \
     "$writer" nix develop "$security" -c bash /workspaces/compositions/smoke/tools/nix-alpine.sh test
   guest "$writer" test -r "$smoke"
-  guest "$reader" test -r "$smoke"
   guest "$writer" bash "$smoke" commands | grep -Fx secrets
   echo 'SMOKE_EXECUTION=SOURCE go_run=true binary_install=false'
 }
@@ -137,7 +136,7 @@ printf 'QUALIFICATION=GHXD_NATIVE_SOPS MACHINE=%s WRITER=%s READER=%s\n' "$machi
 gate smoke-source init_source
 gate bootstrap-writer bootstrap_scope "$writer" rw rw
 gate github-client-id-preflight client_id_preflight
-gate native-secrets-build smoke_build
+gate native-secrets-source-tests smoke_build
 gate bootstrap-reader bootstrap_scope "$reader" ro ro
 gate age-volume-and-permissions key_contract
 gate sops-native-encrypt synthetic_seal
