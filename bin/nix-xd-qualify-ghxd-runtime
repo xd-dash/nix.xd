@@ -14,6 +14,8 @@ credential=/workspaces/.private/sops/ghxd.enc.json
 cache=/workspaces/.cache/nix/ghxd-runtime
 step=preflight
 completed=()
+closure_plain=''
+closure_nested=''
 
 [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
 [[ "$writer" =~ ^[a-z][a-z0-9-]{0,39}$ && "$reader" =~ ^[a-z][a-z0-9-]{0,39}$ && "$writer" != "$reader" ]] || exit 2
@@ -44,8 +46,20 @@ guest() {
 }
 runner() {
   local scope="$1" flake="$2"
-  guest "$scope" nix --offline run --no-write-lock-file \
-    "/workspaces/tests/ghxd-runtime-flakes/$flake#default"
+  if [[ "$scope" == "$reader" ]]; then
+    # The reader executes packages copied into its independent store. It need
+    # not download or evaluate nixpkgs just to execute an imported closure.
+    if [[ "$flake" == plain ]]; then
+      guest "$reader" "$closure_plain/bin/ghxd-plain"
+    else
+      podman --connection "$machine" exec \
+        --env "NIX_XD_PLAIN_RUNNER=$closure_plain/bin/ghxd-plain" \
+        "$reader" "$closure_nested/bin/ghxd-nested"
+    fi
+  else
+    guest "$writer" nix --offline run --no-write-lock-file \
+      "/workspaces/tests/ghxd-runtime-flakes/$flake#default"
+  fi
 }
 preflight() {
   command -v podman >/dev/null
@@ -83,6 +97,10 @@ build_store_closures() {
     guest "$writer" nix copy --to "file://$cache" "$path"
     guest "$reader" nix copy --no-check-sigs --from "file://$cache" "$path"
     guest "$reader" nix path-info --recursive "$path" >/dev/null
+    case "$variant" in
+      plain) closure_plain="$path" ;;
+      nested) closure_nested="$path" ;;
+    esac
     printf 'NIX_CLOSURE_TRANSFER=PASS variant=%s independent_store=true\n' "$variant"
   done
 }
