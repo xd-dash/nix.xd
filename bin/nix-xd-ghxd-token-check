@@ -9,7 +9,7 @@ for runner in "$scope" "$reader"; do
   printf 'GHXD_TOKEN_READ_GATE=%s START\n' "$runner"
   podman --connection "$machine" exec "$runner" \
     nix develop /workspaces/nix-alpine/nix-alpine/toolbox#security \
-    -c /workspaces/.smoke-ghxd-state/bin/smoke ghxd-secrets status
+    -c bash /workspaces/bin/nix-xd-smoke-source ghxd-secrets status
   printf 'GHXD_TOKEN_READ_GATE=%s PASS\n' "$runner"
 done
 printf 'GHXD_TOKEN_CROSS_CONTAINER=PASS\n'
