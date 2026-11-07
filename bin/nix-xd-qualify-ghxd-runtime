@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+writer="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
+reader="${NIX_XD_READER_SCOPE:-$writer-reader}"
+rotate="${NIX_XD_ROTATE:-0}"
+client_id="${GITHUB_CLIENT_ID:-Iv23liMVk7y7cjktnJAR}"
+smoke=/workspaces/.smoke-ghxd-state/bin/smoke
+security=/workspaces/nix-alpine/nix-alpine/toolbox#security
+credential=/workspaces/.private/sops/ghxd.enc.json
+cache=/workspaces/.cache/nix/ghxd-runtime
+step=preflight
+completed=()
+
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$writer" =~ ^[a-z][a-z0-9-]{0,39}$ && "$reader" =~ ^[a-z][a-z0-9-]{0,39}$ && "$writer" != "$reader" ]] || exit 2
+[[ "$rotate" == 0 || "$rotate" == 1 ]] || { echo 'ROTATE must be 0 or 1' >&2; exit 2; }
+[[ "$client_id" =~ ^[A-Za-z0-9_.-]{4,128}$ ]] || exit 2
+
+finish() {
+  local rc=$?
+  trap - EXIT
+  if (( rc == 0 )); then
+    printf 'GHXD_RUNTIME_QUALIFICATION=PASS rotate=%s gates=%s\n' "$rotate" "${completed[*]}"
+  else
+    printf 'GHXD_RUNTIME_QUALIFICATION=FAIL gate=%s code=%d completed=%s\n' "$step" "$rc" "${completed[*]}" >&2
+  fi
+  exit "$rc"
+}
+trap finish EXIT
+gate() {
+  step="$1"; shift
+  printf '\n========== GATE=%s START ==========\n' "$step"
+  "$@"
+  completed+=("$step")
+  printf '========== GATE=%s PASS ==========\n' "$step"
+}
+guest() {
+  local scope="$1"; shift
+  podman --connection "$machine" exec "$scope" "$@"
+}
+runner() {
+  local scope="$1" flake="$2"
+  guest "$scope" nix --offline run --no-write-lock-file \
+    "/workspaces/tests/ghxd-runtime-flakes/$flake#default"
+}
+preflight() {
+  command -v podman >/dev/null
+  guest "$writer" test -r "$credential"
+  guest "$reader" test -r "$credential"
+  guest "$writer" test -w /workspaces
+  guest "$reader" test ! -w /workspaces
+  guest "$writer" test -w /nix
+  guest "$reader" test -w /nix
+  guest "$writer" test -r /workspaces/tests/ghxd-runtime-flakes/plain/flake.nix
+  guest "$reader" test -r /workspaces/tests/ghxd-runtime-flakes/nested/flake.nix
+  guest "$writer" test ! -e /nix/store/ghxd.enc.json
+  printf 'GHXD_RUNTIME_PREFLIGHT=PASS shared_ciphertext=true distinct_stores=true\n'
+}
+build_smoke() {
+  bash "$root/bin/nix-xd-sync" xd-dash/smoke codex/sops-age-native-bootstrap "$root" compositions/smoke
+  podman --connection "$machine" exec --env SMOKE_STATE_DIR=/workspaces/.smoke-ghxd-state \
+    "$writer" nix develop "$security" -c bash /workspaces/compositions/smoke/tools/nix-alpine.sh test
+  podman --connection "$machine" exec --env SMOKE_STATE_DIR=/workspaces/.smoke-ghxd-state \
+    "$writer" nix develop "$security" -c bash /workspaces/compositions/smoke/tools/nix-alpine.sh build
+  guest "$writer" test -x "$smoke"
+  guest "$reader" test -x "$smoke"
+}
+build_store_closures() {
+  local variant path
+  guest "$writer" mkdir -p "$cache"
+  for variant in plain nested; do
+    path="$(guest "$writer" nix build --no-link --print-out-paths --no-write-lock-file \
+      "/workspaces/tests/ghxd-runtime-flakes/$variant#default")"
+    [[ "$path" =~ ^/nix/store/[a-z0-9]{32}-[A-Za-z0-9+._-]+$ ]] || {
+      echo 'Nix flake did not return exactly one store path' >&2
+      return 2
+    }
+    guest "$writer" nix path-info --recursive "$path" >/dev/null
+    guest "$writer" nix copy --to "file://$cache" "$path"
+    guest "$reader" nix copy --no-check-sigs --from "file://$cache" "$path"
+    guest "$reader" nix path-info --recursive "$path" >/dev/null
+    printf 'NIX_CLOSURE_TRANSFER=PASS variant=%s independent_store=true\n' "$variant"
+  done
+}
+probe_both_flakes() {
+  local scope variant
+  for scope in "$writer" "$reader"; do
+    for variant in plain nested; do
+      runner "$scope" "$variant"
+      printf 'GHXD_CROSS_FLAKE=PASS scope=%s variant=%s live_api=true\n' "$scope" "$variant"
+    done
+  done
+}
+rotate_once() {
+  if [[ "$rotate" != 1 ]]; then
+    printf 'GHXD_REFRESH=SKIPPED reason=ROTATE-not-set\n'
+    return
+  fi
+  local before after
+  before="$(guest "$writer" sha256sum "$credential")"
+  printf 'GHXD_REFRESH=START writer=%s encrypted_only=true\n' "$writer"
+  podman --connection "$machine" exec --env "GITHUB_CLIENT_ID=$client_id" \
+    "$writer" "$smoke" ghxd-secrets refresh
+  after="$(guest "$writer" sha256sum "$credential")"
+  [[ "$before" != "$after" ]] || { echo 'Refreshed ciphertext did not change' >&2; return 1; }
+  guest "$writer" test "$(guest "$writer" stat -c %a "$credential")" = 600
+  printf 'GHXD_REFRESH_CIPHERTEXT=PASS changed=true mode=0600\n'
+}
+post_refresh_readers() {
+  if [[ "$rotate" != 1 ]]; then
+    echo 'GHXD_REFRESH_READERS=SKIPPED reason=ROTATE-not-set'
+    return
+  fi
+  probe_both_flakes
+  guest "$writer" "$smoke" ghxd-secrets status
+  guest "$reader" "$smoke" ghxd-secrets status
+  echo 'GHXD_REFRESH_READERS=PASS new_pair_visible=true'
+}
+
+printf 'GHXD_RUNTIME_QUALIFICATION=START writer=%s reader=%s rotate=%s\n' "$writer" "$reader" "$rotate"
+gate runtime-preflight preflight
+gate smoke-build build_smoke
+gate independent-store-closure-transfer build_store_closures
+gate live-token-cross-flake-and-reader probe_both_flakes
+gate serialized-refresh rotate_once
+gate post-refresh-live-reader post_refresh_readers
