@@ -42,7 +42,7 @@ shift
 case "$*" in
   'auth status --hostname github.com') exit 0 ;;
   'api repos/xd-dash/huram-abi-master/environments/master/variables/APP_CLIENT_ID --jq .value') echo 'HTTP 404 Not Found' >&2; exit 1 ;;
-  'api repos/xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID --jq .value') printf '%s\\n' 'Iv1.repo-fallback-id' ;;
+  'api repos/xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID --jq .value') printf '%s\n' 'Iv1.repo-fallback-id' ;;
   *) exit 39 ;;
 esac
 MOCK
