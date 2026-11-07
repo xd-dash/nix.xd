@@ -99,7 +99,7 @@ client_id_preflight() {
   fi
   resolved_client_id="$(NIX_XD_MACHINE="$machine" NIX_XD_SCOPE="$writer" \
     bash "$root/bin/nix-xd-ghxd-client-id")" || return
-  echo 'GHXD_CLIENT_ID_SOURCE=xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID (or explicit override)'
+  echo 'GHXD_CLIENT_ID_SOURCE=xd-dash/huram-abi-master/master-environment-or-repository-variable (or explicit override)'
 }
 interactive_authorize() {
   if [[ -f "$root/.private/sops/ghxd.enc.json" ]]; then
