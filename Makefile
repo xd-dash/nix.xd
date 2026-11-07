@@ -71,7 +71,7 @@ help:
 	  'make smoke PROVIDER=container               Legacy Apple runtime probe (rollback only)' \
 	  'make workspace-check PROVIDER=podman        Verify VM mount, keep-id, persistent /nix' \
 	  'make qualify-smoke PROVIDER=podman         Full logged Smoke test, build and refresh qualification' \
-	  'make qualify-ghxd                        Two-runner Go cache, Nix, SOPS/age qualification' \\
+	  'make qualify-ghxd                        Two-runner Go cache, Nix, SOPS/age qualification' \
 	  'make qualify-ghxd-runtime ROTATE=1        Live GHXD, nested flakes, closure transfer, and explicit token refresh' \
 	  'make store-export STORE_PATH=/nix/store/...  Publish closure in mounted workspace cache' \
 	  'make store-import STORE_PATH=/nix/store/...  Import closure into isolated Nix store' \
