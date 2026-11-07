@@ -19,7 +19,7 @@ shift 4
 shift
 case "$*" in
   'auth status --hostname github.com') exit 0 ;;
-  'api repos/xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID --jq .value') printf '%s\n' 'Iv1.synthetic-public-client-id' ;;
+  'api repos/xd-dash/huram-abi-master/environments/master/variables/APP_CLIENT_ID --jq .value') printf '%s\n' 'Iv1.synthetic-public-client-id' ;;
   *) exit 39 ;;
 esac
 MOCK
@@ -27,6 +27,30 @@ chmod +x "$tmp/bin/podman"
 
 result="$(env -u GITHUB_CLIENT_ID NIX_XD_MACHINE=podman-machine-default NIX_XD_SCOPE=nix-xd-smoke-podman PATH="$tmp/bin:$PATH" bash "$root/bin/nix-xd-ghxd-client-id" </dev/null)"
 [[ "$result" == Iv1.synthetic-public-client-id ]]
+# Force an environment 404 and prove the repository-level fallback remains usable.
+cat > "$tmp/bin/podman" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == --connection && "$2" == podman-machine-default ]]
+shift 2
+[[ "$1" == exec && "$2" == nix-xd-smoke-podman ]]
+shift 2
+[[ "$1" == nix && "$2" == develop ]]
+shift 4
+[[ "$1" == gh ]]
+shift
+case "$*" in
+  'auth status --hostname github.com') exit 0 ;;
+  'api repos/xd-dash/huram-abi-master/environments/master/variables/APP_CLIENT_ID --jq .value') echo 'HTTP 404 Not Found' >&2; exit 1 ;;
+  'api repos/xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID --jq .value') printf '%s\\n' 'Iv1.repo-fallback-id' ;;
+  *) exit 39 ;;
+esac
+MOCK
+chmod +x "$tmp/bin/podman"
+fallback="$(env -u GITHUB_CLIENT_ID PATH="$tmp/bin:$PATH" bash "$root/bin/nix-xd-ghxd-client-id" </dev/null 2>"$tmp/fallback-err")"
+[[ "$fallback" == Iv1.repo-fallback-id ]]
+grep -Fq 'GHXD_CLIENT_ID_PROBE=environment' "$tmp/fallback-err"
+
 result="$(GITHUB_CLIENT_ID=Iv1.explicit-client-id PATH="$tmp/bin:$PATH" bash "$root/bin/nix-xd-ghxd-client-id" </dev/null)"
 [[ "$result" == Iv1.explicit-client-id ]]
 
