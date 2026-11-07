@@ -29,4 +29,20 @@ The existing local `/workspaces/.private/sops/ghxd.enc.json` is an **ignored run
 
 For the ARM writer and independent reader: prove separate flake invocations can consume the existing encrypted credential in memory; both can perform an authenticated GitHub API operation; writer can serialize a single refresh and atomically publish the replacement; both can consume the replacement; independent-store closure export/import works; all secret values and age private keys remain absent from store paths, logged output, and tracked Git files.
 
-**Existing evidence:** native SOPS encryption, cross-container decryption, local device authorization, and ciphertext persistence after bootstrap refresh passed. Cross-flake live API consumption, refresh rotation, and independent-store closure transfer remain unqualified.
+**Existing evidence:** native SOPS encryption, cross-container decryption, local device authorization, and ciphertext persistence after bootstrap refresh passed. Live cross-flake token consumption, OAuth refresh, and independent-store closure import are implemented as a new local qualification but remain unqualified on the target Mac until executed.
+
+Run the new qualification against the already bootstrapped writer/reader:
+
+```sh
+make qualify-ghxd-runtime PROVIDER=podman MACHINE=podman-machine-default SCOPE=nix-xd-smoke-podman ROTATE=0
+```
+
+`ROTATE=0` performs live authenticated API requests from both flakes and both containers after copying immutable Nix closures to the reader's independent Nix store. It never modifies the credential.
+
+`ROTATE=1` additionally performs **one live GitHub refresh-token exchange**, which immediately invalidates the prior access/refresh pair, then atomically replaces SOPS ciphertext on the writer and tests the new pair in both containers. It must only run with an active checkpoint and after source/flake validation. The reader's private identity mount stays read-only. The exchange and on-disk replacement cannot be made one atomic transaction with GitHub, so interruption after GitHub rotates but before local durable publication requires explicit recovery (device authorization), not blind retry. Never run multiple refresh qualifiers concurrently.
+
+```sh
+make qualify-ghxd-runtime PROVIDER=podman MACHINE=podman-machine-default SCOPE=nix-xd-smoke-podman ROTATE=1
+```
+
+The plain flake uses a fresh Nix-launched wrapper. The nested flake dispatches that plain flake with bounded recursion. The reader executes imported closures directly rather than re-evaluating nixpkgs in a separate store; both invoke the same workspace-mounted Smoke executable and SOPS credential. This proves flake *runtime closure* transfer, not a Nix-built Smoke artifact or a generic host-admin RPC.
