@@ -3,7 +3,7 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.nix-alpine = {
-    url = "github:dash-xd/nix-alpine/9c0cd198725a4e819c346ab2bd9b2a34dbf79473";
+    url = "github:dash-xd/nix-alpine/1a249cee4b0ec0aa7acca6c8d7afb74eeb71c6f8";
     flake = false;
   };
 
@@ -26,7 +26,7 @@
               export NIX_XD_SOURCE=${self}
               export NIX_XD_HOST_SYSTEM=${hostSystem}
               export NIX_XD_LINUX_SYSTEM=${linuxSystem}
-              export NIX_XD_NIX_ALPINE_REV=9c0cd198725a4e819c346ab2bd9b2a34dbf79473
+              export NIX_XD_NIX_ALPINE_REV=1a249cee4b0ec0aa7acca6c8d7afb74eeb71c6f8
               exec ${pkgs.bash}/bin/bash ${./bin/nix-xd-entry} "$@"
             '';
           };
