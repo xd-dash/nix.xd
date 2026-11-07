@@ -25,25 +25,41 @@ else
       exit 2
     }
   fi
-  # Use the GitHub REST endpoint directly so a failed lookup can be
-  # classified without printing tokens or the complete API response.
+  # Huram's canonical automation runs in the "master" Actions environment.
+  # Environment variables and repository variables have different API paths.
+  # Try the environment first, then the repository fallback.
   local_error="$(mktemp)"
   trap 'rm -f "$local_error"' EXIT
-  if ! client_id="$(podman --connection "$machine" exec "$scope" \
-      nix develop "$flake" -c gh api \
-        repos/xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID \
-        --jq .value 2>"$local_error")"; then
-    if grep -Eq 'HTTP 404|status: 404|Not Found' "$local_error"; then
-      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=repo-variable-not-found-or-inaccessible http=404' >&2
-    elif grep -Eq 'HTTP 403|status: 403|Resource not accessible' "$local_error"; then
-      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=repo-variable-permission-denied http=403' >&2
-    elif grep -Eq 'HTTP 401|status: 401|Bad credentials' "$local_error"; then
-      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=guest-github-auth-rejected http=401' >&2
-    else
-      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=repo-variable-request-failed (redacted)' >&2
+  client_id=""
+  for origin in environment repository; do
+    case "$origin" in
+      environment) path=repos/xd-dash/huram-abi-master/environments/master/variables/APP_CLIENT_ID ;;
+      repository) path=repos/xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID ;;
+    esac
+    : > "$local_error"
+    if client_id="$(podman --connection "$machine" exec "$scope" \
+      nix develop "$flake" -c gh api "$path" --jq .value \
+      2>"$local_error")"; then
+      [[ -n "$client_id" && "$client_id" != null ]] && break
     fi
+    client_id=""
+    if grep -Eq 'HTTP 401|status: 401|Bad credentials' "$local_error"; then
+      echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=guest-github-auth-rejected http=401' >&2
+      exit 2
+    fi
+    if grep -Eq 'HTTP 403|status: 403|Resource not accessible' "$local_error"; then
+      echo "GHXD_CLIENT_ID_PROBE=$origin reason=permission-denied http=403" >&2
+    elif grep -Eq 'HTTP 404|status: 404|Not Found' "$local_error"; then
+      echo "GHXD_CLIENT_ID_PROBE=$origin reason=not-found-or-inaccessible http=404" >&2
+    else
+      echo "GHXD_CLIENT_ID_PROBE=$origin reason=request-failed redacted=true" >&2
+    fi
+  done
+  if [[ -z "$client_id" ]]; then
+    echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=master-environment-and-repository-variable-unavailable' >&2
     exit 2
   fi
+  echo "GHXD_CLIENT_ID_RESOLVED_FROM=$origin" >&2
 fi
 
 [[ "$client_id" =~ ^[A-Za-z0-9_.-]{4,128}$ ]] || {
