@@ -19,7 +19,7 @@ shift 4
 shift
 case "$*" in
   'auth status --hostname github.com') exit 0 ;;
-  'variable get APP_CLIENT_ID --repo xd-dash/huram-abi-master') printf '%s\n' 'Iv1.synthetic-public-client-id' ;;
+  'api repos/xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID --jq .value') printf '%s\n' 'Iv1.synthetic-public-client-id' ;;
   *) exit 39 ;;
 esac
 MOCK
