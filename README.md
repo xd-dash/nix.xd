@@ -1,5 +1,7 @@
 # nix.xd — cross-platform Nix-Alpine entry point
 
+**Runtime secret and nested-flake boundaries:** [docs/SECRET_RUNTIME_CONTRACT.md](docs/SECRET_RUNTIME_CONTRACT.md). Nix-Alpine owns host/runtime administration and independent Nix stores; Smoke optionally owns runtime secret handling and nested application qualification. Only ciphertext and public age recipients may enter the Nix store; private keys and plaintext never do.
+
 **Standard provider: rootless Podman with systemd Quadlets.**
 
 The Mac uses Podman Machine as its Linux host. `nix.xd` selects the
