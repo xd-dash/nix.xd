@@ -158,8 +158,7 @@ This bootstraps or reuses the age volume, builds minimal Smoke from
 `xd-dash/smoke:codex/sops-age-native-bootstrap`, creates a second
 reader scope with the same age volume mounted read-only, and checks a
 synthetic SOPS ciphertext round-trip. If an encrypted GitHub credential
-does not yet exist, the qualification asks for the **public GitHub App
-client ID** (unless `GITHUB_CLIENT_ID` was supplied), then displays
+does not yet exist, the qualification reads the **public GitHub App client ID** from the GitHub Actions repository variable `APP_CLIENT_ID` in `xd-dash/huram-abi-master` using the locally authenticated `gh` CLI (unless `GITHUB_CLIENT_ID` was explicitly supplied). It never prompts for that identifier. If GitHub CLI authentication or repository permissions are missing, it fails closed and records the error. It then displays
 the device code directly on the controlling terminal so the user can
 approve it at GitHub. The verification code and private tokens do not
 enter the log. Smoke requires both access and refresh tokens, encrypts
