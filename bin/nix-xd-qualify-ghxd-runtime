@@ -89,7 +89,7 @@ build_smoke() {
   guest "$reader" test -r "$smoke"
   guest "$writer" test -r /workspaces/compositions/smoke/go.mod
   guest "$reader" test -r /workspaces/compositions/smoke/go.mod
-  printf 'SMOKE_EXECUTION=SOURCE go_run=true binary_install=false\\n'
+  printf 'SMOKE_EXECUTION=SOURCE go_run=true binary_install=false\n'
 }
 build_store_closures() {
   local variant path
