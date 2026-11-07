@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Execute Smoke from the checkout with the Nix-Alpine toolchain.
+# Decryption remains a Smoke runtime operation, never a Nix build input.
+[[ $# -gt 0 ]] || { echo 'Smoke subcommand required' >&2; exit 2; }
+source_dir=/workspaces/compositions/smoke
+toolbox=/workspaces/nix-alpine/nix-alpine/toolbox#security
+[[ -f "$source_dir/go.mod" ]] || { echo 'Smoke checkout missing' >&2; exit 2; }
+cd "$source_dir"
+export GOWORK=off CGO_ENABLED=0
+exec nix develop "$toolbox" -c go run ./cmd/ghxd-minimal "$@"
