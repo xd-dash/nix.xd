@@ -96,23 +96,9 @@ interactive_authorize() {
     echo 'GHXD_DEVICE_FLOW=REUSED_ENCRYPTED_CREDENTIAL'
     return
   fi
-  local client_id="${GITHUB_CLIENT_ID:-}"
-  if [[ -z "$client_id" ]]; then
-    if ! command -v gh >/dev/null 2>&1; then
-      echo 'GitHub CLI is required to read xd-dash/huram-abi-master APP_CLIENT_ID; install gh and authenticate once.' >&2
-      return 2
-    fi
-    # Actions repository variables are not shell variables or GitHub App IDs.
-    # Query the canonical repo explicitly, without any interactive CLI prompt.
-    if ! client_id="$(GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 gh variable get APP_CLIENT_ID --repo xd-dash/huram-abi-master 2>/dev/null)"; then
-      echo 'Cannot read Actions variable APP_CLIENT_ID from xd-dash/huram-abi-master; check gh auth status and repository permission.' >&2
-      return 2
-    fi
-    echo 'GHXD_CLIENT_ID_SOURCE=xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID'
-  else
-    echo 'GHXD_CLIENT_ID_SOURCE=explicit-environment'
-  fi
-  [[ "$client_id" =~ ^[A-Za-z0-9_.-]{4,128}$ ]] || { echo 'Invalid GitHub App client ID' >&2; return 2; }
+  local client_id
+  client_id="$(bash "$root/bin/nix-xd-ghxd-client-id")" || return
+  echo 'GHXD_CLIENT_ID_SOURCE=xd-dash/huram-abi-master/actions/variables/APP_CLIENT_ID (or explicit override)'
   [[ -w /dev/tty ]] || { echo 'Interactive terminal required for GitHub verification code' >&2; return 2; }
   echo 'GHXD_DEVICE_FLOW=AWAITING_USER_APPROVAL (verification code only on controlling TTY, excluded from log)'
   # The device code is written directly to the real terminal, never to the
