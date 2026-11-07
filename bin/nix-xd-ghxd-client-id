@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -n "${GITHUB_CLIENT_ID:-}" ]]; then
+  client_id="$GITHUB_CLIENT_ID"
+else
+  if ! command -v gh >/dev/null 2>&1; then
+    echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=missing-gh-cli; install gh and authenticate to GitHub' >&2
+    exit 2
+  fi
+  # Canonical, non-secret Actions variable from the actual huram-abi-master repo.
+  # Disable prompts because this resolver runs inside a logged qualification.
+  if ! client_id="$(GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 gh variable get APP_CLIENT_ID --repo xd-dash/huram-abi-master 2>/dev/null)"; then
+    echo 'GHXD_CLIENT_ID=UNAVAILABLE reason=actions-variable; check gh auth and xd-dash/huram-abi-master access' >&2
+    exit 2
+  fi
+fi
+
+[[ "$client_id" =~ ^[A-Za-z0-9_.-]{4,128}$ ]] || {
+  echo 'GHXD_CLIENT_ID=INVALID reason=format' >&2
+  exit 2
+}
+# Output is only the public OAuth client identifier; never an app private key
+# or an installation token. The caller captures stdout without printing it.
+printf '%s\n' "$client_id"
