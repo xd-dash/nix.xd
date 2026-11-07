@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+scope="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
+command -v podman >/dev/null
+# Go's own cache evidence, not timing-based assertions.
+podman --connection "$machine" exec "$scope" nix develop \
+  /workspaces/nix-alpine/nix-alpine/toolbox#security -c bash -ec '
+  set -euo pipefail
+  cd /workspaces/compositions/smoke
+  export GOWORK=off CGO_ENABLED=0
+  cache="$(go env GOCACHE)"
+  [[ -d "$cache" && -w "$cache" ]] || { echo "GO_CACHE=FAIL unavailable" >&2; exit 1; }
+  tmp="$(mktemp -d)"
+  trap '\''rm -rf "$tmp"'\'' EXIT
+  go test ./... >"$tmp/first" 2>&1 || { cat "$tmp/first"; exit 1; }
+  go test ./... >"$tmp/second" 2>&1 || { cat "$tmp/second"; exit 1; }
+  if ! grep -Fq "(cached)" "$tmp/second"; then
+    echo "GO_CACHE=FAIL second invocation had no cached test results" >&2
+    exit 1
+  fi
+  echo "GO_CACHE_REUSE=PASS second_run_cached=true"
+  '
