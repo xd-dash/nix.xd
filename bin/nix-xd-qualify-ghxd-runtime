@@ -143,6 +143,13 @@ printf 'GHXD_RUNTIME_QUALIFICATION=START writer=%s reader=%s rotate=%s\n' "$writ
 gate runtime-preflight preflight
 gate smoke-build build_smoke
 gate independent-store-closure-transfer build_store_closures
-gate live-token-cross-flake-and-reader probe_both_flakes
+if [[ "$rotate" == 1 ]]; then
+  # GitHub user access tokens expire after eight hours. The refresh token
+  # remains useful after that; never require a still-live old access token
+  # before explicitly authorized rotation.
+  echo 'GHXD_PRE_REFRESH_LIVE=SKIPPED reason=explicit-refresh-may-follow-access-expiry'
+else
+  gate live-token-cross-flake-and-reader probe_both_flakes
+fi
 gate serialized-refresh rotate_once
 gate post-refresh-live-reader post_refresh_readers
