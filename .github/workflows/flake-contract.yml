@@ -6,8 +6,9 @@ on:
       - flake.lock
       - tests/plan-fixture/flake.nix
       - tests/plan-fixture/flake.lock
-      - bin/nix-xd-entry
+      - tests/ghxd-runtime-flakes/**
       - .github/workflows/flake-contract.yml
+      - bin/nix-xd-entry
   workflow_dispatch:
 jobs:
   flake:
@@ -27,3 +28,17 @@ jobs:
           nix eval --json --apply builtins.attrNames .#apps
           nix eval --raw .#packages.x86_64-linux.operator.name
           nix eval --raw .#packages.aarch64-darwin.operator.name
+      - name: Evaluate and build both GHXD runtime flakes (no credentials)
+        run: |
+          set -euo pipefail
+          git clone --quiet --filter=blob:none \
+            https://github.com/dash-xd/nix-alpine.git nix-alpine/nix-alpine
+          git -C nix-alpine/nix-alpine checkout --quiet 1a249cee4b0ec0aa7acca6c8d7afb74eeb71c6f8
+          sudo ln -s "$GITHUB_WORKSPACE" /workspaces
+          nix build --no-write-lock-file \
+            --out-link /tmp/ghxd-plain ./tests/ghxd-runtime-flakes/plain#default
+          nix build --no-write-lock-file \
+            --out-link /tmp/ghxd-nested ./tests/ghxd-runtime-flakes/nested#default
+          bash -n /tmp/ghxd-plain/bin/ghxd-plain
+          bash -n /tmp/ghxd-nested/bin/ghxd-nested
+          git diff --exit-code -- flake.lock
