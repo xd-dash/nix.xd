@@ -9,6 +9,7 @@ mkdir -p "$tmp/bin"
 cat > "$tmp/bin/gh" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "$*" == 'auth status --hostname github.com' ]]; then exit 0; fi
 [[ "${GH_PROMPT_DISABLED:-}" == 1 && "${GIT_TERMINAL_PROMPT:-}" == 0 ]]
 [[ "$*" == 'variable get APP_CLIENT_ID --repo xd-dash/huram-abi-master' ]]
 printf '%s\n' 'Iv1.synthetic-test-public-id'
@@ -33,4 +34,4 @@ fi
 grep -Fq 'GHXD_CLIENT_ID=UNAVAILABLE' "$tmp/err"
 ! grep -Fq 'GitHub App client ID: ' "$root/bin/nix-xd-qualify-ghxd-auth"
 grep -Fq 'bin/nix-xd-ghxd-client-id' "$root/bin/nix-xd-qualify-ghxd-auth"
-echo 'PASS: GitHub client ID is sourced from huram-abi-master without prompts and fails closed'
+echo 'PASS: existing gh session resolves huram-abi-master Actions variable without prompts; unavailable credentials fail closed'
