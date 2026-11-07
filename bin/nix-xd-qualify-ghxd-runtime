@@ -8,7 +8,7 @@ writer="${NIX_XD_SCOPE:-nix-xd-smoke-podman}"
 reader="${NIX_XD_READER_SCOPE:-$writer-reader}"
 rotate="${NIX_XD_ROTATE:-0}"
 client_id="${GITHUB_CLIENT_ID:-Iv23liMVk7y7cjktnJAR}"
-smoke=/workspaces/.smoke-ghxd-state/bin/smoke
+smoke=/workspaces/bin/nix-xd-smoke-source
 security=/workspaces/nix-alpine/nix-alpine/toolbox#security
 credential=/workspaces/.private/sops/ghxd.enc.json
 cache=/workspaces/.cache/nix/ghxd-runtime
@@ -85,10 +85,11 @@ build_smoke() {
   bash "$root/bin/nix-xd-sync" xd-dash/smoke codex/sops-age-native-bootstrap "$root" compositions/smoke
   podman --connection "$machine" exec --env SMOKE_STATE_DIR=/workspaces/.smoke-ghxd-state \
     "$writer" nix develop "$security" -c bash /workspaces/compositions/smoke/tools/nix-alpine.sh test
-  podman --connection "$machine" exec --env SMOKE_STATE_DIR=/workspaces/.smoke-ghxd-state \
-    "$writer" nix develop "$security" -c bash /workspaces/compositions/smoke/tools/nix-alpine.sh build
-  guest "$writer" test -x "$smoke"
-  guest "$reader" test -x "$smoke"
+  guest "$writer" test -r "$smoke"
+  guest "$reader" test -r "$smoke"
+  guest "$writer" test -r /workspaces/compositions/smoke/go.mod
+  guest "$reader" test -r /workspaces/compositions/smoke/go.mod
+  printf 'SMOKE_EXECUTION=SOURCE go_run=true binary_install=false\\n'
 }
 build_store_closures() {
   local variant path
@@ -129,7 +130,7 @@ rotate_once() {
   before="$(guest "$writer" sha256sum "$credential")"
   printf 'GHXD_REFRESH=START writer=%s encrypted_only=true\n' "$writer"
   podman --connection "$machine" exec --env "GITHUB_CLIENT_ID=$client_id" \
-    "$writer" "$smoke" ghxd-secrets refresh
+    "$writer" bash "$smoke" ghxd-secrets refresh
   after="$(guest "$writer" sha256sum "$credential")"
   [[ "$before" != "$after" ]] || { echo 'Refreshed ciphertext did not change' >&2; return 1; }
   guest "$writer" test "$(guest "$writer" stat -c %a "$credential")" = 600
@@ -141,14 +142,14 @@ post_refresh_readers() {
     return
   fi
   probe_both_flakes
-  guest "$writer" "$smoke" ghxd-secrets status
-  guest "$reader" "$smoke" ghxd-secrets status
+  guest "$writer" bash "$smoke" ghxd-secrets status
+  guest "$reader" bash "$smoke" ghxd-secrets status
   echo 'GHXD_REFRESH_READERS=PASS new_pair_visible=true'
 }
 
 printf 'GHXD_RUNTIME_QUALIFICATION=START writer=%s reader=%s rotate=%s\n' "$writer" "$reader" "$rotate"
 gate runtime-preflight preflight
-gate smoke-build build_smoke
+gate smoke-source-tests build_smoke
 gate independent-store-closure-transfer build_store_closures
 if [[ "$rotate" == 1 ]]; then
   # GitHub user access tokens expire after eight hours. The refresh token
