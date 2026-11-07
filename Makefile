@@ -47,12 +47,13 @@ PLAN_SOURCES ?=
 PLAN_ARTIFACT_MANIFEST ?=
 PLAN_CAPABILITIES ?=
 RETAIN ?= 0
+HOST_ALLOWED_ACTIONS ?= status
 OS := $(shell uname -s)
 
 TASK_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SYSTEM='$(LINUX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_WORKSPACE_MODE='$(WORKSPACE_MODE)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
-.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan qualify-smoke qualify-ghxd qualify-ghxd-auth qualify-ghxd-runtime ghxd-auth ghxd-token-check age-setup smoke workspace-check refresh inventory store-export store-import share-check check-static
+.PHONY: help bootstrap plan image-build machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan qualify-smoke qualify-ghxd qualify-ghxd-auth qualify-ghxd-runtime ghxd-auth ghxd-token-check age-setup smoke workspace-check refresh inventory store-export store-import share-check check-static host-dispatch
 
 help:
 	@printf '%s\n' \
@@ -76,7 +77,8 @@ help:
 	  'make store-export STORE_PATH=/nix/store/...  Publish closure in mounted workspace cache' \
 	  'make store-import STORE_PATH=/nix/store/...  Import closure into isolated Nix store' \
 	  'make share-check READER_SCOPE=...            Legacy Apple VM sharing diagnostic' \
-	  'make check-static                            Host-independent static checks'
+	  'make host-dispatch SCOPE=... HOST_ACTION=status  Explicit host-only allowlisted dispatch' \
+\t  'make check-static                            Host-independent static checks'
 
 bootstrap:
 	@test "$(OS)" = Darwin || { echo "macOS bootstrap requires Darwin" >&2; exit 1; }
@@ -157,6 +159,9 @@ qualify-smoke:
 	@test "$(PROVIDER)" = podman || { echo 'qualify-smoke requires PROVIDER=podman' >&2; exit 2; }
 	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' bash bin/nix-xd-log "$(SCOPE)" qualify-smoke bash bin/nix-xd-qualify-smoke
 
+host-dispatch:
+	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_HOST_ALLOWED_ACTIONS='$(HOST_ALLOWED_ACTIONS)' bash bin/nix-xd-host-dispatch '$(HOST_ACTION)'
+
 workspace-check:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" workspace-check bash bin/nix-xd-workspace-check
 
@@ -215,7 +220,8 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-qualify-ghxd-auth bin/nix-xd-qualify-ghxd-runtime bin/nix-xd-ghxd-auth bin/nix-xd-ghxd-client-id bin/nix-xd-ghxd-token-check bin/nix-xd-store-copy
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-plan bin/nix-xd-smoke bin/nix-xd-workspace-check bin/nix-xd-qualify-smoke bin/nix-xd-qualify-ghxd-auth bin/nix-xd-qualify-ghxd-runtime bin/nix-xd-ghxd-auth bin/nix-xd-ghxd-client-id bin/nix-xd-ghxd-token-check bin/nix-xd-store-copy bin/nix-xd-host-dispatch
+	@bash tests/host-dispatch-contract.sh
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/secrets-repository-contract.sh
