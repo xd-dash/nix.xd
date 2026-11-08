@@ -11,7 +11,9 @@ ram="${COREOS_RAM_MIB:-2048}"
 cpus="${COREOS_CPUS:-2}"
 flake="${COREOS_FLAKE:-/workspaces/agni/qemu/coreos-live/local}"
 image="${COREOS_RUNNER_IMAGE:-localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64}"
+store_volume="${COREOS_NIX_STORE_VOLUME:-}"
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+[[ -z "$store_volume" || "$store_volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid shared Nix volume"
 [[ "$machine" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || fail 'Invalid machine'
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid scope'
 [[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid profile'
@@ -78,7 +80,11 @@ preflight() {
   [[ "$(sed -n 's/^runner=//p' "$state/build.txt")" == "$id" ]] || fail 'QEMU runner identity mismatch'
   "${p[@]}" run --rm --pull=never --volume "$state:/state:ro" "$id" img info /state/base.qcow2 >/dev/null || fail 'Runner cannot read host state; verify Podman Machine file sharing'
   "${p[@]}" run --rm --pull=never "$id" run -machine help >/dev/null || fail 'ARM64 QEMU firmware or runner execution unavailable'
-  echo "PASS profile=$profile image=$id accel=tcg"
+  if [[ -n "$store_volume" ]]; then
+    "${p[@]}" volume exists "$store_volume" || fail "Missing shared Nix volume: $store_volume on machine $machine"
+    "${p[@]}" run --rm --pull=never "$id" run -device virtio-9p-pci,help >/dev/null || fail "QEMU runner has no VirtIO 9P PCI device"
+  fi
+  echo "PASS profile=$profile image=$id accel=tcg shared_nix_volume=${store_volume:-none}"
 }
 boot() {
   preflight
@@ -88,13 +94,21 @@ boot() {
   id="$(runner_id)"
   "${p[@]}" run --rm --pull=never --volume "$state:/state:rw" "$id" img create -q -f qcow2 -F qcow2 -b /state/base.qcow2 /state/overlay.qcow2
   printf 'port=%s\nrunner=%s\n' "$port" "$id" > "$state/manifest.txt"
+  local mounts=() fs_args=()
+  if [[ -n "$store_volume" ]]; then
+    mounts=(--mount "type=volume,src=$store_volume,dst=/host-nix,ro")
+    fs_args=(-fsdev local,id=nixstore,path=/host-nix/store,security_model=none,readonly=on
+      -device virtio-9p-pci,fsdev=nixstore,mount_tag=nixstore)
+  fi
   "${p[@]}" run --detach --pull=never --name "$name" --volume "$state:/state:rw" \
+    "${mounts[@]}" \
     --publish "127.0.0.1:$port:2222" "$id" run \
     -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m "$ram" -smp "$cpus" \
     -drive if=none,id=disk0,file=/state/overlay.qcow2,format=qcow2 \
     -device virtio-blk-pci,drive=disk0 \
     -fw_cfg name=opt/com.coreos/config,file=/state/config.ign \
     -netdev user,id=n0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=n0 \
+    "${fs_args[@]}" \
     -display none -serial file:/state/serial.log -monitor none
   echo "BOOT_REQUESTED profile=$profile container=$name accel=tcg ram_mib=$ram cpus=$cpus"
 }
