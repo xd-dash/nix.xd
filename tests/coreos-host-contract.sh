@@ -69,6 +69,8 @@ grep -Fq 'owner_volume=' bin/nix-xd-store-export-check || { echo "Authoritative 
 grep -Fq 'NIX_9P_NIX_CLI_READONLY' bin/nix-xd-wisp-ssh || { echo "Shared Nix CLI execution gate missing"; exit 1; }
 grep -Fq 'storeProbeNix = pkgs.nix;' flake.nix || { echo "Nix CLI closure is not declared"; exit 1; }
 grep -Fq 'COREOS_GUEST_NIX_EXECUTABLE=' Makefile || { echo "Nix CLI closure path not propagated"; exit 1; }
+grep -Fq 'chown 1000:1000 /nix' arm/bootstrap-podman.sh || { echo "New Podman store volume root ownership not initialized"; exit 1; }
+grep -Fq 'Existing unmarked Nix store: explicit redeployment required' arm/bootstrap-podman.sh || { echo "Podman legacy store rejection missing"; exit 1; }
 grep -Fq 'ENTRYPOINT ["/usr/local/bin/nix-xd-init-store"]' arm/Dockerfile || { echo "ARM image must initialize mounted store at runtime"; exit 1; }
 grep -Fq 'NIX_XD_DIRECT_STORE_READY' arm/init-nix-store.sh || { echo "Missing authoritative direct-volume installer"; exit 1; }
 grep -Fq '.nix-xd-direct-volume-v1' bin/nix-xd-store-export-check || { echo "Legacy image-seeded store must fail closed"; exit 1; }
