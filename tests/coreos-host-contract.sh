@@ -106,4 +106,9 @@ grep -Fq 'WIND_DOWN_UNINSPECTED_MACHINE=' arm/wind-down.sh || { echo 'Missing un
 grep -Fq 'WIND_DOWN_STOP=passed' arm/wind-down.sh || { echo 'Missing stopped status'; exit 1; }
 if grep -Eq '(volume rm|machine rm|container delete|container rm|rm -rf)' arm/wind-down.sh; then echo 'Wind-down may not destroy persistent resources'; exit 1; fi
 bash -n arm/wind-down.sh
+grep -Fq 'arm-inspect-legacy:' Makefile || { echo 'Missing scoped legacy inspection target'; exit 1; }
+grep -Fq 'arm-inspect-legacy bash arm/inspect-legacy.sh' Makefile || { echo 'Legacy inspection must retain diagnostic log'; exit 1; }
+grep -Fq 'podman machine stop "$machine"' arm/inspect-legacy.sh || { echo 'Legacy inspection must restore stopped state'; exit 1; }
+if grep -Eq '(volume rm|machine rm|container delete|container rm|rm -rf)' arm/inspect-legacy.sh; then echo 'Legacy inspection must not delete resources'; exit 1; fi
+bash -n arm/inspect-legacy.sh
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
