@@ -125,7 +125,27 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-wisp-ssh
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@echo 'Static command checks passed; no ARM runtime executed.'
+
+# Host-side accelerated CoreOS qualification is intentionally independent of the
+# selected Nix execution provider. Artifacts must be exported before boot.
+PROFILE ?= starwisp
+COREOS_STATE_ROOT ?= $(CURDIR)/.state/coreos
+COREOS_IMAGE ?=
+COREOS_IMAGE_SHA256 ?=
+COREOS_IGNITION ?=
+COREOS_FIRMWARE ?=
+COREOS_SSH_PORT ?= 2222
+COREOS_GUEST_USER ?= wisp
+COREOS_SSH_KEY ?=
+COREOS_HOST_ENV = COREOS_PROFILE='$(PROFILE)' COREOS_STATE_ROOT='$(COREOS_STATE_ROOT)' COREOS_IMAGE='$(COREOS_IMAGE)' COREOS_IMAGE_SHA256='$(COREOS_IMAGE_SHA256)' COREOS_IGNITION='$(COREOS_IGNITION)' COREOS_FIRMWARE='$(COREOS_FIRMWARE)' COREOS_SSH_PORT='$(COREOS_SSH_PORT)' COREOS_GUEST_USER='$(COREOS_GUEST_USER)' COREOS_SSH_KEY='$(COREOS_SSH_KEY)'
+
+.PHONY: coreos-preflight coreos-boot coreos-stop coreos-qualify
+coreos-preflight coreos-boot coreos-stop:
+	@$(COREOS_HOST_ENV) bash bin/nix-xd-coreos-hvf $(patsubst coreos-%,%,$@)
+
+coreos-qualify:
+	@$(COREOS_HOST_ENV) bash bin/nix-xd-wisp-ssh
