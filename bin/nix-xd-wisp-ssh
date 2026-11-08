@@ -187,6 +187,7 @@ mkdir -p "$scratch/bin" "$scratch/nix/store" "$scratch/etc" \
   "$scratch/run" "$scratch/var" "$scratch/tmp" "$scratch/dev" \
   "$scratch/proc" "$scratch/sys"
 ln -s "$store_shell" "$scratch/bin/sh"
+ln -s "$store_shell" "$scratch/bin/busybox"
 printf 'root:x:0:0:root:/root:/bin/sh\n' > "$scratch/etc/passwd"
 printf 'root:x:0:\n' > "$scratch/etc/group"
 ln -s /proc/self/mounts "$scratch/etc/mtab"
@@ -196,10 +197,11 @@ podman run --rm \
   --mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro \
   --rootfs "$scratch" \
   /bin/sh -ec '
-    test "$(id -u)" = 0
+    test "$(/bin/busybox id -u)" = 0
     test -d /nix/store && test -r /nix/store && test -x /nix/store
-    grep -Eq " /nix/store ro(,| )" /proc/self/mountinfo
-    test -x /bin/sh
+    /bin/busybox grep -Eq " /nix/store ro(,| )" /proc/self/mountinfo
+    test -x /bin/sh && test -x /bin/busybox
+    /bin/busybox --help >/dev/null
     /bin/sh -c "echo PASS: NIX_9P_NESTED_EXECUTABLE"
   '
 echo 'PASS: NIX_9P_NESTED_PODMAN_READONLY'
