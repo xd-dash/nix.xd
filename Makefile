@@ -42,7 +42,7 @@ help:
 	  'make machine-init MACHINE=... MACHINE_MEMORY_MIB=8192 MACHINE_CPUS=6 MACHINE_DISK_GIB=120' \
 	  'make machine-check MACHINE=... (enforce minimum requested VM resources)' \
 	  'make store-export-check MACHINE=...    Verify rootless read-only Nix volume sharing' \
-	  'make arm-rebootstrap-plan|arm-rebootstrap-reset|arm-rebootstrap-bootstrap|arm-rebootstrap-verify' \
+	  'make arm-rebootstrap-diagnose|arm-rebootstrap-plan|arm-rebootstrap-reset|arm-rebootstrap-bootstrap|arm-rebootstrap-verify' \
 	  'make arm-rebootstrap MACHINE=... SCOPE=... ARM_RESET_CONFIRM=ERASE:<machine>:<scope>:<scope>-store' \
 	  'make machine-handoff FROM_MACHINE=... MACHINE=... (transfer CoreOS image, preserve Nix store)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
@@ -69,7 +69,10 @@ bootstrap:
 # Explicitly gated ARM64 Podman Machine volume rebuild. A single outer logger
 # captures teardown, new direct-volume bootstrap and read-only export evidence.
 ARM_REBOOTSTRAP_ENV = NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" NIX_XD_CONFIRM_RESET="$(ARM_RESET_CONFIRM)"
-.PHONY: arm-rebootstrap-plan arm-rebootstrap-reset arm-rebootstrap-bootstrap arm-rebootstrap-verify arm-rebootstrap
+.PHONY: arm-rebootstrap-diagnose arm-rebootstrap-plan arm-rebootstrap-reset arm-rebootstrap-bootstrap arm-rebootstrap-verify arm-rebootstrap
+arm-rebootstrap-diagnose:
+	@test "$(PROVIDER)" = podman || { echo "Requires PROVIDER=podman" >&2; exit 2; }
+	@$(ARM_REBOOTSTRAP_ENV) bash bin/nix-xd-log "$(SCOPE)" arm-rebootstrap-diagnose bash arm/rebootstrap-podman.sh diagnose
 arm-rebootstrap-plan:
 	@test "$(PROVIDER)" = podman || { echo "Requires PROVIDER=podman" >&2; exit 2; }
 	@$(ARM_REBOOTSTRAP_ENV) bash bin/nix-xd-log "$(SCOPE)" arm-rebootstrap-plan bash arm/rebootstrap-podman.sh preflight
