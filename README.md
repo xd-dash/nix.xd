@@ -256,6 +256,60 @@ Host state must be shared into Podman Machine. The guest SSH port is mapped
 to loopback. Never treat a successful image build or static check as
 evidence of successful CoreOS boot or Wisp execution.
 
+### Optional shared Nix store over VirtIO 9P (experimental)
+
+The host Nix-Alpine container is the **single writer** to its
+`<scope>-store` named Podman volume. Bootstrap now checks that a separate
+rootless container can read the volume at `/host-nix/store` through a
+read-only mount as UID 0 and UID 1000; it never recursively changes
+ownership or file permissions. On an already-bootstrapped host:
+
+```sh
+make store-export-check MACHINE=podman-machine-default SCOPE=nix-xd-arm
+```
+
+**The Podman Machine matters:** the currently qualified `coreos-arm64`
+machine has the Agni QEMU image, while the original `nix-xd-arm-store`
+lives in `podman-machine-default`. The store is not magically shared
+across Podman Machines. This check must pass in the machine in which
+the new QEMU guest will run.
+
+To opt in, stage Agni's updated `codex/coreos-arm64-qemu-container`
+revision and build its new `qemuRunner` and
+`ignitionStarwisp9p` outputs in a machine with the Nix executor and
+volume. Supply `COREOS_NIX_STORE_VOLUME=nix-xd-arm-store` to the
+`coreos-ignition-build`, `coreos-preflight`, `coreos-boot` and
+`qualify-starwisp` targets. The new runner supports
+`run-shared-nix`: `nix.xd` mounts the volume read-only in the
+runner and Agni configures a **read-only** VirtIO 9P export. Agni's
+opt-in Butane profile mounts `nixstore` at
+`/var/mnt/nixstore` in the CoreOS guest.
+
+Do not reuse existing `config.ign` for this option:
+`coreos-ignition-build` intentionally refuses overwriting it.
+Create an independently scoped state/profile instead. Preflight checks
+that the selected volume matches the Ignition generation manifest.
+
+The host volume readability check does **not** establish that the
+Fedora CoreOS kernel has the 9P modules or that a rootless guest Podman
+container can bind the mount. Qualify both before storing a production
+dependency on it:
+
+```sh
+# Inside the booted CoreOS guest, with an authorized administrative account:
+findmnt /var/mnt/nixstore
+stat /var/mnt/nixstore
+# Then verify a rootless container can bind the mount read-only.
+```
+
+For nested Podman, use a rootless container `--mount
+type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro`; make its Quadlet
+depend on `var-mnt-nixstore.mount` and refuse an absent mount.
+SELinux/UID mappings must be verified with the real guest and image;
+do not relabel the shared Nix store recursively. Nix databases and
+garbage-collection metadata are **not** shared. The authoritative host
+must keep GC roots for all closures still in use by guests.
+
 ### Repeatable Starwisp runtime qualification
 
 After a one-time Agni build, Ignition generation, and OCI handoff to the
