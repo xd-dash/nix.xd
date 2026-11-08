@@ -158,6 +158,7 @@ check-static:
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/machine-contract.sh
+	@bash tests/starwisp-lifecycle.sh
 	@echo 'Static command checks passed; no ARM runtime executed.'
 
 # Host-side accelerated CoreOS qualification is intentionally independent of the
