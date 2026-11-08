@@ -29,9 +29,9 @@ diagnose() {
     "${p[@]}" logs --tail 160 "$scope" 2>&1 || true
     printf '%s\n' '--- persistent store state ---'
     "${p[@]}" exec "$scope" /bin/sh -ec '
-      if test -f /nix/.nix-xd-direct-volume-v1; then echo STORE_MARKER=present; else echo STORE_MARKER=absent; fi
+      if test -f /nix/.nix-xd-direct-volume-v2; then echo STORE_MARKER=present; else echo STORE_MARKER=absent; fi
       if test -d /nix/store; then echo STORE_DIR=present; else echo STORE_DIR=absent; fi
-      if test -x /nix/var/nix/profiles/default/bin/nix; then echo STORE_NIX_PROFILE=present; else echo STORE_NIX_PROFILE=absent; fi
+      if test -x /nix/home/nixuser/.nix-profile/bin/nix; then echo STORE_NIX_PROFILE=present; else echo STORE_NIX_PROFILE=absent; fi
     ' || true
   else
     echo 'OWNER_CONTAINER=missing'
@@ -44,9 +44,9 @@ diagnose() {
       --mount "type=volume,src=$volume,dst=/nix,ro" \
       --entrypoint /bin/sh "$image" -ec '
         stat -c "STORE_ROOT uid=%u gid=%g mode=%a" /nix
-        if test -f /nix/.nix-xd-direct-volume-v1; then echo STORE_MARKER=present; else echo STORE_MARKER=absent; fi
+        if test -f /nix/.nix-xd-direct-volume-v2; then echo STORE_MARKER=present; else echo STORE_MARKER=absent; fi
         if test -d /nix/store; then echo STORE_DIR=present; else echo STORE_DIR=absent; fi
-        if test -x /nix/var/nix/profiles/default/bin/nix; then echo STORE_NIX_PROFILE=present; else echo STORE_NIX_PROFILE=absent; fi
+        if test -x /nix/home/nixuser/.nix-profile/bin/nix; then echo STORE_NIX_PROFILE=present; else echo STORE_NIX_PROFILE=absent; fi
         find /nix -mindepth 1 -maxdepth 2 -print | head -n 40
       ' || true
   else
