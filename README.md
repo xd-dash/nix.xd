@@ -114,6 +114,43 @@ Agni remains the authority for QEMU/CoreOS/Farcaster configuration and optional
 Wisp/Fatline behavior. Running nested accelerated QEMU from Apple's container
 runtime cannot be assumed.
 
+### ARM64 host QEMU / Starwisp qualification (experimental)
+
+CoreOS boot qualification runs directly on Apple Silicon macOS under QEMU/HVF,
+not in Podman Machine or an Apple container micro-VM. Nix-Alpine prepares
+artifacts; explicit export transfers them to the host before boot.
+
+Provide a pinned aarch64 Fedora CoreOS QCOW2 disk, rendered Ignition JSON,
+ARM64 UEFI firmware, and an ephemeral SSH key for an unprivileged guest user.
+The guest must provision that user with a running systemd --user manager,
+lingering, and rootless Podman. The adapter never downloads an OS image.
+
+```sh
+brew install qemu
+export COREOS_IMAGE=/absolute/path/to/fcos-aarch64.qcow2
+export COREOS_IGNITION=/absolute/path/to/starwisp.ign
+export COREOS_FIRMWARE=/opt/homebrew/share/qemu/edk2-aarch64-code.fd
+export COREOS_SSH_KEY=/absolute/path/to/ephemeral-test-key
+export COREOS_IMAGE_SHA256="$(shasum -a 256 "$COREOS_IMAGE" | awk '{print $1}')"
+make coreos-preflight PROFILE=starwisp
+make coreos-boot PROFILE=starwisp COREOS_SSH_PORT=2222
+make coreos-qualify PROFILE=starwisp COREOS_GUEST_USER=wisp
+make coreos-stop PROFILE=starwisp
+```
+
+Verify the firmware path on the local Homebrew installation. The adapter
+uses a disposable QCOW2 overlay and binds forwarded SSH to 127.0.0.1 only.
+State is never overwritten. It retains a digest manifest, serial log,
+Wisp stdout/stderr and the overlay in .state/coreos/PROFILE/.
+Use a new profile for another run. After stopping, removing the profile
+directory is an explicit cleanup operation.
+
+The Wisp test requires unprivileged user systemd, rootless Podman, successful
+transient service execution, failure propagation and RuntimeMaxSec timeout.
+Boot/SSH/Wisp success is not full image or release qualification: artifact
+export, provenance, Ignition provisioning, reboot and GCE-specific checks
+remain distinct. No Podman engine socket is mounted inside Nix-Alpine.
+
 ## Usage
 
 The host needs Nix with flakes enabled to invoke the installer, rootless Podman,
