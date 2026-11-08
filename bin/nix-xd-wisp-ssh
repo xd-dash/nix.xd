@@ -97,7 +97,23 @@ if [[ -n "${COREOS_NIX_STORE_VOLUME:-}" ]]; then
 set -Eeuo pipefail
 mountpoint=/var/mnt/nixstore
 findmnt -rn --mountpoint "$mountpoint" >/dev/null || {
-  echo 'FAIL: 9P mount absent'; systemctl --no-pager status var-mnt-nixstore.mount || true; exit 1;
+  echo 'FAIL: 9P mount absent'
+  systemctl --no-pager --full status var-mnt-nixstore.mount || true
+  systemctl show var-mnt-nixstore.mount \
+    -p LoadState -p ActiveState -p SubState -p Result -p UnitFileState \
+    -p FragmentPath -p WantedBy -p RequiredBy -p Before -p After || true
+  systemctl --no-pager list-dependencies multi-user.target --all || true
+  journalctl -b --no-pager -u var-mnt-nixstore.mount -n 80 || true
+  printf '%s\\n' '--- 9P kernel support ---'
+  grep -E '(^nodev[[:space:]]+9p$|[[:space:]]9p$)' /proc/filesystems || true
+  printf '%s\\n' '--- loaded 9P modules ---'
+  grep -E '^(9p|9pnet|9pnet_virtio)[[:space:]]' /proc/modules || true
+  printf '%s\\n' '--- VirtIO devices ---'
+  for device in /sys/bus/virtio/devices/*; do
+    [[ -e "$device/device" ]] || continue
+    printf '%s device_id=%s\\n' "$device" "$(cat "$device/device")"
+  done
+  exit 1
 }
 fs="$(findmnt -rn -o FSTYPE --mountpoint "$mountpoint")"
 [[ "$fs" == 9p ]] || { echo "FAIL: Expected 9p, got $fs"; exit 1; }
