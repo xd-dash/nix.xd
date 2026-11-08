@@ -22,6 +22,13 @@ fi
 normal="$(make -sn qualify ARCH=arm64)"
 [[ "$normal" == *'bin/nix-xd-task "run"'* ]] ||
   { echo 'Legacy flake-owned qualifier behavior changed' >&2; exit 1; }
+combined="$(make -sn qualify QUALIFY_APP=1 MODULES=secrets FLAKE=components/example ARCH=arm64)"
+[[ "$combined" == *'bin/nix-xd-task "run"'* && "$combined" == *'qualifiers/dispatch.sh'* ]] ||
+  { echo 'Application qualifier and optional modules did not compose' >&2; exit 1; }
+if make -sn qualify QUALIFY_APP=bad >/dev/null 2>&1; then
+  echo 'Invalid application qualification switch accepted' >&2
+  exit 1
+fi
 if NIX_XD_QUALIFY_MODULES=unknown bash qualifiers/dispatch.sh >/dev/null 2>&1; then
   echo 'Unknown qualifier accepted' >&2
   exit 1
