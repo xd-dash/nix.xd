@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+[[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] ||
+  die 'Native x86_64 Linux is required; no cross-architecture emulation is implied'
+[[ "${NIX_XD_PROVIDER:-podman}" == podman ]] || die 'x86_64 bootstrap currently requires Podman'
+for cmd in git podman systemctl make realpath; do
+  command -v "$cmd" >/dev/null || die "Missing $cmd"
+done
+source="${NIX_XD_X86_SOURCE:-}"
+workspaces="${NIX_XD_WORKSPACES:-}"
+scope="${NIX_XD_SCOPE:-nix-xd-amd64}"
+expected="${NIX_XD_X86_REV:-}"
+image="${NIX_XD_IMAGE:-localhost/nix-xd:amd64}"
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die 'Invalid scope'
+[[ "$expected" =~ ^[0-9a-f]{40}$ ]] || die 'X86_REV must be a full pinned 40-character commit'
+[[ -d "$source/.git" ]] || die "Missing checked-out dash-xd/nix-alpine source: $source"
+[[ -d "$workspaces" ]] || die "Missing WORKSPACES path: $workspaces"
+source="$(realpath "$source")"
+workspaces="$(realpath "$workspaces")"
+case "$source" in
+  "$workspaces"/*) ;;
+  *) die 'X86_SOURCE must be a checkout within WORKSPACES' ;;
+esac
+checkout="${source#"$workspaces"/}"
+[[ "$checkout" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ ]] ||
+  die 'Unsafe x86 checkout path'
+head="$(git -C "$source" rev-parse HEAD)"
+[[ "$head" == "$expected" ]] ||
+  die "x86 source revision mismatch: expected=$expected actual=$head"
+[[ -z "$(git -C "$source" status --porcelain --untracked-files=no)" ]] ||
+  die 'x86 source has tracked edits; refuses nondeterministic bootstrap'
+remote="$(git -C "$source" remote get-url origin)"
+case "$remote" in
+  https://github.com/dash-xd/nix-alpine|https://github.com/dash-xd/nix-alpine.git|git@github.com:dash-xd/nix-alpine.git) ;;
+  *) die "Unexpected source remote: $remote" ;;
+esac
+[[ -f "$source/local/bootstrap.sh" && -f "$source/local/Makefile" ]] ||
+  die 'Expected x86 source bootstrap is unavailable'
+[[ "$(podman info --format '{{.Host.Security.Rootless}}')" == true ]] ||
+  die 'Podman must be rootless'
+printf 'X86_BOOTSTRAP_SOURCE=%s revision=%s\n' "$checkout" "$head"
+# Explicit bridge to the pinned x86_64 bootstrap implementation. No ambient
+# WORKSPACE_KEY/CONTAINER/VOLUME/IMAGE from the caller is inherited.
+env -u CONTAINER -u SERVICE -u VOLUME -u IMAGE -u WORKSPACE_KEY \
+  make --no-print-directory -C "$source/local" bootstrap \
+    SCOPE="$scope" WORKSPACES="$workspaces" NIX_ALPINE_CHECKOUT="$checkout" \
+    CONTAINER="$scope" SERVICE="$scope.service" VOLUME="$scope-store" \
+    IMAGE="$image"
+podman exec "$scope" nix --version
+printf 'X86_BOOTSTRAP_RESULT=passed source=%s revision=%s scope=%s\n' "$checkout" "$head" "$scope"
