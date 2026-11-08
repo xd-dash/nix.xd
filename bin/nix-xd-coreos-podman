@@ -101,20 +101,38 @@ boot() {
 reset_failed() {
   [[ -f "$state/overlay.qcow2" ]] || fail "No overlay to archive; refusing reset"
   [[ -f "$state/manifest.txt" ]] || fail "No boot manifest; refusing reset"
-  local status stamp archive
-  status="$("${p[@]}" inspect "$name" --format '{{.State.Status}}' 2>/dev/null)" ||
-    fail "Missing expected guest container $name; refusing reset"
-  [[ "$status" == exited || "$status" == created ]] || fail "Guest status is $status, not safely resettable"
+  local status stamp archive orphan source_machine
+  orphan="${COREOS_ORPHANED_OVERLAY:-0}"
+  source_machine="${NIX_XD_FROM_MACHINE:-podman-machine-default}"
+  [[ "$orphan" == 0 || "$orphan" == 1 ]] || fail "COREOS_ORPHANED_OVERLAY must be 0 or 1"
+  if status="$("${p[@]}" inspect "$name" --format '{{.State.Status}}' 2>/dev/null)"; then
+    [[ "$status" == exited || "$status" == created ]] ||
+      fail "Guest status is $status, not safely resettable"
+  else
+    [[ "$orphan" == 1 ]] ||
+      fail "Missing $name on current machine; set COREOS_ORPHANED_OVERLAY=1 after confirming the original machine is stopped"
+    [[ "$source_machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid source machine"
+    [[ "$source_machine" != "$machine" ]] || fail "Orphan source must differ from selected machine"
+    [[ "$(podman machine inspect "$source_machine" --format '{{.State}}')" != running ]] ||
+      fail "Original machine $source_machine is still running; refusing orphan reset"
+    [[ "$(sed -n 's/^runner=//p' "$state/manifest.txt")" == "$(runner_id)" ]] ||
+      fail "Orphaned boot manifest runner does not match selected QEMU image"
+    status=orphaned
+  fi
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-  archive="$state/failed-$stamp"
+  archive="$state/failed-$stamp-$$"
   [[ ! -e "$archive" ]] || fail "Existing archive: $archive"
   mkdir -m 700 "$archive"
-  "${p[@]}" logs "$name" > "$archive/container.log" 2>&1 || true
-  "${p[@]}" rm "$name" >/dev/null
+  if [[ "$status" != orphaned ]]; then
+    "${p[@]}" logs "$name" > "$archive/container.log" 2>&1 || true
+    "${p[@]}" rm "$name" >/dev/null
+  else
+    printf 'Orphaned overlay from stopped machine %s; no container exists on %s\n' "$source_machine" "$machine" > "$archive/container.log"
+  fi
   for file in overlay.qcow2 serial.log manifest.txt; do
-    if [[ -e "$state/$file" ]]; then mv -n "$state/$file" "$archive/$file"; fi
+    if [[ -e "$state/$file" ]]; then mv "$state/$file" "$archive/$file"; fi
   done
-  echo "RESET_FAILED profile=$profile archived=$archive; base disk and Ignition preserved"
+  echo "RESET_FAILED profile=$profile archived=$archive status=$status; base disk and Ignition preserved"
 }
 stop() {
   "${p[@]}" stop "$name"
