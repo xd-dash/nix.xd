@@ -29,8 +29,10 @@ LEGACY_PURGE_CONFIRM ?=
 ARM_RESET_CONFIRM ?=
 MACHINE_VERIFY ?= 0
 MACHINE_ENV = NIX_XD_MACHINE="$(MACHINE)" NIX_XD_MACHINE_PROVIDER="$(MACHINE_PROVIDER)" NIX_XD_MACHINE_CPUS="$(MACHINE_CPUS)" NIX_XD_MACHINE_MEMORY_MIB="$(MACHINE_MEMORY_MIB)" NIX_XD_MACHINE_DISK_GIB="$(MACHINE_DISK_GIB)" NIX_XD_MACHINE_DEFAULT="$(MACHINE_DEFAULT)" NIX_XD_MACHINE_BOOTSTRAP="$(MACHINE_BOOTSTRAP)" NIX_XD_MACHINE_VERIFY="$(MACHINE_VERIFY)"
-SCOPE ?= nix-xd-arm
-IMAGE ?= localhost/nix-xd:arm64
+SCOPE ?= $(if $(filter arm64,$(ARCH)),nix-xd-arm,nix-xd-amd64)
+IMAGE ?= localhost/nix-xd:$(ARCH)
+X86_SOURCE ?= $(abspath $(CURDIR)/nix-alpine/nix-alpine)
+X86_REV ?= 80a2821b7571edd09507f9b4349e2f1ed3daf900
 WORKSPACES ?= $(abspath $(CURDIR))
 REPO ?=
 BRANCH ?= main
@@ -52,7 +54,8 @@ TASK = $(TASK_ENV) bash bin/nix-xd-task
 
 help:
 	@printf '%s\n' \
-	  'make bootstrap PROVIDER=podman|container       Bootstrap ARM host (default podman)' \
+	  'make bootstrap ARCH=arm64|amd64 PROVIDER=podman  Bootstrap selected host architecture' \
+	  'make bootstrap ARCH=amd64 X86_SOURCE=... X86_REV=...  Pinned native Linux x86 checkout' \
 	  'make machine-init MACHINE=... MACHINE_MEMORY_MIB=8192 MACHINE_CPUS=6 MACHINE_DISK_GIB=120' \
 	  'make machine-check MACHINE=... (enforce minimum requested VM resources)' \
 	  'make store-export-check MACHINE=...    Verify rootless read-only Nix volume sharing' \
@@ -81,10 +84,11 @@ self-update:
 	@test -z "$(git status --porcelain --untracked-files=no)" || { echo "Tracked edits detected; commit or stash before self-update" >&2; exit 1; }
 	@bash bin/nix-xd-log "$(SCOPE)" self-update git pull --ff-only
 
-bootstrap:
-	@test "$(ARCH)" = arm64 || { echo "macOS bootstrap adapter currently supports ARCH=arm64; x86_64 uses the native flake installer" >&2; exit 2; }
-	@test "$(OS)" = Darwin || { echo "macOS bootstrap requires Darwin" >&2; exit 1; }
-	@NIX_XD_ARCH="$(ARCH)" NIX_XD_PROVIDER="$(PROVIDER)" $(MACHINE_ENV) NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" bootstrap bash arm/bootstrap-macos.sh
+# Common user interface; architecture-specific bootstrap adapters are modular.
+include mk/bootstrap-arm64.mk
+include mk/bootstrap-amd64.mk
+
+bootstrap: bootstrap-$(ARCH)
 
 
 # Explicitly gated ARM64 Podman Machine volume rebuild. A single outer logger
@@ -230,7 +234,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
+	@bash -n bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/qualification-modules.sh
