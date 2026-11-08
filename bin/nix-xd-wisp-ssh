@@ -90,4 +90,29 @@ then
   cat "$state/wisp.log" >&2
   fail "Wisp guest qualification failed"
 fi
+if [[ -n "${COREOS_NIX_STORE_VOLUME:-}" ]]; then
+  printf 'NIX_9P_GUEST_CHECK_START profile=%s volume=%s\n' "$profile" "$COREOS_NIX_STORE_VOLUME"
+  if ! ssh "${opts[@]}" "$user@127.0.0.1" "bash -se" > "$state/nix-9p.log" 2>&1 <<'GUEST_NIX_9P'
+set -Eeuo pipefail
+mountpoint=/var/mnt/nixstore
+findmnt -rn --mountpoint "$mountpoint" >/dev/null || {
+  echo 'FAIL: 9P mount absent'; systemctl --no-pager status var-mnt-nixstore.mount || true; exit 1;
+}
+fs="$(findmnt -rn -o FSTYPE --mountpoint "$mountpoint")"
+[[ "$fs" == 9p ]] || { echo "FAIL: Expected 9p, got $fs"; exit 1; }
+opts="$(findmnt -rn -o OPTIONS --mountpoint "$mountpoint")"
+[[ ",$opts," == *,ro,* ]] || { echo "FAIL: 9P mount is not read-only: $opts"; exit 1; }
+test -d "$mountpoint"
+test -r "$mountpoint"
+test -x "$mountpoint"
+entries="$(find "$mountpoint" -mindepth 1 -maxdepth 1 -print -quit)"
+[[ -n "$entries" ]] || { echo 'FAIL: Nix store has no entries'; exit 1; }
+printf 'PASS: NIX_9P_GUEST_MOUNT path=%s fstype=%s options=%s\n' "$mountpoint" "$fs" "$opts"
+GUEST_NIX_9P
+  then
+    cat "$state/nix-9p.log" >&2
+    fail 'Guest 9P store mount qualification failed'
+  fi
+  cat "$state/nix-9p.log"
+fi
 printf "QUALIFIED profile=%s evidence=%s\n" "$profile" "$state/wisp.log"
