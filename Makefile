@@ -3,7 +3,9 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 PROVIDER ?= podman
-MACHINE ?= podman-machine-default
+MACHINE ?= $(shell cat .state/active-podman-machine 2>/dev/null || echo podman-machine-default)
+FROM_MACHINE ?= podman-machine-default
+TRANSFER_IMAGE ?= localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64
 MACHINE_PROVIDER ?= applehv
 MACHINE_CPUS ?= 6
 MACHINE_MEMORY_MIB ?= 8192
@@ -31,13 +33,14 @@ OS := $(shell uname -s)
 TASK_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SYSTEM='aarch64-linux' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
-.PHONY: help self-update bootstrap plan image-build machine-init machine-check machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan check-static
+.PHONY: help self-update bootstrap plan image-build machine-init machine-check machine-handoff machine-select machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan check-static
 
 help:
 	@printf '%s\n' \
 	  'make bootstrap PROVIDER=podman|container       Bootstrap ARM host (default podman)' \
 	  'make machine-init MACHINE=... MACHINE_MEMORY_MIB=8192 MACHINE_CPUS=6 MACHINE_DISK_GIB=120' \
 	  'make machine-check MACHINE=... (enforce minimum requested VM resources)' \
+	  'make machine-handoff FROM_MACHINE=... MACHINE=... (transfer CoreOS image, preserve Nix store)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
 	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path]' \
 	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \
@@ -96,6 +99,9 @@ ifeq ($(OS),Darwin)
 machine-init machine-check:
 	@$(MACHINE_ENV) NIX_XD_MACHINE_VERIFY=1 bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-machine $(patsubst machine-%,%,$@)
 
+machine-handoff machine-select:
+	@NIX_XD_FROM_MACHINE="$(FROM_MACHINE)" NIX_XD_MACHINE="$(MACHINE)" NIX_XD_TRANSFER_IMAGE="$(TRANSFER_IMAGE)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-machine-handoff $(patsubst machine-%,%,$@)
+
 machine-start:
 	@state="$$(podman machine inspect "$(MACHINE)" --format '{{.State}}')"; \
 	  if [[ "$$state" != running ]]; then podman machine start "$(MACHINE)"; fi
@@ -113,8 +119,8 @@ status:
 logs:
 	@podman machine ssh "$(MACHINE)" journalctl --user --no-pager -u "$(SCOPE).service" -n 100
 else
-machine-init machine-check:
-	@echo "machine-init/check are macOS-only" >&2; exit 2
+machine-init machine-check machine-handoff machine-select:
+	@echo "machine administration is macOS-only" >&2; exit 2
 machine-start machine-stop:
 	@echo 'Not needed on native Linux'
 start:
@@ -133,7 +139,7 @@ image-build: machine-start
 else ifeq ($(PROVIDER),container)
 ifeq ($(OS),Darwin)
 APPLE = NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-container
-machine-init machine-check:
+machine-init machine-check machine-handoff machine-select:
 	@echo "Podman Machine is unavailable with PROVIDER=container" >&2; exit 2
 machine-start machine-stop start stop restart status logs:
 	@$(APPLE) $@
@@ -147,7 +153,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/machine-contract.sh
