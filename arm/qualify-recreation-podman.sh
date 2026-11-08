@@ -59,7 +59,8 @@ podman machine ssh "$machine" systemctl --user restart "$scope.service"
 
 ready=0
 for attempt in $(seq 1 30); do
-  if "${p[@]}" container exists "$scope" &&      [[ "$("${p[@]}" inspect "$scope" --format '{{.State.Running}}' 2>/dev/null)" == true ]]; then
+  if "${p[@]}" container exists "$scope" && \
+     [[ "$("${p[@]}" inspect "$scope" --format '{{.State.Running}}' 2>/dev/null)" == true ]]; then
     new_id="$("${p[@]}" inspect "$scope" --format '{{.Id}}')"
     if [[ "$new_id" != "$old_id" ]]; then ready=1; break; fi
   fi
@@ -78,5 +79,6 @@ printf 'RECREATION_AFTER_PROFILE=%s\n' "$after"
 printf 'RECREATION_CONTAINER_CHANGED=passed\nRECREATION_STORE_PRESERVED=passed\n'
 
 printf 'RECREATION_STEP=read-only-export\n'
-NIX_XD_MACHINE="$machine" NIX_XD_SCOPE="$scope" NIX_XD_IMAGE="$image"   COREOS_NIX_STORE_VOLUME="$volume" bash "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/nix-xd-store-export-check"
+NIX_XD_MACHINE="$machine" NIX_XD_SCOPE="$scope" NIX_XD_IMAGE="$image" \
+  COREOS_NIX_STORE_VOLUME="$volume" bash "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/nix-xd-store-export-check"
 printf 'ARM_RECREATION_RESULT=passed machine=%s scope=%s volume=%s\n' "$machine" "$scope" "$volume"
