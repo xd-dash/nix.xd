@@ -73,6 +73,9 @@ grep -Fq 'chown 1000:1000 /nix' arm/bootstrap-podman.sh || { echo "New Podman st
 grep -Fq 'Existing unmarked Nix store: explicit redeployment required' arm/bootstrap-podman.sh || { echo "Podman legacy store rejection missing"; exit 1; }
 grep -Fq 'ENTRYPOINT ["/usr/local/bin/nix-xd-init-store"]' arm/Dockerfile || { echo "ARM image must initialize mounted store at runtime"; exit 1; }
 grep -Fq 'NIX_XD_DIRECT_STORE_READY' arm/init-nix-store.sh || { echo "Missing authoritative direct-volume installer"; exit 1; }
+grep -Fq 'profile="$store/var/nix/profiles/default"' arm/init-nix-store.sh || { echo "Direct-volume installer must validate canonical default profile"; exit 1; }
+grep -Fq '/nix/var/nix/profiles/default/bin/nix' arm/rebootstrap-podman.sh || { echo "Diagnostics must inspect canonical Nix default profile"; exit 1; }
+if grep -Fq 'profiles/per-user/nixuser/profile' arm/init-nix-store.sh arm/rebootstrap-podman.sh; then echo "Invalid hardcoded per-user installer profile"; exit 1; fi
 grep -Fq '.nix-xd-direct-volume-v1' bin/nix-xd-store-export-check || { echo "Legacy image-seeded store must fail closed"; exit 1; }
 if grep -Eq 'cp -a /nix/|cp -r /nix/|cp -R /nix/' arm/bootstrap-container.sh arm/bootstrap-podman.sh arm/init-nix-store.sh; then echo "Copying the Nix store is forbidden"; exit 1; fi
 if grep -Eq 'RUN.*(install-nix|nix-[0-9].*/install)' arm/Dockerfile; then echo "Building Nix into OCI image store is forbidden"; exit 1; fi
