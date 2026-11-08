@@ -17,13 +17,24 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid scope"
 [[ "$system" == aarch64-linux ]] || fail "ARM runner requires aarch64-linux"
 runtime="$provider"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+if [[ "$provider" == podman ]]; then
+  [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid machine"
+fi
 if [[ "$provider" == container ]]; then
   [[ "$(uname -s)" == Darwin ]] || fail "Apple container requires macOS"
 fi
 command -v "$runtime" >/dev/null || fail "Runtime not installed: $runtime"
 
-inside() { "$runtime" exec "$scope" "$@"; }
-interactive() { "$runtime" exec -it "$scope" "$@"; }
+runtime_cmd() {
+  if [[ "$provider" == podman ]]; then
+    podman --connection "$machine" "$@"
+  else
+    container "$@"
+  fi
+}
+inside() { runtime_cmd exec "$scope" "$@"; }
+interactive() { runtime_cmd exec -it "$scope" "$@"; }
 
 validate_checkout() {
   [[ -n "$checkout" && "$checkout" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$checkout" != *..* ]] ||
@@ -39,9 +50,20 @@ stage() {
   trap 'rm -rf "$tmp"' EXIT
   # Stage only committed files; no .git, credentials or unrelated host directories.
   git -C "$src" archive HEAD | tar -xf - -C "$tmp"
+  # Bootstrap images may predate the workspace mount point. Initialize only
+  # the staging root as container root, then keep all staged content owned
+  # by the ordinary Nix executor UID. No host ownership or store mutation.
+  if ! inside test -d /workspaces; then
+    if [[ "$provider" == podman ]]; then
+      runtime_cmd exec --user 0 "$scope" install -d -m 0755 -o 1000 -g 1000 /workspaces
+    else
+      fail "Missing /workspaces; rebuild the Apple container image with a writable workspace root"
+    fi
+  fi
+  inside test -w /workspaces || fail "/workspaces is not writable by the Nix executor"
   inside mkdir -p "/workspaces/$checkout"
   inside find "/workspaces/$checkout" -mindepth 1 -maxdepth 1 -exec rm -rf -- '{}' +
-  "$runtime" cp "$tmp/." "$scope:/workspaces/$checkout/"
+  runtime_cmd cp "$tmp/." "$scope:/workspaces/$checkout/"
   printf 'Staged %s at %s\n' "$checkout" "$(git -C "$src" rev-parse HEAD)"
 }
 flake_ref() {
@@ -81,7 +103,7 @@ case "$action" in
   shell) interactive bash -l ;;
   exec) inside bash -lc "$cmd" ;;
   store-info) inside nix store info ;;
-  ps) "$runtime" ps -a ;;
-  inspect) "$runtime" inspect "$scope" ;;
+  ps) runtime_cmd ps -a ;;
+  inspect) runtime_cmd inspect "$scope" ;;
   *) fail "Unknown action $action" ;;
 esac
