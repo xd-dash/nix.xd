@@ -162,51 +162,28 @@ GUEST_NIX_OCI
     [[ "$probe_rootfs" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+$ ]] ||
       fail 'COREOS_GUEST_PROBE_ROOTFS must be an absolute Nix store output path'
     echo "NIX_9P_NESTED_CHECK_START rootfs=$probe_rootfs"
-    if ! ssh -T "${opts[@]}" "$user@127.0.0.1" \
-      "env COREOS_GUEST_PROBE_ROOTFS='$probe_rootfs' bash -se" \
-      > "$state/nix-9p-nested.log" 2>&1 <<'GUEST_NIX_NESTED'
-set -Eeuo pipefail
-test "$(id -u)" -ne 0
-test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
-mountpoint=/var/mnt/nixstore
-probe_rootfs="$mountpoint/${COREOS_GUEST_PROBE_ROOTFS#/nix/store/}"
-test -d "$probe_rootfs"
-test -L "$probe_rootfs/bin/sh"
-test -d "$probe_rootfs/nix/store"
-store_shell="$(readlink "$probe_rootfs/bin/sh")"
-[[ "$store_shell" == /nix/store/*/bin/busybox ]] || {
-  echo "FAIL: Probe shell does not point into the shared store: $store_shell"
-  exit 1
-}
-test -x "$mountpoint/${store_shell#/nix/store/}"
-test -n "${XDG_RUNTIME_DIR:-}"
-test -d "$XDG_RUNTIME_DIR"
-scratch="$(mktemp -d "$XDG_RUNTIME_DIR/nix-xd-rootfs.XXXXXXXX")"
-trap 'rm -rf -- "$scratch"' EXIT
-mkdir -p "$scratch/bin" "$scratch/nix/store" "$scratch/etc" \
-  "$scratch/run" "$scratch/var" "$scratch/tmp" "$scratch/dev" \
-  "$scratch/proc" "$scratch/sys"
-ln -s "$store_shell" "$scratch/bin/sh"
-ln -s "$store_shell" "$scratch/bin/busybox"
-printf 'root:x:0:0:root:/root:/bin/sh\n' > "$scratch/etc/passwd"
-printf 'root:x:0:\n' > "$scratch/etc/group"
-ln -s /proc/self/mounts "$scratch/etc/mtab"
-echo "NIX_9P_ROOTFS_MODE=guest-runtime-scratch store_executable=$store_shell"
-podman run --rm \
-  --network none --security-opt label=disable \
-  --mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro \
-  --rootfs "$scratch" \
-  /bin/sh -ec '
-    test "$(/bin/busybox id -u)" = 0
-    test -d /nix/store && test -r /nix/store && test -x /nix/store
-    /bin/busybox grep -Eq " /nix/store ro(,| )" /proc/self/mountinfo
-    test -x /bin/sh && test -x /bin/busybox
-    /bin/busybox --help >/dev/null
-    /bin/sh -c "echo PASS: NIX_9P_NESTED_EXECUTABLE"
-  '
-echo 'PASS: NIX_9P_NESTED_PODMAN_READONLY'
-GUEST_NIX_NESTED
-    then
+    repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    helper="$repo/bin/nix-xd-guest-store-exec"
+    [[ -r "$helper" ]] || fail 'Missing guest store executor'
+    probe_script='
+      test "$(/bin/busybox id -u)" = 0
+      test -d /nix/store && test -r /nix/store && test -x /nix/store
+      /bin/busybox grep -Eq " /nix/store ro(,| )" /proc/self/mountinfo
+      test -x /bin/sh && test -x /bin/busybox
+      /bin/busybox --help >/dev/null
+      /bin/sh -c "echo PASS: NIX_9P_NESTED_EXECUTABLE"
+    '
+    if [[ -n "${COREOS_GUEST_DYNAMIC_EXECUTABLE:-}" ]]; then
+      dynamic_executable="$COREOS_GUEST_DYNAMIC_EXECUTABLE"
+      [[ "$dynamic_executable" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/bin/hello$ ]] ||
+        fail 'COREOS_GUEST_DYNAMIC_EXECUTABLE must be a Nix store GNU hello executable path'
+      probe_script+=$'\n'"$dynamic_executable"
+      probe_script+=$'\n''echo "PASS: NIX_9P_DYNAMIC_CLOSURE_EXECUTABLE"'
+    fi
+    printf -v remote_cmd 'bash -s -- %q %q %q %q' \
+      "$probe_rootfs/bin/sh" /bin/sh -ec "$probe_script"
+    if ! ssh -T "${opts[@]}" "$user@127.0.0.1" "$remote_cmd" \
+      < "$helper" > "$state/nix-9p-nested.log" 2>&1; then
       cat "$state/nix-9p-nested.log" >&2
       fail 'Nested rootless Podman shared-store rootfs qualification failed'
     fi
