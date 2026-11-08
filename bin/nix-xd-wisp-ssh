@@ -34,7 +34,8 @@ connect_timeout="${COREOS_SSH_CONNECT_TIMEOUT_SEC:-10}"
 [[ "$connect_timeout" =~ ^[0-9]+$ ]] && (( connect_timeout >= 1 && connect_timeout <= 60 )) || fail "Invalid COREOS_SSH_CONNECT_TIMEOUT_SEC (1..60)"
 opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes
   -o "ConnectTimeout=$connect_timeout" -o StrictHostKeyChecking=accept-new
-  -o "UserKnownHostsFile=$state/known_hosts")
+  -o "UserKnownHostsFile=$state/known_hosts"
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 start="$(date +%s)"
 deadline=$(( start + ready_timeout ))
 attempt=0
@@ -99,10 +100,11 @@ mountpoint=/var/mnt/nixstore
 findmnt -rn --mountpoint "$mountpoint" >/dev/null || {
   echo 'FAIL: 9P mount absent'
   SYSTEMD_PAGER=cat SYSTEMD_COLORS=0 systemctl --no-pager --full status var-mnt-nixstore.mount || true
+  printf "MOUNT_BOOT_TARGET=%s\\n" "$(systemctl is-active multi-user.target || true)"
   systemctl show var-mnt-nixstore.mount \
     -p LoadState -p ActiveState -p SubState -p Result -p UnitFileState \
     -p FragmentPath -p WantedBy -p RequiredBy -p Before -p After || true
-  SYSTEMD_PAGER=cat SYSTEMD_COLORS=0 systemctl --no-pager --plain list-dependencies --reverse var-mnt-nixstore.mount || true
+  SYSTEMD_PAGER=cat SYSTEMD_COLORS=0 systemctl --no-pager --plain list-dependencies multi-user.target | grep -E "nixstore|multi-user" || true
   SYSTEMD_PAGER=cat SYSTEMD_COLORS=0 journalctl -b --no-pager -u var-mnt-nixstore.mount -n 40 || true
   printf '%s\n' '--- 9P kernel support ---'
   grep -E '(^nodev[[:space:]]+9p$|[[:space:]]9p$)' /proc/filesystems || true
@@ -111,7 +113,7 @@ findmnt -rn --mountpoint "$mountpoint" >/dev/null || {
   printf '%s\n' '--- VirtIO devices ---'
   for device in /sys/bus/virtio/devices/*; do
     [[ -e "$device/device" ]] || continue
-    printf '%s device_id=%s\\n' "$device" "$(cat "$device/device")"
+    printf '%s device_id=%s\n' "$device" "$(cat "$device/device")"
   done
   exit 1
 }
