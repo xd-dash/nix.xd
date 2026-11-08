@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo"
-bash -n bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-qualify-starwisp
+bash -n bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-qualify-starwisp bin/nix-xd-store-export-check
 for target in coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify coreos-reset-failed qualify-starwisp; do
   result="$(make -sn "$target" COREOS_IMAGE=/tmp/image.qcow2 COREOS_IGNITION=/tmp/config.ign COREOS_FIRMWARE=/tmp/firmware.bin COREOS_SSH_KEY=/tmp/test-key PROFILE=starwisp)"
   [[ "$result" == *"COREOS_PROFILE='starwisp'"* ]] || { echo "Missing profile propagation: $target"; exit 1; }
@@ -23,6 +23,12 @@ grep -Fq '[[ "$source_machine" != "$machine" ]]' bin/nix-xd-coreos-podman || { e
 grep -Fq 'Original machine $source_machine is still running' bin/nix-xd-coreos-podman || { echo "Missing original machine stop fence"; exit 1; }
 grep -Fq 'step preflight bash "$adapter" preflight' bin/nix-xd-qualify-starwisp || { echo "Preflight must invoke non-executable adapter with bash"; exit 1; }
 grep -Fq 'step wisp-qualification bash "$qualifier"' bin/nix-xd-qualify-starwisp || { echo "Wisp qualifier must run through bash"; exit 1; }
+grep -Fq 'COREOS_NIX_STORE_VOLUME=' Makefile || { echo "Missing host 9P volume propagation"; exit 1; }
+grep -Fq 'type=volume,src=$store_volume,dst=/host-nix,ro' bin/nix-xd-coreos-podman || { echo "Nix share not read-only"; exit 1; }
+grep -Fq 'qemu_mode=run-shared-nix' bin/nix-xd-coreos-podman || { echo "9P device not delegated to Agni"; exit 1; }
+grep -Fq 'Shared Nix store option does not match the built Ignition configuration' bin/nix-xd-coreos-podman || { echo "Missing Ignition export fence"; exit 1; }
+grep -Fq 'NIX_STORE_EXPORT_READY' bin/nix-xd-store-export-check || { echo "Missing permission verification"; exit 1; }
+grep -Fq 'nix-xd-store-export-check' arm/bootstrap-podman.sh || { echo "Bootstrap does not verify volume export"; exit 1; }
 grep -Fq 'COREOS_READY_TIMEOUT_SEC=' Makefile || { echo "Missing readiness configuration"; exit 1; }
 grep -Fq 'SSH_WAIT profile=' bin/nix-xd-wisp-ssh || { echo "Missing readiness progress"; exit 1; }
 grep -Fq 'trap cleanup EXIT' bin/nix-xd-qualify-starwisp || { echo "Missing qualification cleanup"; exit 1; }
