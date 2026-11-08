@@ -61,9 +61,14 @@ ignition() {
   key="$(awk '{print $1 " " $2}' "$COREOS_SSH_PUBLIC_KEY")"
   [[ "$key" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+$ ]] || fail "Expected one valid ssh-ed25519 public key"
   local butane="${flake%/local}/profiles/starwisp/butane/starwisp.bu"
+  local output_name=ignitionStarwisp
+  if [[ -n "$store_volume" ]]; then
+    butane="${flake%/local}/profiles/starwisp/butane/starwisp-9p.bu"
+    output_name=ignitionStarwisp9p
+  fi
   "${p[@]}" exec "$scope" test -f "$butane" || fail "Missing staged Agni Starwisp Butane profile: $butane"
-  output="$("${p[@]}" exec "$scope" env COREOS_TEST_SSH_PUBLIC_KEY="$key" COREOS_STARWISP_BUTANE="$butane" \
-    nix build --impure --no-write-lock-file --no-link --print-out-paths "$flake#ignitionStarwisp")"
+  output="$("${p[@]}" exec "$scope" env COREOS_TEST_SSH_PUBLIC_KEY="$key" COREOS_STARWISP_BUTANE="$butane" COREOS_STARWISP_9P_BUTANE="$butane" \
+    nix build --impure --no-write-lock-file --no-link --print-out-paths "$flake#$output_name")"
   [[ "$output" == /nix/store/* && "$output" != *$'\n'* ]] || fail 'Unexpected Ignition output path'
   "${p[@]}" cp "$scope:$output/config.ign" "$state/config.ign"
   printf "ignition_sha256=%s\n" "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" >> "$state/build.txt"
@@ -82,7 +87,7 @@ preflight() {
   "${p[@]}" run --rm --pull=never "$id" run -machine help >/dev/null || fail 'ARM64 QEMU firmware or runner execution unavailable'
   if [[ -n "$store_volume" ]]; then
     "${p[@]}" volume exists "$store_volume" || fail "Missing shared Nix volume: $store_volume on machine $machine"
-    "${p[@]}" run --rm --pull=never "$id" run -device virtio-9p-pci,help >/dev/null || fail "QEMU runner has no VirtIO 9P PCI device"
+    "${p[@]}" run --rm --pull=never --mount "type=volume,src=$store_volume,dst=/host-nix,ro" "$id" run-shared-nix -device virtio-9p-pci,help >/dev/null || fail "Agni QEMU runner lacks the shared-store 9P mode"
   fi
   echo "PASS profile=$profile image=$id accel=tcg shared_nix_volume=${store_volume:-none}"
 }
@@ -94,21 +99,19 @@ boot() {
   id="$(runner_id)"
   "${p[@]}" run --rm --pull=never --volume "$state:/state:rw" "$id" img create -q -f qcow2 -F qcow2 -b /state/base.qcow2 /state/overlay.qcow2
   printf 'port=%s\nrunner=%s\n' "$port" "$id" > "$state/manifest.txt"
-  local mounts=() fs_args=()
+  local mounts=() qemu_mode=run
   if [[ -n "$store_volume" ]]; then
     mounts=(--mount "type=volume,src=$store_volume,dst=/host-nix,ro")
-    fs_args=(-fsdev local,id=nixstore,path=/host-nix/store,security_model=none,readonly=on
-      -device virtio-9p-pci,fsdev=nixstore,mount_tag=nixstore)
+    qemu_mode=run-shared-nix
   fi
   "${p[@]}" run --detach --pull=never --name "$name" --volume "$state:/state:rw" \
     "${mounts[@]}" \
-    --publish "127.0.0.1:$port:2222" "$id" run \
+    --publish "127.0.0.1:$port:2222" "$id" "$qemu_mode" \
     -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m "$ram" -smp "$cpus" \
     -drive if=none,id=disk0,file=/state/overlay.qcow2,format=qcow2 \
     -device virtio-blk-pci,drive=disk0 \
     -fw_cfg name=opt/com.coreos/config,file=/state/config.ign \
     -netdev user,id=n0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=n0 \
-    "${fs_args[@]}" \
     -display none -serial file:/state/serial.log -monitor none
   echo "BOOT_REQUESTED profile=$profile container=$name accel=tcg ram_mib=$ram cpus=$cpus"
 }
