@@ -71,7 +71,7 @@ ignition() {
     nix build --impure --no-write-lock-file --no-link --print-out-paths "$flake#$output_name")"
   [[ "$output" == /nix/store/* && "$output" != *$'\n'* ]] || fail 'Unexpected Ignition output path'
   "${p[@]}" cp "$scope:$output/config.ign" "$state/config.ign"
-  printf 'ignition_sha256=%s\\nshared_nix_volume=%s\\n' "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" "${store_volume:-none}" >> "$state/build.txt"
+  printf 'ignition_sha256=%s\nshared_nix_volume=%s\n' "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" "${store_volume:-none}" >> "$state/build.txt"
   echo "IGNITION_BUILT profile=$profile state=$state"
 }
 preflight() {
