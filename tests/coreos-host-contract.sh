@@ -64,4 +64,9 @@ grep -Fq 'NIX_9P_OCI_ARCHIVE_READONLY' bin/nix-xd-wisp-ssh || { echo "Missing re
 grep -Fq 'nix-9p-oci-archive.log' bin/nix-xd-qualify-starwisp || { echo "Missing OCI archive qualification evidence"; exit 1; }
 grep -Fq 'ln -s /proc/self/mounts "$out/etc/mtab"' flake.nix || { echo "Read-only probe rootfs must precreate /etc/mtab"; exit 1; }
 grep -Fq 'NIX_9P_ROOTFS_MODE=guest-runtime-scratch' bin/nix-xd-guest-store-exec || { echo "Missing guest-local runtime separation evidence"; exit 1; }
+grep -Fq 'NIX_STORE_OWNER_READY' bin/nix-xd-store-export-check || { echo "Missing Nix-Alpine owner mount identity gate"; exit 1; }
+grep -Fq 'owner_volume=' bin/nix-xd-store-export-check || { echo "Authoritative store owner volume not checked"; exit 1; }
+grep -Fq 'NIX_9P_NIX_CLI_READONLY' bin/nix-xd-wisp-ssh || { echo "Shared Nix CLI execution gate missing"; exit 1; }
+grep -Fq 'storeProbeNix = pkgs.nix;' flake.nix || { echo "Nix CLI closure is not declared"; exit 1; }
+grep -Fq 'COREOS_GUEST_NIX_EXECUTABLE=' Makefile || { echo "Nix CLI closure path not propagated"; exit 1; }
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
