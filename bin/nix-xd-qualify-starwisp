@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+profile="${COREOS_PROFILE:-starwisp}"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+state_root="${COREOS_STATE_ROOT:-$PWD/.state/coreos}"
+image="${COREOS_RUNNER_IMAGE:-localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64}"
+key="${COREOS_SSH_KEY:-}"
+vmm="${COREOS_VMM:-podman}"
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+adapter="$repo/bin/nix-xd-coreos-podman"
+qualifier="$repo/bin/nix-xd-wisp-ssh"
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+[[ "$vmm" == podman ]] || fail 'qualify-starwisp currently requires VMM=podman'
+[[ "$profile" == starwisp ]] || fail 'qualify-starwisp requires PROFILE=starwisp'
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Invalid machine'
+[[ -r "$key" ]] || fail 'COREOS_SSH_KEY must point to a readable private SSH key'
+[[ -d "$state_root/$profile" ]] || fail 'Missing Starwisp artifact state'
+state="$(cd "$state_root/$profile" && pwd -P)"
+[[ -f "$state/base.qcow2" && -f "$state/config.ign" && -f "$state/build.txt" ]] ||
+  fail 'Missing disk, Ignition, or build manifest'
+command -v podman >/dev/null || fail 'Podman required'
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] ||
+  fail 'Selected Podman Machine is not running'
+[[ -z "${COREOS_AGNI_REV:-}" || "${COREOS_AGNI_REV}" =~ ^[0-9a-f]{40}$ ]] ||
+  fail 'COREOS_AGNI_REV must be a full Git commit SHA'
+[[ ! -e "$state/.qualify-starwisp.lock" ]] || fail 'Qualification lock exists: another run may be active'
+mkdir "$state/.qualify-starwisp.lock"
+lock="$state/.qualify-starwisp.lock"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+run_dir="$state/qualifications/$stamp-$$"
+mkdir -p "$run_dir"
+started=0
+qualified=0
+status=failed
+cleanup() {
+  rc=$?
+  trap - EXIT INT TERM
+  if (( started == 1 )); then
+    podman --connection "$machine" logs "coreos-$profile" > "$run_dir/qemu-container.log" 2>&1 || true
+    if ! "$adapter" stop >> "$run_dir/run.log" 2>&1; then
+      printf 'warning: guest stop failed; inspect container coreos-%s\n' "$profile" >&2
+      rc=1
+    fi
+  fi
+  if (( qualified == 1 && rc == 0 )); then status=passed; fi
+  printf 'status=%s\nfinished_utc=%s\nexit_code=%s\n' "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" >> "$run_dir/qualification.txt"
+  printf 'QUALIFY_STARWISP_RESULT status=%s exit=%s evidence=%s\n' "$status" "$rc" "$run_dir"
+  rmdir "$lock" || true
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+step() {
+  printf 'STEP %s\n' "$1" | tee -a "$run_dir/run.log"
+  shift
+  "$@" 2>&1 | tee -a "$run_dir/run.log"
+  return "${PIPESTATUS[0]}"
+}
+sha() { shasum -a 256 "$1" | awk '{print $1}'; }
+runner="$(podman --connection "$machine" image inspect "$image" --format '{{.Id}}')"
+[[ "$runner" == sha256:* ]] || runner="sha256:$runner"
+[[ "$runner" =~ ^sha256:[a-f0-9]{64}$ ]] || fail 'Unexpected image digest'
+disk_sha="$(sha "$state/base.qcow2")"
+ignition_sha="$(sha "$state/config.ign")"
+[[ "$(sed -n 's/^runner=//p' "$state/build.txt")" == "$runner" ]] || fail 'Runner image differs from build manifest'
+[[ "$(sed -n 's/^disk_sha256=//p' "$state/build.txt")" == "$disk_sha" ]] || fail 'Disk hash differs from build manifest'
+[[ "$(sed -n 's/^ignition_sha256=//p' "$state/build.txt")" == "$ignition_sha" ]] || fail 'Ignition hash differs from build manifest'
+host_rev="$(git -C "$repo" rev-parse HEAD)"
+source_rev="${COREOS_AGNI_REV:-unspecified}"
+source_verification=unverified
+if [[ -d "$repo/agni/.git" ]]; then
+  local_rev="$(git -C "$repo/agni" rev-parse HEAD)"
+  if [[ "$source_rev" == unspecified ]]; then
+    source_rev="$local_rev"
+    source_verification=local-checkout-only
+  elif [[ "$source_rev" == "$local_rev" ]]; then
+    source_verification=local-checkout-match
+  else
+    fail "COREOS_AGNI_REV does not match local Agni checkout ($local_rev)"
+  fi
+fi
+{
+  printf 'format=nix-xd-starwisp-qualification-v1\nstarted_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'host_repository=%s\nhost_revision=%s\n' 'xd-dash/nix.xd' "$host_rev"
+  printf 'agni_revision=%s\nagni_revision_verification=%s\n' "$source_rev" "$source_verification"
+  printf 'machine=%s\nprofile=%s\nvmm=%s\n' "$machine" "$profile" "$vmm"
+  printf 'runner_image=%s\nrunner_id=%s\n' "$image" "$runner"
+  printf 'disk_sha256=%s\nignition_sha256=%s\n' "$disk_sha" "$ignition_sha"
+  printf 'ssh_key_public_fingerprint=%s\n' "$(ssh-keygen -y -f "$key" | ssh-keygen -lf - | awk '{print $2}')"
+  printf 'ram_mib=%s\ncpus=%s\n' "${COREOS_RAM_MIB:-2048}" "${COREOS_CPUS:-2}"
+  printf 'ready_timeout_sec=%s\n' "${COREOS_READY_TIMEOUT_SEC:-900}"
+} > "$run_dir/qualification.txt"
+step preflight "$adapter" preflight
+if [[ -e "$state/overlay.qcow2" ]]; then
+  [[ -f "$state/manifest.txt" ]] || fail 'Existing overlay lacks boot manifest; refuse overwrite'
+  step archive-previous "$adapter" reset-failed
+fi
+[[ ! -e "$state/overlay.qcow2" ]] || fail 'Overlay remains after archival'
+step boot "$adapter" boot
+started=1
+step wisp-qualification "$qualifier"
+[[ -s "$state/wisp.log" ]] || fail 'Wisp evidence missing or empty'
+cp "$state/wisp.log" "$run_dir/wisp.log"
+printf 'wisp_log_sha256=%s\n' "$(sha "$run_dir/wisp.log")" >> "$run_dir/qualification.txt"
+qualified=1
