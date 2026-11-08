@@ -256,6 +256,53 @@ Host state must be shared into Podman Machine. The guest SSH port is mapped
 to loopback. Never treat a successful image build or static check as
 evidence of successful CoreOS boot or Wisp execution.
 
+### Repeatable Starwisp runtime qualification
+
+After a one-time Agni build, Ignition generation, and OCI handoff to the
+selected Podman Machine, run the complete guest qualification with:
+
+```sh
+make qualify-starwisp \
+  MACHINE=coreos-arm64 \
+  COREOS_SSH_KEY="$HOME/.ssh/starwisp-test" \
+  COREOS_READY_TIMEOUT_SEC=900 \
+  COREOS_READY_RETRY_SEC=10 \
+  COREOS_RAM_MIB=2048 COREOS_CPUS=2
+```
+
+This checks the existing image, disk and Ignition SHA-256s against
+`build.txt`, archives a prior **stopped** guest/overlay if present,
+boots the same pinned QEMU image with a fresh writable overlay, emits
+`SSH_WAIT` diagnostics during bounded SSH readiness, tests Wisp's
+rootless systemd success/failure/timeout paths, and stops the guest.
+A **running** guest, unrecognized overlay, mismatched hashes, or missing
+private key fails closed. Existing image and `base.qcow2` are never
+rebuilt or overwritten by this target.
+
+Per-attempt evidence is saved under
+`.state/coreos/starwisp/qualifications/<UTC>-<pid>/` including
+`qualification.txt` (machine resources, nix.xd revision, Agni source
+revision if available, OCI image ID, disk and Ignition digests, SSH public
+key fingerprint, exit status), `run.log`, `wisp.log`, QEMU output and
+serial/boot manifest copies. The old guest overlay, Wisp log, and host-key
+record are archived under `failed-*` before a subsequent run.
+`COREOS_AGNI_REV=<40-char-sha>` may be used to assert a local Agni
+checkout revision; the local checkout revision does **not** independently
+prove which revision was staged in the original Nix store, so the
+record labels this source evidence accordingly.
+
+You can inspect the newest result with:
+
+```sh
+ls -td .state/coreos/starwisp/qualifications/* | head -1
+cat "$(ls -td .state/coreos/starwisp/qualifications/* | head -1)/qualification.txt"
+```
+
+Unlike `make coreos-qualify`, `make qualify-starwisp` owns the entire
+boot/qualification/stop lifecycle. It requires the target Podman Machine
+and its Agni QEMU image to already exist and be running/loaded; it does
+not bootstrap Nix-Alpine or create a new Podman Machine.
+
 ### Optional host HVF adapter (not required for Podman mode)
 
 
