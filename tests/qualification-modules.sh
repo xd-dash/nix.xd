@@ -25,7 +25,7 @@ normal="$(make -sn qualify ARCH=arm64)"
 combined="$(make -sn qualify QUALIFY_APP=1 MODULES=secrets FLAKE=components/example ARCH=arm64)"
 [[ "$combined" == *'bin/nix-xd-task "run"'* && "$combined" == *'qualifiers/dispatch.sh'* ]] ||
   { echo 'Application qualifier and optional modules did not compose' >&2; exit 1; }
-if make -sn qualify QUALIFY_APP=bad >/dev/null 2>&1; then
+if make --no-print-directory --silent qualify QUALIFY_APP=bad >/dev/null 2>&1; then
   echo 'Invalid application qualification switch accepted' >&2
   exit 1
 fi
