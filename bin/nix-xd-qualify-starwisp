@@ -43,7 +43,7 @@ cleanup() {
       rc=1
     fi
   fi
-  for artifact in serial.log manifest.txt ssh-readiness-last-error.log; do
+  for artifact in serial.log manifest.txt ssh-readiness-last-error.log nix-9p.log; do
     if [[ -f "$state/$artifact" ]]; then
       cp "$state/$artifact" "$run_dir/$artifact" || rc=1
       if [[ -f "$run_dir/$artifact" ]]; then
@@ -101,7 +101,7 @@ fi
   printf 'disk_sha256=%s\nignition_sha256=%s\n' "$disk_sha" "$ignition_sha"
   printf 'ssh_key_public_fingerprint=%s\n' "$(ssh-keygen -y -f "$key" | ssh-keygen -lf - | awk '{print $2}')"
   printf 'ram_mib=%s\ncpus=%s\n' "${COREOS_RAM_MIB:-2048}" "${COREOS_CPUS:-2}"
-  printf 'ready_timeout_sec=%s\n' "${COREOS_READY_TIMEOUT_SEC:-900}"
+  printf 'ready_timeout_sec=%s\nshared_nix_volume=%s\n' "${COREOS_READY_TIMEOUT_SEC:-900}" "${COREOS_NIX_STORE_VOLUME:-none}"
 } > "$run_dir/qualification.txt"
 step preflight bash "$adapter" preflight
 if [[ -e "$state/overlay.qcow2" ]]; then
