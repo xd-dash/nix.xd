@@ -42,7 +42,7 @@ validate_checkout() {
 }
 stage() {
   validate_checkout
-  local src="$root/$checkout" tmp
+  local src="$root/$checkout"
   [[ -d "$src/.git" ]] || fail "Missing Git checkout: $src"
   [[ -z "$(git -C "$src" status --porcelain --untracked-files=no)" ]] ||
     fail "Tracked changes in $src; commit before staging"
