@@ -52,11 +52,11 @@ else
   # Only prepare the mountpoint of a new/empty volume. No recursive changes.
   container run --rm --user 0 --volume "$volume:/nix" --entrypoint /bin/sh "$image" -ec '
     test -z "$(find /nix -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" || {
-      test -f /nix/.nix-xd-direct-volume-v1 || {
+      test -f /nix/.nix-xd-direct-volume-v2 || {
         echo "Nonempty unmarked Nix store: explicit redeployment required" >&2; exit 1;
       }
     }
-    if test ! -f /nix/.nix-xd-direct-volume-v1; then
+    if test ! -f /nix/.nix-xd-direct-volume-v2; then
       chown 1000:1000 /nix
     fi
   '
@@ -65,7 +65,7 @@ else
 fi
 ready=0
 for attempt in $(seq 1 120); do
-  if container exec "$scope" /bin/sh -c 'test -f /nix/.nix-xd-direct-volume-v1 && nix --version >/dev/null' 2>/dev/null; then
+  if container exec "$scope" /bin/sh -c 'test -f /nix/.nix-xd-direct-volume-v2 && nix --version >/dev/null' 2>/dev/null; then
     ready=1
     break
   fi
@@ -74,7 +74,7 @@ done
 [[ "$ready" == 1 ]] || die "Direct-volume Nix bootstrap not ready; inspect container logs"
 container exec "$scope" /bin/sh -ec '
   grep -Eq " /nix rw(,| )" /proc/self/mountinfo
-  test -f /nix/.nix-xd-direct-volume-v1
+  test -f /nix/.nix-xd-direct-volume-v2
   nix store info >/dev/null
 ' || die "Direct-volume Nix store validation failed"
 container exec "$scope" nix --version
