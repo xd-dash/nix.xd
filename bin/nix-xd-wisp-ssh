@@ -25,15 +25,44 @@ case "${COREOS_VMM:-podman}" in
     ;;
   *) fail "Unknown COREOS_VMM" ;;
 esac
+ready_timeout="${COREOS_READY_TIMEOUT_SEC:-900}"
+retry_delay="${COREOS_READY_RETRY_SEC:-10}"
+connect_timeout="${COREOS_SSH_CONNECT_TIMEOUT_SEC:-10}"
+[[ "$ready_timeout" =~ ^[0-9]+$ ]] && (( ready_timeout >= 30 && ready_timeout <= 7200 )) || fail "Invalid COREOS_READY_TIMEOUT_SEC (30..7200)"
+[[ "$retry_delay" =~ ^[0-9]+$ ]] && (( retry_delay >= 1 && retry_delay <= 60 )) || fail "Invalid COREOS_READY_RETRY_SEC (1..60)"
+[[ "$connect_timeout" =~ ^[0-9]+$ ]] && (( connect_timeout >= 1 && connect_timeout <= 60 )) || fail "Invalid COREOS_SSH_CONNECT_TIMEOUT_SEC (1..60)"
 opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes
-  -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new
+  -o "ConnectTimeout=$connect_timeout" -o StrictHostKeyChecking=accept-new
   -o "UserKnownHostsFile=$state/known_hosts")
+start="$(date +%s)"
+deadline=$(( start + ready_timeout ))
+attempt=0
 ready=0
-for _ in $(seq 1 60); do
-  if ssh "${opts[@]}" "$user@127.0.0.1" true >/dev/null 2>&1; then ready=1; break; fi
-  sleep 2
+last_error="$state/ssh-readiness-last-error.log"
+printf 'SSH_READINESS_START profile=%s timeout_sec=%s retry_sec=%s connect_timeout_sec=%s\n' "$profile" "$ready_timeout" "$retry_delay" "$connect_timeout"
+while :; do
+  attempt=$((attempt + 1))
+  now="$(date +%s)"
+  remaining=$((deadline - now))
+  (( remaining > 0 )) || break
+  opts_probe=("${opts[@]}" -o "ConnectTimeout=$(( remaining < connect_timeout ? remaining : connect_timeout ))")
+  if ssh "${opts_probe[@]}" "$user@127.0.0.1" true > /dev/null 2>"$last_error"; then
+    ready=1
+    printf 'SSH_READY profile=%s attempts=%s elapsed_sec=%s\n' "$profile" "$attempt" "$(( $(date +%s) - start ))"
+    break
+  fi
+  now="$(date +%s)"
+  printf 'SSH_WAIT profile=%s attempt=%s elapsed_sec=%s remaining_sec=%s reason=%s\n' "$profile" "$attempt" "$((now-start))" "$((deadline-now))" "$(tail -n 1 "$last_error")"
+  if [[ "${COREOS_VMM:-podman}" == podman ]]; then
+    [[ "$(podman --connection "$machine" inspect "$scope_name" --format '{{.State.Running}}' 2>/dev/null)" == true ]] ||
+      fail "QEMU container exited during SSH readiness; see container logs"
+  fi
+  (( now < deadline )) || break
+  nap=$((deadline - now))
+  (( nap > retry_delay )) && nap=$retry_delay
+  sleep "$nap"
 done
-(( ready == 1 )) || fail "CoreOS guest not SSH-ready"
+(( ready == 1 )) || fail "CoreOS guest not SSH-ready after ${ready_timeout}s; last error: $(tail -n 2 "$last_error" 2>/dev/null | tr "\\n" " ")"
 if ! ssh "${opts[@]}" "$user@127.0.0.1" "bash -se" > "$state/wisp.log" 2>&1 <<'GUEST'
 set -Eeuo pipefail
 test "$(id -u)" -ne 0
