@@ -538,8 +538,7 @@ make bootstrap ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm
 
 # Native x86_64 Linux: local rootless Podman and systemd user Quadlet
 make bootstrap ARCH=amd64 PROVIDER=podman SCOPE=nix-xd-amd64
-make qualify ARCH=amd64 PROVIDER=podman SCOPE=nix-xd-amd64 MODULES=store-recreation
-make qualify ARCH=amd64 PROVIDER=podman SCOPE=nix-xd-amd64 MODULES=secrets
+make qualify ARCH=amd64 PROVIDER=podman SCOPE=nix-xd-amd64 MODULES=store-recreation,secrets
 ```
 
 Both bootstraps now build the **same source** (`arm/Dockerfile`, despite its
@@ -556,12 +555,13 @@ is **not** used by the AMD64 direct-volume bootstrap. The previous AMD64
 adapter that expected `local/bootstrap.sh` at that pinned commit was
 incorrect; that file was absent from the pinned revision.
 
-`MODULES=store-recreation` is a **native Linux qualifier**, not a new
+`MODULES=store-recreation` is a **shared qualification module**, not a new
 top-level Make command. It restarts the user Quadlet, requires a changed
 container ID, verifies the Nix executable path and SHA-256 and store mount
 are unchanged, and checks read-only volume exports as UID 0 and 1000.
-It is intentionally unavailable on macOS; the existing
-`make arm-qualify-recreation` handles Podman Machine qualification there.
+The same assertions run with local rootless Podman on native Linux or
+through the selected Podman Machine from macOS. `make arm-qualify-recreation`
+is retained as a compatibility entrypoint delegating to the shared module.
 
 The common command interface has passed static CI and ARM64 bootstrap,
 recreation, and secrets runtime qualification have passed on the Mac.
@@ -572,3 +572,21 @@ Once Nix-Alpine is installed, the host Makefile is an operational launcher:
 pinned flake outputs own deterministic application and host changes.
 Make handles initial bootstrap, explicit runtime/service control, and
 development-time refresh, not application-specific deployment mutations.
+
+### Qualification source parity
+
+ARM64 and x86_64 bootstraps may use distinct platform-specific Make adapters,
+but the qualification **application logic** is shared in
+`qualifiers/modules/`. On Apple Silicon, qualify the existing `coreos-arm64`
+Podman Machine without rebuilding or resetting its Nix store:
+
+```sh
+make qualify ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 \\
+  SCOPE=nix-xd-arm MODULES=store-recreation,secrets
+```
+
+The `store-recreation` module uses the same checks on macOS and Linux;
+only Podman/Quadlet transport varies. Native AMD64 runtime qualification is
+optional during ARM development: keeping its build bootstrap aligned does
+not require a local x86_64 host or QEMU emulation. Runtime evidence must
+still be collected separately before claiming that architecture qualified.
