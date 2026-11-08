@@ -125,6 +125,29 @@ Agni's development branch `codex/coreos-arm64-qemu-container` adds the
 `#qemuRunner` Nix OCI archive and pinned Fedora CoreOS `#qcow` ARM64 disk.
 The existing `x86_64-linux` outputs are preserved.
 
+Starwisp Ignition is now compiled from Agni's pinned Butane profile by
+`make coreos-ignition-build`. The guest receives a dedicated non-wheel `wisp`
+account with SSH authorized keys and a lingering systemd user manager.
+Generate a disposable ED25519 keypair locally and pass only the public key
+to the Agni Nix derivation. Keep the private key off the Nix store:
+
+```sh
+ssh-keygen -q -t ed25519 -N '' -f "$HOME/.ssh/starwisp-test"
+make coreos-ignition-build PROFILE=starwisp \
+  COREOS_SSH_PUBLIC_KEY="$HOME/.ssh/starwisp-test.pub"
+make coreos-preflight PROFILE=starwisp
+make coreos-boot PROFILE=starwisp
+make coreos-qualify PROFILE=starwisp \
+  COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
+make coreos-stop PROFILE=starwisp
+```
+
+Run the Ignition build only after the updated Agni branch is synchronized
+and staged again, since the Starwisp profile is in Agni's flake sources.
+Existing `base.qcow2` is reused and is not rebuilt. Preflight checks disk
+and Ignition digests, QEMU runner image identity and firmware availability.
+Guest boot and its negative-path Wisp gates still require a real ARM64 run.
+
 ```sh
 cd ~/workspace/nix.xd
 make bootstrap PROVIDER=podman SCOPE=nix-xd-arm
