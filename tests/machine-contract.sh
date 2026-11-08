@@ -15,7 +15,7 @@ printf '%s\n' "$*" >> "$MOCK_CALLS"
 case "$1 $2" in
   'machine inspect')
     [[ -f "$MOCK_EXISTS" ]] || exit 125
-    if [[ "${3:-}" == '--format' ]]; then
+    if [[ "${4:-}" == '--format' ]]; then
       echo "${MOCK_CPUS:-6} ${MOCK_MEMORY:-8192} ${MOCK_DISK:-120} false"
     fi
     ;;
