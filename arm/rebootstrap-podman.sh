@@ -36,6 +36,22 @@ diagnose() {
   else
     echo 'OWNER_CONTAINER=missing'
   fi
+  printf '%s\n' '--- complete user-service journal (most recent 150 lines) ---'
+  podman machine ssh "$machine" journalctl --user --no-pager -o cat -u "$scope.service" -n 150 2>&1 || true
+  printf '%s\n' '--- read-only named-volume inspection ---'
+  if "${p[@]}" volume exists "$volume"; then
+    "${p[@]}" run --rm --pull=never --user 0:0 \
+      --mount "type=volume,src=$volume,dst=/nix,ro" \
+      --entrypoint /bin/sh "$image" -ec '
+        stat -c "STORE_ROOT uid=%u gid=%g mode=%a" /nix
+        if test -f /nix/.nix-xd-direct-volume-v1; then echo STORE_MARKER=present; else echo STORE_MARKER=absent; fi
+        if test -d /nix/store; then echo STORE_DIR=present; else echo STORE_DIR=absent; fi
+        if test -x /nix/var/nix/profiles/per-user/nixuser/profile/bin/nix; then echo STORE_NIX_PROFILE=present; else echo STORE_NIX_PROFILE=absent; fi
+        find /nix -mindepth 1 -maxdepth 2 -print | head -n 40
+      ' || true
+  else
+    echo 'STORE_VOLUME=missing'
+  fi
   printf 'ARM_REBOOTSTRAP_DIAGNOSIS=complete\n'
 }
 
