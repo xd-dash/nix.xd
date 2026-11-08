@@ -16,7 +16,8 @@ grep -Fxq "port=$port" "$state/manifest.txt" || fail "SSH port does not match bo
 case "${COREOS_VMM:-podman}" in
   podman)
     machine="${NIX_XD_MACHINE:-podman-machine-default}"
-    scope_name="coreos-$profile"
+    scope_name="${COREOS_CONTAINER_NAME:-coreos-$profile}"
+    [[ "$scope_name" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || fail "Invalid CoreOS container name"
     [[ "$(podman --connection "$machine" inspect "$scope_name" --format '{{.State.Running}}' 2>/dev/null)" == true ]] ||
       fail "Podman CoreOS guest is not running"
     ;;
