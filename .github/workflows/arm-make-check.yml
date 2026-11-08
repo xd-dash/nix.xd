@@ -8,8 +8,11 @@ on:
       - arm/bootstrap-container.sh
       - bin/nix-xd-container
       - bin/nix-xd-task
+      - bin/nix-xd-coreos-hvf
+      - bin/nix-xd-wisp-ssh
       - bin/nix-xd-sync
       - tests/make-contract.sh
+      - tests/coreos-host-contract.sh
       - .github/workflows/arm-make-check.yml
   pull_request:
     paths:
@@ -19,6 +22,8 @@ on:
       - arm/bootstrap-container.sh
       - bin/nix-xd-container
       - bin/nix-xd-task
+      - bin/nix-xd-coreos-hvf
+      - bin/nix-xd-wisp-ssh
       - bin/nix-xd-sync
       - tests/make-contract.sh
       - .github/workflows/arm-make-check.yml
@@ -31,6 +36,8 @@ jobs:
         run: make check-static
       - name: Test generic Nix command contract
         run: bash tests/make-contract.sh
+      - name: Check host CoreOS adapter contract
+        run: bash tests/coreos-host-contract.sh
       - name: Verify both provider command interfaces
         run: |
           make help
@@ -41,3 +48,4 @@ jobs:
           make -n PROVIDER=container OS=Darwin build FLAKE=compositions/agni TARGET='#test'
           make -n PROVIDER=podman qualify-process FLAKE=compositions/agni
           make -n PROVIDER=container OS=Darwin stage CHECKOUT=compositions/agni
+
