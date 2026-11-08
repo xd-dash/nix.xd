@@ -310,6 +310,59 @@ do not relabel the shared Nix store recursively. Nix databases and
 garbage-collection metadata are **not** shared. The authoritative host
 must keep GC roots for all closures still in use by guests.
 
+### First live 9P CoreOS guest qualification
+
+The host `make store-export-check MACHINE=coreos-arm64` passed for
+`nix-xd-arm-store`. Use a **new artifact root and guest name** for the
+9P experiment. Do not overwrite the previously qualified Starwisp data.
+
+```sh
+cd ~/workspace/nix.xd
+git pull --ff-only
+make check-static
+
+make sync REPO=dash-xd/agni BRANCH=codex/coreos-arm64-qemu-container \
+  REV=c0f4febb22cf7daa9af72e4e2298899a7c3c84a4 WORKSPACES="$PWD"
+make stage MACHINE=coreos-arm64 CHECKOUT=agni WORKSPACES="$PWD"
+
+# Keep a tag for the original, previously qualified OCI image.
+podman --connection coreos-arm64 tag \
+  sha256:f420b7ae6d47ab1762008d16341577a7990bc421310e377b8f43a0ced65e9091 \
+  localhost/agni-coreos-qemu-runner:starwisp-qualified
+
+export COREOS_STATE_ROOT="$PWD/.state/coreos-9p"
+make coreos-container-build MACHINE=coreos-arm64 \
+  COREOS_STATE_ROOT="$COREOS_STATE_ROOT" COREOS_NIX_STORE_VOLUME=nix-xd-arm-store
+make coreos-ignition-build MACHINE=coreos-arm64 \
+  COREOS_STATE_ROOT="$COREOS_STATE_ROOT" COREOS_NIX_STORE_VOLUME=nix-xd-arm-store \
+  COREOS_SSH_PUBLIC_KEY="$HOME/.ssh/starwisp-test.pub"
+
+make qualify-starwisp MACHINE=coreos-arm64 \
+  COREOS_STATE_ROOT="$COREOS_STATE_ROOT" COREOS_NIX_STORE_VOLUME=nix-xd-arm-store \
+  COREOS_CONTAINER_NAME=coreos-starwisp-9p \
+  COREOS_SSH_KEY="$HOME/.ssh/starwisp-test" COREOS_READY_TIMEOUT_SEC=900
+```
+
+This retains `nix-9p.log` with the qualification, and fails if
+`findmnt` does not report a **9p** mount with **ro** options at
+`/var/mnt/nixstore`, or the store cannot be read. It also exercises
+Wisp's rootless systemd tests as before. The experiment's container
+name is distinct; no already-qualified guest has to be deleted.
+
+The first run does **not** claim to qualify the nested Nix-Alpine
+container. To test nested rootless Podman after deliberately loading a
+container image into the CoreOS guest, set
+`COREOS_GUEST_PROBE_IMAGE=<existing-guest-image>` on the same qualification
+target. The nested gate runs with `--pull=never`, binds the 9P store
+read-only at `/nix/store`, and preserves `nix-9p-nested.log`.
+No new service is installed; the optional `label=disable` is limited to
+this diagnostic container and must be reviewed for later production use.
+
+**9P kernel capability is not assumed.** If the mount fails, preserve
+the serial log and `nix-9p.log`; the CoreOS kernel configuration must be
+checked before using this path for a guest workload. The store volume
+remains owned by the host Nix-Alpine instance.
+
 ### Repeatable Starwisp runtime qualification
 
 After a one-time Agni build, Ignition generation, and OCI handoff to the
