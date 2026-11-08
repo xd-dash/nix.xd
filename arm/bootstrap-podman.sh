@@ -17,7 +17,7 @@ machine="${NIX_XD_MACHINE:-podman-machine-default}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
 [[ "$machine" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || die "Invalid machine name"
-image="localhost/nix-xd:arm64"
+image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
 unit="$scope.service"
 
 if ! command -v podman >/dev/null 2>&1; then
