@@ -173,15 +173,33 @@ probe_rootfs="$mountpoint/${COREOS_GUEST_PROBE_ROOTFS#/nix/store/}"
 test -d "$probe_rootfs"
 test -L "$probe_rootfs/bin/sh"
 test -d "$probe_rootfs/nix/store"
-podman run --rm --user 1000:1000 \
+store_shell="$(readlink "$probe_rootfs/bin/sh")"
+[[ "$store_shell" == /nix/store/*/bin/busybox ]] || {
+  echo "FAIL: Probe shell does not point into the shared store: $store_shell"
+  exit 1
+}
+test -x "$mountpoint/${store_shell#/nix/store/}"
+test -n "${XDG_RUNTIME_DIR:-}"
+test -d "$XDG_RUNTIME_DIR"
+scratch="$(mktemp -d "$XDG_RUNTIME_DIR/nix-xd-rootfs.XXXXXXXX")"
+trap 'rm -rf -- "$scratch"' EXIT
+mkdir -p "$scratch/bin" "$scratch/nix/store" "$scratch/etc" \
+  "$scratch/run" "$scratch/var" "$scratch/tmp" "$scratch/dev" \
+  "$scratch/proc" "$scratch/sys"
+ln -s "$store_shell" "$scratch/bin/sh"
+printf 'root:x:0:0:root:/root:/bin/sh\n' > "$scratch/etc/passwd"
+printf 'root:x:0:\n' > "$scratch/etc/group"
+ln -s /proc/self/mounts "$scratch/etc/mtab"
+echo "NIX_9P_ROOTFS_MODE=guest-runtime-scratch store_executable=$store_shell"
+podman run --rm \
   --network none --security-opt label=disable \
   --mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro \
-  --rootfs "$probe_rootfs:O" \
+  --rootfs "$scratch" \
   /bin/sh -ec '
-    test "$(id -u)" = 1000
+    test "$(id -u)" = 0
     test -d /nix/store && test -r /nix/store && test -x /nix/store
-    test -f /run/.containerenv
     grep -Eq " /nix/store ro(,| )" /proc/self/mountinfo
+    test -x /bin/sh
     /bin/sh -c "echo PASS: NIX_9P_NESTED_EXECUTABLE"
   '
 echo 'PASS: NIX_9P_NESTED_PODMAN_READONLY'
