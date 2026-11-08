@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+profile="${COREOS_PROFILE:-starwisp}"
+root="${COREOS_STATE_ROOT:-$PWD/.state/coreos}"
+port="${COREOS_SSH_PORT:-2222}"
+user="${COREOS_GUEST_USER:-wisp}"
+key="${COREOS_SSH_KEY:-}"
+fail() { echo "error: $*" >&2; exit 1; }
+[[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid profile"
+[[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail "Invalid guest user"
+[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail "Invalid SSH port"
+[[ -r "$key" ]] || fail "Provide COREOS_SSH_KEY"
+state="$root/$profile"
+[[ -f "$state/manifest.txt" ]] || fail "Missing CoreOS boot manifest"
+grep -Fxq "port=$port" "$state/manifest.txt" || fail "SSH port does not match boot manifest"
+[[ -f "$state/qemu.pid" ]] && kill -0 "$(cat "$state/qemu.pid")" 2>/dev/null || fail "QEMU is not running"
+opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes
+  -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new
+  -o "UserKnownHostsFile=$state/known_hosts")
+ready=0
+for _ in $(seq 1 60); do
+  if ssh "${opts[@]}" "$user@127.0.0.1" true >/dev/null 2>&1; then ready=1; break; fi
+  sleep 2
+done
+(( ready == 1 )) || fail "CoreOS guest not SSH-ready"
+if ! ssh "${opts[@]}" "$user@127.0.0.1" "bash -se" > "$state/wisp.log" 2>&1 <<'GUEST'
+set -Eeuo pipefail
+test "$(id -u)" -ne 0
+test -S "$XDG_RUNTIME_DIR/bus"
+systemctl --user show-environment >/dev/null
+test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+unit="wisp-qualify-$$"
+cleanup() {
+  systemctl --user stop "$unit.service" "$unit-fail.service" "$unit-timeout.service" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "$unit.service" "$unit-fail.service" "$unit-timeout.service" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+systemd-run --user --wait --pipe --collect --unit="$unit" --property=RuntimeMaxSec=30s \
+  /usr/bin/bash -c 'test -n "$INVOCATION_ID"; test "$(id -u)" -ne 0; podman info >/dev/null'
+if systemd-run --user --wait --pipe --collect --unit="$unit-fail" /usr/bin/false; then
+  echo "FAIL: false payload accepted" >&2; exit 1
+fi
+if systemd-run --user --wait --pipe --collect --unit="$unit-timeout" \
+  --property=RuntimeMaxSec=2s /usr/bin/sleep 20; then
+  echo "FAIL: timeout payload accepted" >&2; exit 1
+fi
+echo "PASS: Wisp user service, rootless Podman, failure and timeout paths"
+GUEST
+then
+  cat "$state/wisp.log" >&2
+  fail "Wisp guest qualification failed"
+fi
+printf "QUALIFIED profile=%s evidence=%s\n" "$profile" "$state/wisp.log"
