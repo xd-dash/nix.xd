@@ -12,10 +12,13 @@ for target in coreos-container-build coreos-ignition-build coreos-preflight core
     [[ "$result" == *"bin/nix-xd-coreos-podman"* ]] || { echo "Default QEMU provider is not Podman"; exit 1; }
   fi
 done
-# Test that Make exports the selected values without embedding user paths in
-# a shell assignment line. The apostrophe is a regression fixture for quoting.
-env_probe="$(make --no-print-directory --silent \
-  --eval  COREOS_STATE_ROOT="$(mktemp -d)" COREOS_SSH_PORT=2222 bash bin/nix-xd-coreos-hvf preflight ) >/dev/null 2>&1; then
+# Verify that Make exports CoreOS fields without embedding their values in a
+# shell command. Apostrophes in a filesystem path must remain intact.
+env_probe="$(make --no-print-directory --silent --eval='coreos-env-probe: ; @env' coreos-env-probe PROFILE=starwisp MACHINE=coreos-arm64 COREOS_STATE_ROOT="/tmp/starwisp's-fixture")"
+grep -Fxq 'COREOS_PROFILE=starwisp' <<<"$env_probe"
+grep -Fxq "COREOS_STATE_ROOT=/tmp/starwisp's-fixture" <<<"$env_probe"
+grep -Fxq 'NIX_XD_MACHINE=coreos-arm64' <<<"$env_probe"
+if ( COREOS_PROFILE="bad/name" COREOS_STATE_ROOT="$(mktemp -d)" COREOS_SSH_PORT=2222 bash bin/nix-xd-coreos-hvf preflight ) >/dev/null 2>&1; then
   echo "Invalid profile was accepted" >&2; exit 1
 fi
 grep -Fq 'COREOS_STARWISP_BUTANE="$butane"' bin/nix-xd-coreos-podman || { echo "Agni Butane source not passed into flake"; exit 1; }
