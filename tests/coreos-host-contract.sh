@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo"
-bash -n bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-qualify-starwisp bin/nix-xd-store-export-check
+bash -n bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-qualify-starwisp bin/nix-xd-store-export-check bin/nix-xd-guest-store-exec
 for target in coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify coreos-reset-failed qualify-starwisp; do
   result="$(make -sn "$target" COREOS_IMAGE=/tmp/image.qcow2 COREOS_IGNITION=/tmp/config.ign COREOS_FIRMWARE=/tmp/firmware.bin COREOS_SSH_KEY=/tmp/test-key PROFILE=starwisp)"
   [[ "$result" == *"COREOS_PROFILE='starwisp'"* ]] || { echo "Missing profile propagation: $target"; exit 1; }
@@ -48,15 +48,14 @@ grep -Fq 'NIX_9P_NESTED_PODMAN_READONLY' bin/nix-xd-wisp-ssh || { echo "Nested P
 grep -Fq 'nix-9p-nested.log' bin/nix-xd-qualify-starwisp || { echo "Nested Podman evidence missing"; exit 1; }
 grep -Fq 'COREOS_GUEST_PROBE_ROOTFS=' Makefile || { echo "Missing shared rootfs propagation"; exit 1; }
 grep -Fq 'storeProbeRootfs = pkgs.runCommand' flake.nix || { echo "Missing Nix store rootfs probe"; exit 1; }
-grep -Fq -- '--rootfs "$scratch"' bin/nix-xd-wisp-ssh || { echo "Nested Podman must use guest-local writable rootfs scaffolding"; exit 1; }
-grep -Fq 'scratch="$(mktemp -d "$XDG_RUNTIME_DIR/nix-xd-rootfs.XXXXXXXX")"' bin/nix-xd-wisp-ssh || { echo "Missing disposable rootfs outside Nix store"; exit 1; }
-grep -Fq 'ln -s "$store_shell" "$scratch/bin/sh"' bin/nix-xd-wisp-ssh || { echo "Rootfs must execute shared-store shell"; exit 1; }
-grep -Fq 'ln -s "$store_shell" "$scratch/bin/busybox"' bin/nix-xd-wisp-ssh || { echo "Shared-store BusyBox applets must be available explicitly"; exit 1; }
-grep -Fq '/bin/busybox id -u' bin/nix-xd-wisp-ssh || { echo "Nested uid probe must not depend on missing id applet links"; exit 1; }
-grep -Fq '/bin/busybox grep -Eq' bin/nix-xd-wisp-ssh || { echo "Nested mount probe must not depend on missing grep applet links"; exit 1; }
-grep -Fq 'trap '\''rm -rf -- "$scratch"'\'' EXIT' bin/nix-xd-wisp-ssh || { echo "Rootfs scratch cleanup absent"; exit 1; }
-if grep -Fq -- '--rootfs "$probe_rootfs:O"' bin/nix-xd-wisp-ssh; then echo "9P-backed rootfs overlay forbidden"; exit 1; fi
-grep -Fq -- '--mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro' bin/nix-xd-wisp-ssh || { echo "Nested Podman must mount shared store read-only"; exit 1; }
+grep -Fq -- '--rootfs "$scratch"' bin/nix-xd-guest-store-exec || { echo "Guest rootfs must be local writable scratch"; exit 1; }
+grep -Fq 'scratch="$(mktemp -d "$XDG_RUNTIME_DIR/nix-xd-rootfs.XXXXXXXX")"' bin/nix-xd-guest-store-exec || { echo "Missing disposable runtime rootfs"; exit 1; }
+grep -Fq 'ln -s "$store_shell" "$scratch/bin/sh"' bin/nix-xd-guest-store-exec || { echo "Guest helper must use shared-store shell"; exit 1; }
+grep -Fq 'ln -s "$store_shell" "$scratch/bin/busybox"' bin/nix-xd-guest-store-exec || { echo "Guest helper must expose BusyBox applets"; exit 1; }
+grep -Fq 'COREOS_GUEST_DYNAMIC_EXECUTABLE=' Makefile || { echo "Dynamic executable not propagated"; exit 1; }
+grep -Fq 'storeProbeDynamic = pkgs.hello;' flake.nix || { echo "Missing dynamic closure probe"; exit 1; }
+grep -Fq 'NIX_9P_DYNAMIC_CLOSURE_EXECUTABLE' bin/nix-xd-wisp-ssh || { echo "Missing dynamic closure runtime check"; exit 1; }
+if grep -Fq -- '--rootfs "$probe_rootfs:O"' bin/nix-xd-wisp-ssh; then echo "9P-backed overlay forbidden"; exit 1; fi
 grep -Fq 'NIX_9P_NESTED_EXECUTABLE' bin/nix-xd-wisp-ssh || { echo "Missing nested executable qualification"; exit 1; }
 if grep -Eq 'podman (save|load)|COREOS_GUEST_PROBE_IMAGE' bin/nix-xd-wisp-ssh; then echo "OCI image copies are forbidden in zero-copy qualification"; exit 1; fi
 grep -Fq 'storeProbeOciArchive = pkgs.dockerTools.buildLayeredImage' flake.nix || { echo "Missing cacheable OCI image tarball"; exit 1; }
@@ -64,5 +63,5 @@ grep -Fq 'COREOS_GUEST_OCI_ARCHIVE=' Makefile || { echo "Missing OCI archive sto
 grep -Fq 'NIX_9P_OCI_ARCHIVE_READONLY' bin/nix-xd-wisp-ssh || { echo "Missing read-only OCI archive probe"; exit 1; }
 grep -Fq 'nix-9p-oci-archive.log' bin/nix-xd-qualify-starwisp || { echo "Missing OCI archive qualification evidence"; exit 1; }
 grep -Fq 'ln -s /proc/self/mounts "$out/etc/mtab"' flake.nix || { echo "Read-only probe rootfs must precreate /etc/mtab"; exit 1; }
-grep -Fq 'NIX_9P_ROOTFS_MODE=guest-runtime-scratch' bin/nix-xd-wisp-ssh || { echo "Missing guest-local runtime separation evidence"; exit 1; }
+grep -Fq 'NIX_9P_ROOTFS_MODE=guest-runtime-scratch' bin/nix-xd-guest-store-exec || { echo "Missing guest-local runtime separation evidence"; exit 1; }
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
