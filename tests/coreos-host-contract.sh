@@ -94,10 +94,12 @@ grep -Fq 'bash bin/nix-xd-log "$(SCOPE)" arm-rebootstrap' Makefile || { echo 'Re
 bash -n arm/rebootstrap-podman.sh
 grep -Fq 'arm-qualify-recreation:' Makefile || { echo 'Missing modular recreation qualification target'; exit 1; }
 grep -Fq 'arm-qualify-recreation bash arm/qualify-recreation-podman.sh' Makefile || { echo 'Recreation must use retained diagnostic log'; exit 1; }
-grep -Fq 'RECREATION_CONTAINER_CHANGED=passed' arm/qualify-recreation-podman.sh || { echo 'Recreation must prove new container identity'; exit 1; }
-grep -Fq 'RECREATION_STORE_PRESERVED=passed' arm/qualify-recreation-podman.sh || { echo 'Recreation must compare preserved persistent Nix store'; exit 1; }
-grep -Fq 'systemctl --user restart' arm/qualify-recreation-podman.sh || { echo 'Recreation must use user Quadlet'; exit 1; }
-if grep -Eq 'volume (rm|create)|podman (save|load)|nix (build|store gc)' arm/qualify-recreation-podman.sh; then echo 'Recreation qualifier must be nondestructive'; exit 1; fi
+grep -Fq 'qualifiers/modules/store-recreation.sh' arm/qualify-recreation-podman.sh || { echo 'ARM recreation must delegate to shared module'; exit 1; }
+grep -Fq 'STORE_RECREATION_CONTAINER_CHANGED=passed' qualifiers/modules/store-recreation.sh || { echo 'Shared recreation must prove new container'; exit 1; }
+grep -Fq 'STORE_RECREATION_STORE_PRESERVED=passed' qualifiers/modules/store-recreation.sh || { echo 'Shared recreation must verify store identity'; exit 1; }
+grep -Fq 'service restart "$scope.service"' qualifiers/modules/store-recreation.sh || { echo 'Shared recreation must restart systemd user Quadlet'; exit 1; }
+grep -Fq 'ARM_RECREATION_RESULT=passed' arm/qualify-recreation-podman.sh || { echo 'Compatibility result marker missing'; exit 1; }
+if grep -Eq 'volume (rm|create)|podman (save|load)|nix (build|store gc)' qualifiers/modules/store-recreation.sh; then echo 'Shared recreation must be nondestructive'; exit 1; fi
 bash -n arm/qualify-recreation-podman.sh
 grep -Fq 'arm-wind-down-plan:' Makefile || { echo 'Missing wind-down plan'; exit 1; }
 grep -Fq 'arm-wind-down-stop:' Makefile || { echo 'Missing wind-down stop'; exit 1; }
