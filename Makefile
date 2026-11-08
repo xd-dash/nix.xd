@@ -31,7 +31,7 @@ OS := $(shell uname -s)
 TASK_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SYSTEM='aarch64-linux' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
-.PHONY: help bootstrap plan image-build machine-init machine-check machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan check-static
+.PHONY: help self-update bootstrap plan image-build machine-init machine-check machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan check-static
 
 help:
 	@printf '%s\n' \
@@ -46,7 +46,12 @@ help:
 	  'make compose|qualify|qualify-process|qualify-service|qualify-composition' \
 	  'make qualify-plan FLAKE=path PLAN_TARGET=\x23app (application-owned plan)' \
 	  'make start|stop|restart|status|logs|shell|exec|ps|inspect|store-info' \
+	  'make self-update                             Fast-forward this nix.xd checkout' \
 	  'make check-static                            Host-independent static checks'
+
+self-update:
+	@test -z "$(git status --porcelain --untracked-files=no)" || { echo "Tracked edits detected; commit or stash before self-update" >&2; exit 1; }
+	@bash bin/nix-xd-log "$(SCOPE)" self-update git pull --ff-only
 
 bootstrap:
 	@test "$(OS)" = Darwin || { echo "macOS bootstrap requires Darwin" >&2; exit 1; }
