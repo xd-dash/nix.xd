@@ -531,42 +531,46 @@ than adding top-level `secrets` orchestration commands.
 
 ### Common bootstrap contract and modular Makefiles
 
-The repository has **one top-level Make interface** with small included bootstrap
-adapters in `mk/bootstrap-arm64.mk` and `mk/bootstrap-amd64.mk`. Both use the
-same command form:
+The repository has **one top-level Make interface** and included architecture
+adapters in `mk/bootstrap-arm64.mk` and `mk/bootstrap-amd64.mk`:
 
 ```sh
+# Apple Silicon/macOS: Podman Machine, ARM64 direct-volume Nix-Alpine
 make bootstrap ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm
-make bootstrap ARCH=amd64 PROVIDER=podman SCOPE=nix-xd-amd64 \
-  X86_SOURCE=/absolute/path/to/pinned/nix-alpine
+
+# Native x86_64 Linux: local rootless Podman and systemd user Quadlet
+make bootstrap ARCH=amd64 PROVIDER=podman SCOPE=nix-xd-amd64
+make qualify ARCH=amd64 PROVIDER=podman SCOPE=nix-xd-amd64 MODULES=store-recreation
+make qualify ARCH=amd64 PROVIDER=podman SCOPE=nix-xd-amd64 MODULES=secrets
 ```
 
-The native Linux AMD64 adapter uses the pinned `dash-xd/nix-alpine` source,
-checks its full revision and clean tracked state, and delegates to that
-source's existing `local/bootstrap.sh` through Make. Its default source
-path is `./nix-alpine/nix-alpine` and the default pin is
-`80a2821b7571edd09507f9b4349e2f1ed3daf900`; if the checkout differs,
-bootstrap **fails closed**. It never fetches a moving branch during bootstrap.
-The adapter requires a native x86_64 Linux host with rootless Podman and a
-user systemd session.
+Both bootstraps now build the **same source** (`arm/Dockerfile`, despite its
+legacy directory name) for their respective architecture, and install Nix only
+after mounting an empty, persistent `<scope>-store` volume at `/nix`.
+They share the UID 1000 owner, `/nix/home/nixuser`, persistent profile,
+`.nix-xd-direct-volume-v2` marker, and fail-closed refusal of unmarked
+non-empty volumes. Neither bootstraps by copying an OCI-embedded Nix store.
+They require rootless Podman and systemd's user manager.
 
-On Apple Silicon, the ARM64 adapter continues to bootstrap into the
-selected Podman Machine (or Apple Container provider). On native Linux,
-generic tasks now use local rootless Podman, not macOS Podman Machine
-connections. The selected runtime architecture is checked before flake
-execution.
+The separate `dash-xd/nix-alpine` upstream source remains pinned in
+`flake.nix` for existing flake outputs; its older image-baked Nix Dockerfile
+is **not** used by the AMD64 direct-volume bootstrap. The previous AMD64
+adapter that expected `local/bootstrap.sh` at that pinned commit was
+incorrect; that file was absent from the pinned revision.
 
-This is *interface parity*, not yet runtime qualification parity: upstream
-x86_64 bootstrap and the ARM64 direct-volume bootstrap currently have
-different OCI/store-installation contracts. The common interface deliberately
-does not copy or migrate Nix stores between them. The x86_64 runtime must pass
-its own bootstrap, persistence, and store-isolation gates before it is
-considered interchangeable with the ARM64 implementation.
+`MODULES=store-recreation` is a **native Linux qualifier**, not a new
+top-level Make command. It restarts the user Quadlet, requires a changed
+container ID, verifies the Nix executable path and SHA-256 and store mount
+are unchanged, and checks read-only volume exports as UID 0 and 1000.
+It is intentionally unavailable on macOS; the existing
+`make arm-qualify-recreation` handles Podman Machine qualification there.
 
-The top-level `make bootstrap` remains an escape hatch for creating or
-repairing the execution substrate. Once Nix-Alpine is running, declarative
-application and host changes should use pinned flake outputs via
-`make build`, `make run`, or `make qualify`. Make should not accumulate
-application-specific imperative mutation recipes. Runtime process controls
-(`start`, `stop`, `status`, `logs`) remain operational conveniences,
-not a substitute for deterministic flake-owned system changes.
+The common command interface has passed static CI and ARM64 bootstrap,
+recreation, and secrets runtime qualification have passed on the Mac.
+**Native x86_64 execution is not yet qualified** until the commands above
+run successfully on an x86_64 Linux host.
+
+Once Nix-Alpine is installed, the host Makefile is an operational launcher:
+pinned flake outputs own deterministic application and host changes.
+Make handles initial bootstrap, explicit runtime/service control, and
+development-time refresh, not application-specific deployment mutations.
