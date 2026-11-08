@@ -77,4 +77,14 @@ grep -Fq '.nix-xd-direct-volume-v1' bin/nix-xd-store-export-check || { echo "Leg
 if grep -Eq 'cp -a /nix/|cp -r /nix/|cp -R /nix/' arm/bootstrap-container.sh arm/bootstrap-podman.sh arm/init-nix-store.sh; then echo "Copying the Nix store is forbidden"; exit 1; fi
 if grep -Eq 'RUN.*(install-nix|nix-[0-9].*/install)' arm/Dockerfile; then echo "Building Nix into OCI image store is forbidden"; exit 1; fi
 bash -n arm/init-nix-store.sh
+grep -Fq 'arm-rebootstrap:' Makefile || { echo 'Missing logged ARM rebootstrap composition'; exit 1; }
+grep -Fq 'arm-rebootstrap-plan:' Makefile || { echo 'Missing preflight target'; exit 1; }
+grep -Fq 'arm-rebootstrap-reset:' Makefile || { echo 'Missing reset target'; exit 1; }
+grep -Fq 'arm-rebootstrap-bootstrap:' Makefile || { echo 'Missing direct volume bootstrap target'; exit 1; }
+grep -Fq 'arm-rebootstrap-verify:' Makefile || { echo 'Missing read-only export verification target'; exit 1; }
+grep -Fq 'NIX_XD_CONFIRM_RESET' arm/rebootstrap-podman.sh || { echo 'Missing destructive reset confirmation'; exit 1; }
+grep -Fq 'volume rm "$volume"' arm/rebootstrap-podman.sh || { echo 'Missing scoped volume reset'; exit 1; }
+if grep -Eq '(volume rm -f|volume rm --force|podman system prune)' arm/rebootstrap-podman.sh; then echo 'Forced broad deletion forbidden'; exit 1; fi
+grep -Fq 'bash bin/nix-xd-log "$(SCOPE)" arm-rebootstrap' Makefile || { echo 'Rebootstrap output must be logged'; exit 1; }
+bash -n arm/rebootstrap-podman.sh
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
