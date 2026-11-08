@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+action="${1:-}"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+profile="${COREOS_PROFILE:-starwisp}"
+root="${COREOS_STATE_ROOT:-$PWD/.state/coreos}"
+port="${COREOS_SSH_PORT:-2222}"
+flake="${COREOS_FLAKE:-/workspaces/agni/qemu/coreos-live/local}"
+image="${COREOS_RUNNER_IMAGE:-localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64}"
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+[[ "$machine" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || fail 'Invalid machine'
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid scope'
+[[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid profile'
+[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Invalid port'
+[[ "$flake" == /workspaces/* && "$flake" != *..* ]] || fail 'COREOS_FLAKE must be a safe staged /workspaces path'
+command -v podman >/dev/null || fail 'Podman client is required'
+p=(podman --connection "$machine")
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || fail 'Podman Machine is not running'
+arch="$("${p[@]}" info --format '{{.Host.Arch}}')"
+[[ "$arch" == aarch64 || "$arch" == arm64 ]] || fail "Expected ARM64 machine; got $arch"
+mkdir -p "$root"
+root="$(cd "$root" && pwd -P)"
+state="$root/$profile"
+name="coreos-$profile"
+runner_id() {
+  local id
+  id="$("${p[@]}" image inspect "$image" --format '{{.Id}}')" || fail "Missing ARM64 QEMU image: $image (run coreos-container-build)"
+  [[ "$id" == sha256:* ]] || id="sha256:$id"
+  [[ "$id" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "Unexpected runner image ID: $id"
+  printf '%s\n' "$id"
+}
+build() {
+  [[ -d "$state" ]] || mkdir -m 700 "$state"
+  "${p[@]}" exec "$scope" nix --version >/dev/null || fail 'Nix executor unavailable'
+  local archive disk
+  archive="$("${p[@]}" exec "$scope" nix build --no-write-lock-file --no-link --print-out-paths "$flake#qemuRunner")"
+  [[ "$archive" == /nix/store/* && "$archive" != *$'\n'* ]] || fail 'Unexpected runner archive path'
+  "${p[@]}" exec "$scope" cat "$archive" | "${p[@]}" load
+  runner_id >/dev/null
+  disk="$("${p[@]}" exec "$scope" nix build --no-write-lock-file --no-link --print-out-paths "$flake#qcow")"
+  [[ "$disk" == /nix/store/* && "$disk" != *$'\n'* ]] || fail 'Unexpected QCOW output path'
+  [[ ! -e "$state/base.qcow2" ]] || fail 'Disk exists; refusing overwrite'
+  "${p[@]}" cp "$scope:$disk/base.qcow2" "$state/base.qcow2"
+  printf 'runner=%s\ndisk_sha256=%s\n' "$(runner_id)" "$(shasum -a 256 "$state/base.qcow2" | awk '{print $1}')" > "$state/build.txt"
+  echo "BUILT profile=$profile state=$state"
+}
+preflight() {
+  [[ -f "$state/base.qcow2" ]] || fail 'Missing base.qcow2; run coreos-container-build'
+  [[ -f "$state/config.ign" ]] || fail 'Missing config.ign; export application-owned Ignition here'
+  [[ -f "$state/build.txt" ]] || fail 'Missing build manifest'
+  [[ "$(shasum -a 256 "$state/base.qcow2" | awk '{print $1}')" == "$(sed -n 's/^disk_sha256=//p' "$state/build.txt")" ]] || fail 'CoreOS disk digest mismatch'
+  local id
+  id="$(runner_id)"
+  [[ "$(sed -n 's/^runner=//p' "$state/build.txt")" == "$id" ]] || fail 'QEMU runner identity mismatch'
+  "${p[@]}" run --rm --pull=never --volume "$state:/state:ro" "$id" img info /state/base.qcow2 >/dev/null || fail 'Runner cannot read host state; verify Podman Machine file sharing'
+  echo "PASS profile=$profile image=$id accel=tcg"
+}
+boot() {
+  preflight
+  [[ ! -e "$state/overlay.qcow2" ]] || fail 'Overlay exists; refusing overwrite'
+  if "${p[@]}" container exists "$name"; then fail "Existing guest container: $name"; fi
+  local id
+  id="$(runner_id)"
+  "${p[@]}" run --rm --pull=never --volume "$state:/state:rw" "$id" img create -q -f qcow2 -F qcow2 -b /state/base.qcow2 /state/overlay.qcow2
+  printf 'port=%s\nrunner=%s\n' "$port" "$id" > "$state/manifest.txt"
+  "${p[@]}" run --detach --pull=never --name "$name" --volume "$state:/state:rw" \
+    --publish "127.0.0.1:$port:2222" "$id" run \
+    -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m 4096 -smp 4 \
+    -bios /nix/store/NOT_CONFIGURED_FIRMWARE \
+    -drive if=none,id=disk0,file=/state/overlay.qcow2,format=qcow2 \
+    -device virtio-blk-pci,drive=disk0 \
+    -fw_cfg name=opt/com.coreos/config,file=/state/config.ign \
+    -netdev user,id=n0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=n0 \
+    -display none -serial file:/state/serial.log -monitor none
+  echo "BOOT_REQUESTED profile=$profile container=$name accel=tcg"
+}
+stop() {
+  "${p[@]}" stop "$name"
+  echo "STOPPED profile=$profile; state retained: $state"
+}
+case "$action" in
+  build) build ;;
+  preflight) preflight ;;
+  boot) boot ;;
+  stop) stop ;;
+  *) fail 'Usage: coreos-podman build|preflight|boot|stop' ;;
+esac
