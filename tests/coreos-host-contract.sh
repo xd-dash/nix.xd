@@ -52,4 +52,8 @@ grep -Fq -- '--rootfs "$probe_rootfs"' bin/nix-xd-wisp-ssh || { echo "Nested Pod
 grep -Fq -- '--mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro' bin/nix-xd-wisp-ssh || { echo "Nested Podman must mount shared store read-only"; exit 1; }
 grep -Fq 'NIX_9P_NESTED_EXECUTABLE' bin/nix-xd-wisp-ssh || { echo "Missing nested executable qualification"; exit 1; }
 if grep -Eq 'podman (save|load)|COREOS_GUEST_PROBE_IMAGE' bin/nix-xd-wisp-ssh; then echo "OCI image copies are forbidden in zero-copy qualification"; exit 1; fi
+grep -Fq 'storeProbeOciArchive = pkgs.dockerTools.buildLayeredImage' flake.nix || { echo "Missing cacheable OCI image tarball"; exit 1; }
+grep -Fq 'COREOS_GUEST_OCI_ARCHIVE=' Makefile || { echo "Missing OCI archive store path propagation"; exit 1; }
+grep -Fq 'NIX_9P_OCI_ARCHIVE_READONLY' bin/nix-xd-wisp-ssh || { echo "Missing read-only OCI archive probe"; exit 1; }
+grep -Fq 'nix-9p-oci-archive.log' bin/nix-xd-qualify-starwisp || { echo "Missing OCI archive qualification evidence"; exit 1; }
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
