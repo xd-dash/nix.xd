@@ -508,6 +508,14 @@ modules instead:
 make qualify PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm ARCH=arm64 MODULES=secrets
 ```
 
+Set `QUALIFY_APP=1` to run the application's `#qualify` output **and then** the
+selected modules in one invocation; by default `MODULES=...` runs modules
+alone, while omitting `MODULES` preserves the original flake qualification:
+
+```sh
+make qualify QUALIFY_APP=1 MODULES=secrets FLAKE=compositions/my-app ARCH=arm64
+```
+
 The `secrets` module uses Nix to provide age and SOPS executables inside the
 running Nix-Alpine container. It generates a disposable age identity and test
 JSON in a private `/tmp` directory, performs a SOPS encrypt/decrypt round trip,
