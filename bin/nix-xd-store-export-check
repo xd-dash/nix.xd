@@ -14,14 +14,16 @@ p=(podman --connection "$machine")
 # Use the same rootless Podman volume mapping as the QEMU runner. Never chown or
 # recursively chmod the store to make an exporter work.
 for user in 0:0 1000:1000; do
+  echo "STORE_EXPORT_PROBE user=$user machine=$machine volume=$volume"
   "${p[@]}" run --rm --pull=never --user "$user" \
     --mount "type=volume,src=$volume,dst=/host-nix,ro" \
     --entrypoint /bin/sh "$image" -ec '
-      test -d /host-nix/store
-      test -r /host-nix/store
-      test -x /host-nix/store
-      test -d /host-nix/var/nix
-      test ! -w /host-nix/store
-    ' || die "Read-only Nix volume probe failed for container UID $user; inspect permissions without modifying the existing volume"
+      test -d /host-nix/store || { echo "Missing store directory" >&2; exit 21; }
+      test -r /host-nix/store || { echo "Store directory not readable" >&2; exit 22; }
+      test -x /host-nix/store || { echo "Store directory not traversable" >&2; exit 23; }
+      test -d /host-nix/var/nix || { echo "Nix metadata directory missing" >&2; exit 24; }
+      grep -Eq " /host-nix ro(,| )" /proc/self/mountinfo ||
+        { echo "Nix volume mount is not explicitly read-only" >&2; exit 25; }
+    ' || die "Read-only Nix volume probe failed for container UID $user"
 done
 echo "NIX_STORE_EXPORT_READY machine=$machine volume=$volume image=$image mode=read-only"
