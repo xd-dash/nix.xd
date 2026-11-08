@@ -54,7 +54,9 @@ ignition() {
   local key output
   key="$(awk '{print $1 " " $2}' "$COREOS_SSH_PUBLIC_KEY")"
   [[ "$key" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+$ ]] || fail "Expected one valid ssh-ed25519 public key"
-  output="$("${p[@]}" exec "$scope" env COREOS_TEST_SSH_PUBLIC_KEY="$key" \
+  local butane="${flake%/local}/profiles/starwisp/butane/starwisp.bu"
+  "${p[@]}" exec "$scope" test -f "$butane" || fail "Missing staged Agni Starwisp Butane profile: $butane"
+  output="$("${p[@]}" exec "$scope" env COREOS_TEST_SSH_PUBLIC_KEY="$key" COREOS_STARWISP_BUTANE="$butane" \
     nix build --impure --no-write-lock-file --no-link --print-out-paths "$flake#ignitionStarwisp")"
   [[ "$output" == /nix/store/* && "$output" != *$'\n'* ]] || fail 'Unexpected Ignition output path'
   "${p[@]}" cp "$scope:$output/config.ign" "$state/config.ign"
