@@ -46,4 +46,9 @@ grep -Fq 'shared_nix_volume=%s' bin/nix-xd-coreos-podman || { echo "Ignition exp
 grep -Fq 'NIX_9P_GUEST_MOUNT' bin/nix-xd-wisp-ssh || { echo "Guest 9P mount is unqualified"; exit 1; }
 grep -Fq 'NIX_9P_NESTED_PODMAN_READONLY' bin/nix-xd-wisp-ssh || { echo "Nested Podman gate missing"; exit 1; }
 grep -Fq 'nix-9p-nested.log' bin/nix-xd-qualify-starwisp || { echo "Nested Podman evidence missing"; exit 1; }
+grep -Fq 'save --quiet --format docker-archive' bin/nix-xd-wisp-ssh || { echo "Missing offline image transfer"; exit 1; }
+grep -Fq 'podman load' bin/nix-xd-wisp-ssh || { echo "Missing guest Podman image import"; exit 1; }
+grep -Fq 'source_image_id' bin/nix-xd-wisp-ssh || { echo "Missing imported image identity comparison"; exit 1; }
+grep -Fq 'NIX_9P_NESTED_EXECUTABLE' bin/nix-xd-wisp-ssh || { echo "Missing host store executable test"; exit 1; }
+grep -Fq 'nix-9p-image-transfer.log' bin/nix-xd-qualify-starwisp || { echo "Missing image transfer evidence archival"; exit 1; }
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
