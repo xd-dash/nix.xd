@@ -624,12 +624,46 @@ make qualify-starwisp-shared ARCH=arm64 PROVIDER=podman \
 ```
 
 If that marker is missing or refers to another volume, **do not modify
-the old artifacts**. Build a fresh Starwisp 9P disk and Ignition under
-a *new* `COREOS_STATE_ROOT` using the existing
-`coreos-container-build` and `coreos-ignition-build` targets. Those
-targets require the Agni flake to have been separately staged into
-`/workspaces/agni` and a readable `COREOS_SSH_PUBLIC_KEY`.
-Use the same state root for the subsequent shared qualification.
+the old artifacts**. Build a fresh, isolated Starwisp 9P disk and Ignition
+under a separate state root. The ARM64 Agni source for these outputs is
+`codex/coreos-arm64-qemu-container`, not the older x86_64-only
+`codex/coreos-fatline-qemu` variant. Keep the existing Agni checkout
+untouched by using a dedicated checkout:
+
+```sh
+cd ~/workspace/nix.xd
+make sync REPO=dash-xd/agni BRANCH=codex/coreos-arm64-qemu-container \\
+  REV=c9673ca5601f71eea02df3fe70c2d10f76b2e600 \\
+  SYNC_NAME=agni-starwisp-9p WORKSPACES="$PWD"
+make stage ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 \\
+  SCOPE=nix-xd-arm WORKSPACES="$PWD" CHECKOUT=agni-starwisp-9p
+
+state="$PWD/.state/coreos-9p"
+agni_flake=/workspaces/agni-starwisp-9p/qemu/coreos-live/local
+
+make coreos-container-build ARCH=arm64 MACHINE=coreos-arm64 \\
+  SCOPE=nix-xd-arm COREOS_STATE_ROOT="$state" COREOS_FLAKE="$agni_flake" \\
+  COREOS_NIX_STORE_VOLUME=nix-xd-arm-store
+
+make coreos-ignition-build ARCH=arm64 MACHINE=coreos-arm64 \\
+  SCOPE=nix-xd-arm COREOS_STATE_ROOT="$state" COREOS_FLAKE="$agni_flake" \\
+  COREOS_NIX_STORE_VOLUME=nix-xd-arm-store \\
+  COREOS_SSH_PUBLIC_KEY="$HOME/.ssh/starwisp-test.pub"
+
+make qualify-starwisp-shared ARCH=arm64 PROVIDER=podman \\
+  MACHINE=coreos-arm64 SCOPE=nix-xd-arm \\
+  COREOS_STATE_ROOT="$state" \\
+  COREOS_NIX_STORE_VOLUME=nix-xd-arm-store \\
+  COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
+```
+
+The new `COREOS_STATE_ROOT` produces artifacts in
+`./.state/coreos-9p/starwisp`. The old `./.state/coreos/starwisp`
+remains untouched. The first command is pinned to an observed Agni
+revision and will fail closed if that branch advances; update the
+revision deliberately rather than silently building from an unknown
+commit. The new Ignition must contain the 9P mount unit and produce
+`shared_nix_volume=nix-xd-arm-store` in its build manifest.
 
 The source and builds are still qualified under the existing Agni
 profile gates; using the current Nix store alone is not evidence that a
