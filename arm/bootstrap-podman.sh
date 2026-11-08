@@ -137,8 +137,35 @@ touch "$HOME/.zshrc"
 line='[[ -f "$HOME/.config/nix-xd/macos.zsh" ]] && source "$HOME/.config/nix-xd/macos.zsh"'
 grep -Fqx "$line" "$HOME/.zshrc" || printf '\n%s\n' "$line" >>"$HOME/.zshrc"
 
-say "Checking service"
+say "Checking Nix-Alpine bootstrap readiness"
 podman machine ssh "$machine" systemctl --user is-active "$unit"
+ready=0
+for attempt in $(seq 1 120); do
+  if podman --connection "$machine" exec "$scope" /bin/sh -ec '
+    test -f /nix/.nix-xd-direct-volume-v1
+    test -x /home/nixuser/.nix-profile/bin/nix
+    /home/nixuser/.nix-profile/bin/nix --version >/dev/null
+  ' >/dev/null 2>&1; then
+    ready=1
+    printf 'NIX_XD_BOOTSTRAP_READY attempts=%s\n' "$attempt"
+    break
+  fi
+  if [[ "$(podman machine ssh "$machine" systemctl --user is-active "$unit" 2>/dev/null)" != active ]]; then
+    echo "Nix-Alpine Quadlet became inactive during direct-volume bootstrap" >&2
+    break
+  fi
+  if (( attempt % 12 == 0 )); then
+    printf 'NIX_XD_BOOTSTRAP_WAIT attempt=%s\n' "$attempt"
+  fi
+  sleep 5
+done
+if [[ "$ready" != 1 ]]; then
+  printf '%s\n' '--- Nix-Alpine container logs ---' >&2
+  podman --connection "$machine" logs --tail 120 "$scope" >&2 || true
+  printf '%s\n' '--- Nix-Alpine user service journal ---' >&2
+  podman machine ssh "$machine" journalctl --user --no-pager -u "$unit" -n 120 >&2 || true
+  die 'Direct-volume initialization failed or timed out; do not reseed the volume'
+fi
 podman --connection "$machine" exec "$scope" nix --version
 NIX_XD_MACHINE="$machine" NIX_XD_SCOPE="$scope" NIX_XD_IMAGE="$image" \
   COREOS_NIX_STORE_VOLUME="$scope-store" bash "$repo/bin/nix-xd-store-export-check"
