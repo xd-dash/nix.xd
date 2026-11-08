@@ -80,6 +80,7 @@ self-update:
 	@bash bin/nix-xd-log "$(SCOPE)" self-update git pull --ff-only
 
 bootstrap:
+	@test "$(ARCH)" = arm64 || { echo "macOS bootstrap adapter currently supports ARCH=arm64; x86_64 uses the native flake installer" >&2; exit 2; }
 	@test "$(OS)" = Darwin || { echo "macOS bootstrap requires Darwin" >&2; exit 1; }
 	@NIX_XD_ARCH="$(ARCH)" NIX_XD_PROVIDER="$(PROVIDER)" $(MACHINE_ENV) NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" bootstrap bash arm/bootstrap-macos.sh
 
@@ -205,6 +206,7 @@ logs:
 	@journalctl --user --no-pager -u "$(SCOPE).service" -n 100
 endif
 image-build: machine-start
+	@test "$(ARCH)" = arm64 || { echo "ARM Dockerfile requires ARCH=arm64" >&2; exit 2; }
 	@podman --connection "$(MACHINE)" build --platform linux/arm64 -t "$(IMAGE)" ./arm
 else ifeq ($(PROVIDER),container)
 ifeq ($(OS),Darwin)
