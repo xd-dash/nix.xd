@@ -123,6 +123,8 @@ grep -Fqx "$line" "$HOME/.zshrc" || printf '\n%s\n' "$line" >>"$HOME/.zshrc"
 say "Checking service"
 podman machine ssh "$machine" systemctl --user is-active "$unit"
 podman --connection "$machine" exec "$scope" nix --version
+NIX_XD_MACHINE="$machine" NIX_XD_SCOPE="$scope" NIX_XD_IMAGE="$image" \
+  COREOS_NIX_STORE_VOLUME="$scope-store" bash "$repo/bin/nix-xd-store-export-check"
 
 printf '\nReady: %s on %s\n' "$unit" "$machine"
 printf 'Open a new zsh shell: nxd-status | nxd-up | nxd-shell | nxd-down\n'
