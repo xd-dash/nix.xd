@@ -4,7 +4,7 @@ set -Eeuo pipefail
 : "${NIX_XD_NIX_VERSION:=2.31.2}"
 store=/nix
 marker="$store/.nix-xd-direct-volume-v1"
-profile="$store/var/nix/profiles/per-user/nixuser/profile"
+profile="$store/var/nix/profiles/default"
 fail() { printf "error: %s\n" "$*" >&2; exit 1; }
 [[ "$(id -u)" == 1000 ]] || fail "Nix store installer must run as nixuser (UID 1000)"
 [[ -d "$store" && -w "$store" ]] || fail "Persistent /nix mount is missing or not writable"
