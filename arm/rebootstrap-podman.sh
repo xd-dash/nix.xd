@@ -14,11 +14,30 @@ step() { printf "ARM_REBOOTSTRAP_STEP=%s\n" "$1"; }
 [[ "$machine" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || fail "Invalid machine"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid scope"
 [[ "$image" == localhost/nix-xd:arm64 ]] || fail "Unexpected image; use default ARM bootstrap image"
-[[ "$action" == preflight || "$action" == reset || "$action" == bootstrap || "$action" == verify || "$action" == all ]] ||
-  fail "Usage: rebootstrap-podman preflight|reset|bootstrap|verify|all"
+[[ "$action" == diagnose || "$action" == preflight || "$action" == reset || "$action" == bootstrap || "$action" == verify || "$action" == all ]] ||
+  fail "Usage: rebootstrap-podman diagnose|preflight|reset|bootstrap|verify|all"
 [[ "$(podman machine inspect "$machine" --format "{{.State}}")" == running ]] ||
   fail "Selected Podman Machine must already be running"
 p=(podman --connection "$machine")
+
+diagnose() {
+  step diagnose
+  podman machine ssh "$machine" systemctl --user --no-pager status "$scope.service" || true
+  if "${p[@]}" container exists "$scope"; then
+    "${p[@]}" inspect "$scope" --format 'container={{.Name}} state={{.State.Status}} exit={{.State.ExitCode}}'
+    printf '%s\n' '--- initialization log ---'
+    "${p[@]}" logs --tail 160 "$scope" 2>&1 || true
+    printf '%s\n' '--- persistent store state ---'
+    "${p[@]}" exec "$scope" /bin/sh -ec '
+      if test -f /nix/.nix-xd-direct-volume-v1; then echo STORE_MARKER=present; else echo STORE_MARKER=absent; fi
+      if test -d /nix/store; then echo STORE_DIR=present; else echo STORE_DIR=absent; fi
+      if test -x /nix/var/nix/profiles/per-user/nixuser/profile/bin/nix; then echo STORE_NIX_PROFILE=present; else echo STORE_NIX_PROFILE=absent; fi
+    ' || true
+  else
+    echo 'OWNER_CONTAINER=missing'
+  fi
+  printf 'ARM_REBOOTSTRAP_DIAGNOSIS=complete\n'
+}
 
 preflight() {
   step preflight
@@ -82,6 +101,7 @@ verify() {
 }
 
 case "$action" in
+  diagnose) diagnose ;;
   preflight) preflight ;;
   reset) preflight; reset ;;
   bootstrap) bootstrap ;;
