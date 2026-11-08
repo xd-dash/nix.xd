@@ -46,8 +46,25 @@ podman machine ssh "$machine" 'test "$(podman info --format "{{.Host.Security.Ro
 
 say "Building the ARM64 image"
 podman --connection "$machine" build --platform linux/arm64 -t "$image" "$repo/arm"
-podman --connection "$machine" volume exists "$scope-store" || podman --connection "$machine" volume create "$scope-store" >/dev/null
-# First install occurs only in the persistent /nix volume after Quadlet starts.
+if ! podman --connection "$machine" volume exists "$scope-store"; then
+  say "Creating empty authoritative Nix store volume"
+  podman --connection "$machine" volume create "$scope-store" >/dev/null
+fi
+# Set ownership of the volume root only, never recurse through store contents.
+# Existing stores are not migrated or repaired and fail closed if unmarked.
+podman --connection "$machine" run --rm --pull=never --user 0:0 \
+  --mount "type=volume,src=$scope-store,dst=/nix" \
+  --entrypoint /bin/sh "$image" -ec '
+    if [ -e /nix/.nix-xd-direct-volume-v1 ]; then
+      exit 0
+    fi
+    if [ -n "$(find /nix -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]; then
+      echo "Existing unmarked Nix store: explicit redeployment required" >&2
+      exit 1
+    fi
+    chown 1000:1000 /nix
+  '
+# First Nix installation occurs only after the final volume is mounted.
 
 say "Installing rootless Quadlet"
 # The VM's user service manager supervises the container; no macOS daemon needed.
