@@ -99,4 +99,11 @@ grep -Fq 'RECREATION_STORE_PRESERVED=passed' arm/qualify-recreation-podman.sh ||
 grep -Fq 'systemctl --user restart' arm/qualify-recreation-podman.sh || { echo 'Recreation must use user Quadlet'; exit 1; }
 if grep -Eq 'volume (rm|create)|podman (save|load)|nix (build|store gc)' arm/qualify-recreation-podman.sh; then echo 'Recreation qualifier must be nondestructive'; exit 1; fi
 bash -n arm/qualify-recreation-podman.sh
+grep -Fq 'arm-wind-down-plan:' Makefile || { echo 'Missing wind-down plan'; exit 1; }
+grep -Fq 'arm-wind-down-stop:' Makefile || { echo 'Missing wind-down stop'; exit 1; }
+grep -Fq 'arm-wind-down-stop bash arm/wind-down.sh stop' Makefile || { echo 'Wind-down must retain complete log'; exit 1; }
+grep -Fq 'WIND_DOWN_UNINSPECTED_MACHINE=' arm/wind-down.sh || { echo 'Missing unknown machine evidence'; exit 1; }
+grep -Fq 'WIND_DOWN_STOP=passed' arm/wind-down.sh || { echo 'Missing stopped status'; exit 1; }
+if grep -Eq '(volume rm|machine rm|container delete|container rm|rm -rf)' arm/wind-down.sh; then echo 'Wind-down may not destroy persistent resources'; exit 1; fi
+bash -n arm/wind-down.sh
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
