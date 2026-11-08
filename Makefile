@@ -35,8 +35,8 @@ TASK = $(TASK_ENV) bash bin/nix-xd-task
 
 help:
 	@printf '%s\n' \
-	  'make bootstrap PROVIDER=podman|container       Bootstrap ARM host (default podman)' \\
-	  'make machine-init MACHINE=... MACHINE_MEMORY_MIB=8192 MACHINE_CPUS=6 MACHINE_DISK_GIB=120' \\
+	  'make bootstrap PROVIDER=podman|container       Bootstrap ARM host (default podman)' \
+	  'make machine-init MACHINE=... MACHINE_MEMORY_MIB=8192 MACHINE_CPUS=6 MACHINE_DISK_GIB=120' \
 	  'make machine-check MACHINE=... (enforce minimum requested VM resources)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
 	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path]' \
