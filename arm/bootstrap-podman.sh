@@ -26,13 +26,11 @@ if ! command -v podman >/dev/null 2>&1; then
   brew install podman
 fi
 
-if ! podman machine inspect "$machine" >/dev/null 2>&1; then
-  say "Creating rootless Podman Machine: $machine"
-  podman machine init --provider applehv \
-    --cpus "${NIX_XD_CPUS:-6}" \
-    --memory "${NIX_XD_MEMORY_MIB:-12288}" \
-    --disk-size "${NIX_XD_DISK_GIB:-120}" \
-    --rootful=false "$machine"
+if [[ "${NIX_XD_MACHINE_BOOTSTRAP:-1}" == 1 ]]; then
+  NIX_XD_MACHINE_VERIFY="${NIX_XD_MACHINE_VERIFY:-0}" bash "$repo/bin/nix-xd-machine" init
+else
+  podman machine inspect "$machine" >/dev/null 2>&1 ||
+    die "Missing machine $machine; run make machine-init or set MACHINE_BOOTSTRAP=1"
 fi
 
 if [[ "$(podman machine inspect "$machine" --format '{{.State}}')" != running ]]; then
@@ -47,9 +45,9 @@ podman machine ssh "$machine" 'test "$(podman info --format "{{.Host.Security.Ro
   die "Machine Podman is not rootless"
 
 say "Building the ARM64 image"
-podman build --platform linux/arm64 -t "$image" "$repo/arm"
-podman run --rm "$image" nix --version
-podman volume exists "$scope-store" || podman volume create "$scope-store" >/dev/null
+podman --connection "$machine" build --platform linux/arm64 -t "$image" "$repo/arm"
+podman --connection "$machine" run --rm "$image" nix --version
+podman --connection "$machine" volume exists "$scope-store" || podman --connection "$machine" volume create "$scope-store" >/dev/null
 
 say "Installing rootless Quadlet"
 # The VM's user service manager supervises the container; no macOS daemon needed.
@@ -124,7 +122,7 @@ grep -Fqx "$line" "$HOME/.zshrc" || printf '\n%s\n' "$line" >>"$HOME/.zshrc"
 
 say "Checking service"
 podman machine ssh "$machine" systemctl --user is-active "$unit"
-podman exec "$scope" nix --version
+podman --connection "$machine" exec "$scope" nix --version
 
 printf '\nReady: %s on %s\n' "$unit" "$machine"
 printf 'Open a new zsh shell: nxd-status | nxd-up | nxd-shell | nxd-down\n'
