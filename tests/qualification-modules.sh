@@ -20,7 +20,7 @@ if make -sn plan ARCH=bad >/dev/null 2>&1; then
   exit 1
 fi
 normal="$(make -sn qualify ARCH=arm64)"
-[[ "$normal" == *'bin/nix-xd-task run'* ]] ||
+[[ "$normal" == *'bin/nix-xd-task "run"'* ]] ||
   { echo 'Legacy flake-owned qualifier behavior changed' >&2; exit 1; }
 if NIX_XD_QUALIFY_MODULES=unknown bash qualifiers/dispatch.sh >/dev/null 2>&1; then
   echo 'Unknown qualifier accepted' >&2
