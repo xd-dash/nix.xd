@@ -14,6 +14,21 @@
         let
           pkgs = import nixpkgs { inherit system; };
           context = if system == "x86_64-linux" then nix-alpine else ./arm;
+          storeProbeRootfs = pkgs.runCommand "nix-xd-store-probe-rootfs" {
+            nativeBuildInputs = [ pkgs.coreutils ];
+          } ''
+            mkdir -p "$out/bin" "$out/nix/store" "$out/dev" "$out/proc" "$out/sys" "$out/run" "$out/tmp" "$out/etc"
+            ln -s "${pkgs.pkgsStatic.busybox}/bin/busybox" "$out/bin/sh"
+          '';
+          storeProbeOciArchive = pkgs.dockerTools.buildLayeredImage {
+            name = "localhost/nix-xd-store-probe";
+            tag = "shared-store";
+            created = "1970-01-01T00:00:01Z";
+            contents = [ storeProbeRootfs ];
+            config = {
+              Cmd = [ "/bin/sh" ];
+            };
+          };
           installer = pkgs.writeShellApplication {
             name = "nix-xd";
             runtimeInputs = [ pkgs.coreutils pkgs.gnused ];
@@ -25,13 +40,7 @@
           };
         in {
           default = installer;
-          inherit installer;
-          storeProbeRootfs = pkgs.runCommand "nix-xd-store-probe-rootfs" {
-            nativeBuildInputs = [ pkgs.coreutils ];
-          } ''
-            mkdir -p "$out/bin" "$out/nix/store" "$out/dev" "$out/proc" "$out/sys" "$out/run" "$out/tmp" "$out/etc"
-            ln -s "${pkgs.pkgsStatic.busybox}/bin/busybox" "$out/bin/sh"
-          '';
+          inherit installer storeProbeRootfs storeProbeOciArchive;
         });
       apps = eachSystem (system: {
         default = {
