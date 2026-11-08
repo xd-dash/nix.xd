@@ -1,7 +1,7 @@
 FROM docker.io/library/alpine:3.23
 RUN test "$(uname -m)" = aarch64 && apk add --no-cache bash coreutils curl git xz tar ca-certificates
 RUN addgroup -g 1000 nixuser && adduser -D -u 1000 -G nixuser -s /bin/bash nixuser \
-    && mkdir -p /nix && chown nixuser:nixuser /nix
+    && mkdir -p /nix /workspaces && chown nixuser:nixuser /nix /workspaces
 USER nixuser
 ENV HOME=/home/nixuser USER=nixuser
 WORKDIR /home/nixuser
