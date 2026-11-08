@@ -590,3 +590,51 @@ only Podman/Quadlet transport varies. Native AMD64 runtime qualification is
 optional during ARM development: keeping its build bootstrap aligned does
 not require a local x86_64 host or QEMU emulation. Runtime evidence must
 still be collected separately before claiming that architecture qualified.
+
+
+### Requalify Starwisp against the current ARM64 store
+
+The `qualify-starwisp-shared` composition builds the pinned flake's
+`storeProbeRootfs`, `storeProbeDynamic`, `storeProbeNix`, and
+`storeProbeOciArchive` outputs in the existing Nix-Alpine owner. It
+requires the complete closure of each output to be present, verifies the
+authoritative owner/read-only export, checks the existing Starwisp build
+manifest was configured for `nix-xd-arm-store`, and then invokes the
+existing guest 9P/Wisp/nested-Podman qualification. It never resets or
+copies the store, and refuses to overwrite existing disk or Ignition
+artifacts.
+
+Prepare the committed `nix.xd` flake inside Nix-Alpine. `WORKSPACES`
+must be the parent of the selected checkout:
+
+```sh
+cd ~/workspace/nix.xd
+make stage PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm \
+  WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd
+```
+
+If Starwisp's existing `./.state/coreos/starwisp/build.txt` has the
+`shared_nix_volume=nix-xd-arm-store` marker, qualify its existing
+artifacts:
+
+```sh
+make qualify-starwisp-shared ARCH=arm64 PROVIDER=podman \
+  MACHINE=coreos-arm64 SCOPE=nix-xd-arm \
+  COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
+```
+
+If that marker is missing or refers to another volume, **do not modify
+the old artifacts**. Build a fresh Starwisp 9P disk and Ignition under
+a *new* `COREOS_STATE_ROOT` using the existing
+`coreos-container-build` and `coreos-ignition-build` targets. Those
+targets require the Agni flake to have been separately staged into
+`/workspaces/agni` and a readable `COREOS_SSH_PUBLIC_KEY`.
+Use the same state root for the subsequent shared qualification.
+
+The source and builds are still qualified under the existing Agni
+profile gates; using the current Nix store alone is not evidence that a
+past QEMU disk or Ignition remains compatible. A successful runtime
+run requires `NIX_9P_GUEST_MOUNT`, `NIX_9P_OCI_ARCHIVE_READONLY`,
+`NIX_9P_NESTED_EXECUTABLE`, `NIX_9P_DYNAMIC_CLOSURE_EXECUTABLE`,
+`NIX_9P_NIX_CLI_READONLY`, and `NIX_9P_NESTED_PODMAN_READONLY`
+from the guest, followed by `QUALIFY_STARWISP_RESULT status=passed`.
