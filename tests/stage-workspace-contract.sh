@@ -9,6 +9,7 @@ git -C "$tmp/ws/project" -c user.name=Fixture -c user.email=fixture@example.inva
 cat >"$tmp/bin/podman" <<'MOCK'
 #!/usr/bin/env bash
 printf "%s\n" "$*" >> "$STAGE_TEST_RECORD"
+if [[ "$*" == *" uname -m" ]]; then echo aarch64; exit 0; fi
 if [[ "$*" == *" test -d /workspaces" ]]; then exit 1; fi
 exit 0
 MOCK
