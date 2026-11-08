@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+action="${1:?Expected init|check}"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+provider="${NIX_XD_MACHINE_PROVIDER:-applehv}"
+cpus="${NIX_XD_MACHINE_CPUS:-6}"
+memory="${NIX_XD_MACHINE_MEMORY_MIB:-8192}"
+disk="${NIX_XD_MACHINE_DISK_GIB:-120}"
+default="${NIX_XD_MACHINE_DEFAULT:-0}"
+verify="${NIX_XD_MACHINE_VERIFY:-0}"
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+[[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail 'Podman Machine provisioning requires Apple Silicon macOS'
+command -v podman >/dev/null || fail 'Install Podman before provisioning a machine'
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Invalid machine name'
+[[ "$provider" == applehv || "$provider" == libkrun ]] || fail 'MACHINE_PROVIDER must be applehv or libkrun'
+for pair in "cpus:$cpus:1:32" "memory:$memory:2048:262144" "disk:$disk:20:4096"; do
+  IFS=: read -r name value minimum maximum <<< "$pair"
+  [[ "$value" =~ ^[0-9]+$ ]] || fail "Invalid $name: $value"
+  (( value >= minimum && value <= maximum )) || fail "$name outside $minimum..$maximum"
+done
+[[ "$default" == 0 || "$default" == 1 ]] || fail 'MACHINE_DEFAULT must be 0 or 1'
+[[ "$verify" == 0 || "$verify" == 1 ]] || fail 'MACHINE_VERIFY must be 0 or 1'
+
+existing=0
+if podman machine inspect "$machine" >/dev/null 2>&1; then existing=1; fi
+if [[ "$action" == init && "$existing" == 0 ]]; then
+  printf 'Creating rootless Podman Machine %s provider=%s cpus=%s memory_mib=%s disk_gib=%s\n' "$machine" "$provider" "$cpus" "$memory" "$disk"
+  podman machine init --provider "$provider" --cpus "$cpus" --memory "$memory" --disk-size "$disk" --rootful=false "$machine"
+  existing=1
+elif [[ "$action" != init && "$action" != check ]]; then
+  fail 'Expected init|check'
+fi
+[[ "$existing" == 1 ]] || fail "Missing machine $machine (run make machine-init)"
+read -r actual_cpus actual_memory actual_disk actual_rootful < <(
+  podman machine inspect "$machine" --format '{{.Resources.CPUs}} {{.Resources.Memory}} {{.Resources.DiskSize}} {{.Rootful}}'
+)
+[[ "$actual_rootful" == false ]] || fail 'Machine is configured rootful; refusing rootless bootstrap'
+[[ "$actual_cpus" =~ ^[0-9]+$ && "$actual_memory" =~ ^[0-9]+$ && "$actual_disk" =~ ^[0-9]+$ ]] ||
+  fail 'Unexpected machine resource metadata'
+if [[ "$action" == check || "$verify" == 1 ]]; then
+  (( actual_cpus >= cpus )) || fail "Machine CPUs=$actual_cpus, requires at least $cpus; create a new machine"
+  (( actual_memory >= memory )) || fail "Machine memory=$actual_memory MiB, requires at least $memory MiB; create a new machine"
+  (( actual_disk >= disk )) || fail "Machine disk=$actual_disk GiB, requires at least $disk GiB; create a new machine"
+fi
+if [[ "$action" == init && "$default" == 1 ]]; then
+  podman system connection default "$machine"
+fi
+printf 'MACHINE_%s name=%s cpus=%s memory_mib=%s disk_gib=%s rootful=%s\n'   "$( [[ "$action" == init ]] && echo READY || echo CHECKED )" "$machine" "$actual_cpus" "$actual_memory" "$actual_disk" "$actual_rootful"
