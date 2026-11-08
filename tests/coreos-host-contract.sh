@@ -24,7 +24,7 @@ fi
 grep -Fq 'COREOS_STARWISP_BUTANE="$butane"' bin/nix-xd-coreos-podman || { echo "Agni Butane source not passed into flake"; exit 1; }
 grep -Fq 'ram="${COREOS_RAM_MIB:-2048}"' bin/nix-xd-coreos-podman || { echo "Missing configurable RAM"; exit 1; }
 grep -Fq '  reset-failed) reset_failed ;;' bin/nix-xd-coreos-podman || { echo "Missing failed guest archival action"; exit 1; }
-grep -Fq 'COREOS_ORPHANED_OVERLAY=' Makefile || { echo "Missing orphan-reset Make environment"; exit 1; }
+grep -Fq 'export COREOS_ORPHANED_OVERLAY' Makefile || { echo "Missing orphan-reset Make environment"; exit 1; }
 grep -Fq '[[ "$source_machine" != "$machine" ]]' bin/nix-xd-coreos-podman || { echo "Missing cross-machine reset fence"; exit 1; }
 grep -Fq 'Original machine $source_machine is still running' bin/nix-xd-coreos-podman || { echo "Missing original machine stop fence"; exit 1; }
 grep -Fq 'step preflight bash "$adapter" preflight' bin/nix-xd-qualify-starwisp || { echo "Preflight must invoke non-executable adapter with bash"; exit 1; }
