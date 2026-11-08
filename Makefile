@@ -31,8 +31,6 @@ MACHINE_VERIFY ?= 0
 MACHINE_ENV = NIX_XD_MACHINE="$(MACHINE)" NIX_XD_MACHINE_PROVIDER="$(MACHINE_PROVIDER)" NIX_XD_MACHINE_CPUS="$(MACHINE_CPUS)" NIX_XD_MACHINE_MEMORY_MIB="$(MACHINE_MEMORY_MIB)" NIX_XD_MACHINE_DISK_GIB="$(MACHINE_DISK_GIB)" NIX_XD_MACHINE_DEFAULT="$(MACHINE_DEFAULT)" NIX_XD_MACHINE_BOOTSTRAP="$(MACHINE_BOOTSTRAP)" NIX_XD_MACHINE_VERIFY="$(MACHINE_VERIFY)"
 SCOPE ?= $(if $(filter arm64,$(ARCH)),nix-xd-arm,nix-xd-amd64)
 IMAGE ?= localhost/nix-xd:$(ARCH)
-X86_SOURCE ?= $(abspath $(CURDIR)/nix-alpine/nix-alpine)
-X86_REV ?= 80a2821b7571edd09507f9b4349e2f1ed3daf900
 WORKSPACES ?= $(abspath $(CURDIR))
 REPO ?=
 BRANCH ?= main
@@ -55,7 +53,8 @@ TASK = $(TASK_ENV) bash bin/nix-xd-task
 help:
 	@printf '%s\n' \
 	  'make bootstrap ARCH=arm64|amd64 PROVIDER=podman  Bootstrap selected host architecture' \
-	  'make bootstrap ARCH=amd64 X86_SOURCE=... X86_REV=...  Pinned native Linux x86 checkout' \
+	  'make bootstrap ARCH=amd64 PROVIDER=podman  Direct-volume native Linux x86_64 runtime' \
+	  'make qualify MODULES=store-recreation ARCH=amd64  Native Quadlet and store persistence' \
 	  'make machine-init MACHINE=... MACHINE_MEMORY_MIB=8192 MACHINE_CPUS=6 MACHINE_DISK_GIB=120' \
 	  'make machine-check MACHINE=... (enforce minimum requested VM resources)' \
 	  'make store-export-check MACHINE=...    Verify rootless read-only Nix volume sharing' \
