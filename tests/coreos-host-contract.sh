@@ -61,5 +61,5 @@ grep -Fq 'COREOS_GUEST_OCI_ARCHIVE=' Makefile || { echo "Missing OCI archive sto
 grep -Fq 'NIX_9P_OCI_ARCHIVE_READONLY' bin/nix-xd-wisp-ssh || { echo "Missing read-only OCI archive probe"; exit 1; }
 grep -Fq 'nix-9p-oci-archive.log' bin/nix-xd-qualify-starwisp || { echo "Missing OCI archive qualification evidence"; exit 1; }
 grep -Fq 'ln -s /proc/self/mounts "$out/etc/mtab"' flake.nix || { echo "Read-only probe rootfs must precreate /etc/mtab"; exit 1; }
-grep -Fq 'test -f /run/.containerenv' bin/nix-xd-wisp-ssh || { echo "Missing disposable OCI runtime state verification"; exit 1; }
+grep -Fq 'NIX_9P_ROOTFS_MODE=guest-runtime-scratch' bin/nix-xd-wisp-ssh || { echo "Missing guest-local runtime separation evidence"; exit 1; }
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
