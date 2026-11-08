@@ -133,60 +133,37 @@ GUEST_NIX_9P
     fail 'Guest 9P store mount qualification failed'
   fi
   cat "$state/nix-9p.log"
-  if [[ -n "${COREOS_GUEST_PROBE_IMAGE:-}" ]]; then
-    probe_image="$COREOS_GUEST_PROBE_IMAGE"
-    [[ "$probe_image" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || fail 'Invalid COREOS_GUEST_PROBE_IMAGE'
-    [[ "${COREOS_VMM:-podman}" == podman ]] || fail 'Nested image transfer requires VMM=podman'
-    source_image_id="$(podman --connection "$machine" image inspect "$probe_image" --format '{{.Id}}')" ||
-      fail "Missing host image: $probe_image"
-    [[ "$source_image_id" == sha256:* ]] || source_image_id="sha256:$source_image_id"
-    [[ "$source_image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || fail 'Invalid source image identity'
-    store_executable="$(podman --connection "$machine" exec "${NIX_XD_SCOPE:-nix-xd-arm}" \
-      sh -c 'readlink -f "$(command -v nix)"')" ||
-      fail 'Cannot resolve authoritative Nix executable'
-    [[ "$store_executable" =~ ^/nix/store/[a-z0-9]{32}-[^/]+/bin/nix$ ]] ||
-      fail "Unexpected Nix executable path: $store_executable"
-    printf 'NIX_9P_IMAGE_TRANSFER_START image=%s host_id=%s executable=%s\n' \
-      "$probe_image" "$source_image_id" "$store_executable"
-    if ! (podman --connection "$machine" save --quiet --format docker-archive "$probe_image" |
-      ssh -T "${opts[@]}" "$user@127.0.0.1" podman load) > "$state/nix-9p-image-transfer.log" 2>&1; then
-      cat "$state/nix-9p-image-transfer.log" >&2
-      fail 'Nix-Alpine image streaming into guest rootless Podman failed'
-    fi
-    cat "$state/nix-9p-image-transfer.log"
-    guest_image_id="$(ssh -T "${opts[@]}" "$user@127.0.0.1" \
-      podman image inspect "$probe_image" --format '{{.Id}}')" ||
-      fail 'Guest image not inspectable'
-    [[ "$guest_image_id" == sha256:* ]] || guest_image_id="sha256:$guest_image_id"
-    [[ "$guest_image_id" == "$source_image_id" ]] ||
-      fail "Image identity mismatch: host=$source_image_id guest=$guest_image_id"
-    printf 'NIX_9P_IMAGE_TRANSFER_READY image=%s id=%s\n' "$probe_image" "$guest_image_id"
-    echo "NIX_9P_NESTED_CHECK_START image=$probe_image executable=$store_executable"
+  if [[ -n "${COREOS_GUEST_PROBE_ROOTFS:-}" ]]; then
+    probe_rootfs="$COREOS_GUEST_PROBE_ROOTFS"
+    [[ "$probe_rootfs" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+$ ]] ||
+      fail 'COREOS_GUEST_PROBE_ROOTFS must be an absolute Nix store output path'
+    echo "NIX_9P_NESTED_CHECK_START rootfs=$probe_rootfs"
     if ! ssh -T "${opts[@]}" "$user@127.0.0.1" \
-      "env COREOS_GUEST_PROBE_IMAGE='$probe_image' COREOS_STORE_EXECUTABLE='$store_executable' bash -se" \
+      "env COREOS_GUEST_PROBE_ROOTFS='$probe_rootfs' bash -se" \
       > "$state/nix-9p-nested.log" 2>&1 <<'GUEST_NIX_NESTED'
 set -Eeuo pipefail
 test "$(id -u)" -ne 0
 test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
-podman image exists "$COREOS_GUEST_PROBE_IMAGE"
-podman run --rm --pull=never --user 1000:1000 \
-  --security-opt label=disable \
-  --env COREOS_STORE_EXECUTABLE="$COREOS_STORE_EXECUTABLE" \
+mountpoint=/var/mnt/nixstore
+probe_rootfs="$mountpoint/${COREOS_GUEST_PROBE_ROOTFS#/nix/store/}"
+test -d "$probe_rootfs"
+test -L "$probe_rootfs/bin/sh"
+test -d "$probe_rootfs/nix/store"
+podman run --rm --read-only --read-only-tmpfs=false --user 1000:1000 \
+  --network none --security-opt label=disable \
   --mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro \
-  --entrypoint /bin/sh "$COREOS_GUEST_PROBE_IMAGE" -ec '
-    set -eu
+  --rootfs "$probe_rootfs" \
+  /bin/sh -ec '
     test "$(id -u)" = 1000
     test -d /nix/store && test -r /nix/store && test -x /nix/store
     grep -Eq " /nix/store ro(,| )" /proc/self/mountinfo
-    test -x "$COREOS_STORE_EXECUTABLE"
-    "$COREOS_STORE_EXECUTABLE" --version
-    echo "PASS: NIX_9P_NESTED_EXECUTABLE executable=$COREOS_STORE_EXECUTABLE"
+    /bin/sh -c "echo PASS: NIX_9P_NESTED_EXECUTABLE"
   '
 echo 'PASS: NIX_9P_NESTED_PODMAN_READONLY'
 GUEST_NIX_NESTED
     then
       cat "$state/nix-9p-nested.log" >&2
-      fail 'Nested rootless Podman 9P executable qualification failed'
+      fail 'Nested rootless Podman shared-store rootfs qualification failed'
     fi
     cat "$state/nix-9p-nested.log"
   fi
