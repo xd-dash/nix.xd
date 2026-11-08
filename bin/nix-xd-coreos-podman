@@ -29,7 +29,8 @@ arch="$("${p[@]}" info --format '{{.Host.Arch}}')"
 mkdir -p "$root"
 root="$(cd "$root" && pwd -P)"
 state="$root/$profile"
-name="coreos-$profile"
+name="${COREOS_CONTAINER_NAME:-coreos-$profile}"
+[[ "$name" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || fail "Invalid CoreOS container name"
 runner_id() {
   local id
   id="$("${p[@]}" image inspect "$image" --format '{{.Id}}')" || fail "Missing ARM64 QEMU image: $image (run coreos-container-build)"
