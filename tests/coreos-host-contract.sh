@@ -27,6 +27,10 @@ grep -Fq 'COREOS_NIX_STORE_VOLUME=' Makefile || { echo "Missing host 9P volume p
 grep -Fq 'type=volume,src=$store_volume,dst=/host-nix,ro' bin/nix-xd-coreos-podman || { echo "Nix share not read-only"; exit 1; }
 grep -Fq 'qemu_mode=run-shared-nix' bin/nix-xd-coreos-podman || { echo "9P device not delegated to Agni"; exit 1; }
 grep -Fq 'Shared Nix store option does not match the built Ignition configuration' bin/nix-xd-coreos-podman || { echo "Missing Ignition export fence"; exit 1; }
+grep -Fq '/proc/self/mountinfo' bin/nix-xd-store-export-check || { echo "Missing kernel read-only mount verification"; exit 1; }
+if grep -Fq 'test ! -w /host-nix/store' bin/nix-xd-store-export-check; then
+  echo "Root write-access heuristic must not be used for read-only mount verification"; exit 1
+fi
 grep -Fq 'NIX_STORE_EXPORT_READY' bin/nix-xd-store-export-check || { echo "Missing permission verification"; exit 1; }
 grep -Fq 'nix-xd-store-export-check' arm/bootstrap-podman.sh || { echo "Bootstrap does not verify volume export"; exit 1; }
 grep -Fq 'COREOS_READY_TIMEOUT_SEC=' Makefile || { echo "Missing readiness configuration"; exit 1; }
