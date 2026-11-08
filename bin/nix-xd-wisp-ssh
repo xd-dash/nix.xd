@@ -133,6 +133,30 @@ GUEST_NIX_9P
     fail 'Guest 9P store mount qualification failed'
   fi
   cat "$state/nix-9p.log"
+  if [[ -n "${COREOS_GUEST_OCI_ARCHIVE:-}" ]]; then
+    oci_archive="$COREOS_GUEST_OCI_ARCHIVE"
+    [[ "$oci_archive" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+[.]tar[.]gz$ ]] ||
+      fail 'COREOS_GUEST_OCI_ARCHIVE must be a Nix store .tar.gz output'
+    echo "NIX_9P_OCI_ARCHIVE_CHECK_START archive=$oci_archive"
+    if ! ssh -T "${opts[@]}" "$user@127.0.0.1" \
+      "env COREOS_GUEST_OCI_ARCHIVE='$oci_archive' bash -se" \
+      > "$state/nix-9p-oci-archive.log" 2>&1 <<'GUEST_NIX_OCI'
+set -Eeuo pipefail
+archive="/var/mnt/nixstore/${COREOS_GUEST_OCI_ARCHIVE#/nix/store/}"
+test -f "$archive"
+test -r "$archive"
+test -s "$archive"
+magic="$(od -An -tx1 -N2 "$archive" | tr -d '[:space:]')"
+[[ "$magic" == 1f8b ]] || { echo "FAIL: Not gzip data: $archive"; exit 1; }
+printf 'PASS: NIX_9P_OCI_ARCHIVE_READONLY archive=%s bytes=%s\n' \
+  "$COREOS_GUEST_OCI_ARCHIVE" "$(stat -c %s "$archive")"
+GUEST_NIX_OCI
+    then
+      cat "$state/nix-9p-oci-archive.log" >&2
+      fail 'OCI archive is not readable from the read-only 9P Nix store'
+    fi
+    cat "$state/nix-9p-oci-archive.log"
+  fi
   if [[ -n "${COREOS_GUEST_PROBE_ROOTFS:-}" ]]; then
     probe_rootfs="$COREOS_GUEST_PROBE_ROOTFS"
     [[ "$probe_rootfs" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+$ ]] ||
