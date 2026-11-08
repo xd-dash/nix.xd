@@ -111,4 +111,10 @@ grep -Fq 'arm-inspect-legacy bash arm/inspect-legacy.sh' Makefile || { echo 'Leg
 grep -Fq 'podman machine stop "$machine"' arm/inspect-legacy.sh || { echo 'Legacy inspection must restore stopped state'; exit 1; }
 if grep -Eq '(volume rm|machine rm|container delete|container rm|rm -rf)' arm/inspect-legacy.sh; then echo 'Legacy inspection must not delete resources'; exit 1; fi
 bash -n arm/inspect-legacy.sh
+grep -Fq 'arm-purge-legacy-plan:' Makefile || { echo 'Missing legacy purge planning target'; exit 1; }
+grep -Fq 'arm-purge-legacy:' Makefile || { echo 'Missing legacy purge apply target'; exit 1; }
+grep -Fq 'ERASE:podman-machine-default:apple-nix-xd-legacy' arm/purge-legacy.sh || { echo 'Missing exact purge confirmation'; exit 1; }
+grep -Fq 'podman machine rm --force "$legacy"' arm/purge-legacy.sh || { echo 'Legacy machine must be scoped'; exit 1; }
+grep -Fq 'LEGACY_PURGE_RESULT=passed' arm/purge-legacy.sh || { echo 'Missing purge result'; exit 1; }
+bash -n arm/purge-legacy.sh
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
