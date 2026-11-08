@@ -114,3 +114,32 @@ inside the running ARM Nix-Alpine and append `/bin/nix` to that store path;
 pass it as `COREOS_GUEST_NIX_EXECUTABLE` to `make qualify-starwisp` together
 with `COREOS_GUEST_PROBE_ROOTFS`, the existing 9P volume, and the prior
 Starwisp credentials and QEMU settings.
+
+## Bootstrap redesign: no image-to-store copying (not yet runtime-qualified)
+
+The ARM image is now an Alpine bootstrap **without a Nix package store in
+its OCI layers**. `arm/init-nix-store.sh` is the container entrypoint; it
+installs single-user Nix directly into the final `/nix` volume on its first
+start, marks it `.nix-xd-direct-volume-v1`, and fails closed for unexpected
+nonempty/unmarked stores. The Podman Quadlet and Apple Container provider both
+attach their named volume before the first Nix invocation. Apple Container no
+longer runs `cp -a /nix/. /seed/`.
+
+Do not run `make bootstrap` with the new image against an existing legacy
+Nix volume without a deliberate maintenance plan: such a volume will be
+rejected as incompatible. **No in-place copying, repair, migration, or
+automatic deletion is authorized.** An operator must first preserve whatever
+historical qualification evidence or artifacts are required, stop workloads,
+and choose a clean redeployment with an explicitly selected empty volume.
+Only after successful runtime qualification should the old infrastructure be
+retired. The historical 9P/BusyBox success pertains to the earlier bootstrap
+image and must not be represented as qualification of this new bootstrap.
+
+Podman Machine and Apple Container are independent providers with independent
+volumes; they must not be presented as simultaneously using one physical Nix
+store. The canonical Starwisp path uses Podman Machine `coreos-arm64` and
+volume `nix-xd-arm-store`. Switching providers is a deliberate redeployment,
+not a file-level transfer.
+
+The native Linux x86_64 `dash-xd/nix-alpine` upstream context has a separate
+bootstrap implementation and is **not** certified by this ARM-only migration.
