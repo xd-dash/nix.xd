@@ -64,6 +64,29 @@ resizing or deleting a persistent VM; set `MACHINE_VERIFY=1` to fail closed.
 All operational `nix.xd` commands select `MACHINE` explicitly, so this
 global change is not required.
 
+For the existing Starwisp case, **no Nix-Alpine rebootstrap is needed just
+to run the already-built CoreOS disk in Agni's QEMU container**. The QCOW2,
+Ignition, and build manifest are on macOS; transfer the Agni runner image,
+shut down the old VM, and select the new VM:
+
+```sh
+make machine-init MACHINE=coreos-arm64 MACHINE_MEMORY_MIB=8192
+make machine-handoff FROM_MACHINE=podman-machine-default MACHINE=coreos-arm64
+make coreos-preflight PROFILE=starwisp
+make coreos-boot PROFILE=starwisp COREOS_RAM_MIB=2048
+make coreos-qualify PROFILE=starwisp COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
+```
+
+The handoff serializes the specified OCI image to a temporary host archive,
+stops the old VM, starts the new VM, loads the image, checks that the image
+digest is unchanged, and writes the selected machine into
+`.state/active-podman-machine`. Operational Make commands use that selection
+unless `MACHINE=...` is specified. This is not a Nix-Alpine store migration:
+the old machine, its persistent `/nix` volume, original image store, and
+Quadlet remain untouched. To run generic Nix tasks in the new VM, restore
+or migrate its Nix-Alpine environment separately. Preserve the original VM
+until its store is accounted for; cleanup is intentionally not automatic.
+
 Creating a new Podman Machine creates a **separate** Podman image and volume
 store. The existing Nix-Alpine store is not migrated automatically. After
 bootstrapping the new machine, use the same `make sync`, `stage`, `build`,
