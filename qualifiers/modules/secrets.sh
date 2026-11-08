@@ -11,10 +11,10 @@ system="${NIX_XD_SYSTEM:-aarch64-linux}"
 [[ "$provider" == podman ]] || { echo 'Secrets qualifier currently requires Podman provider' >&2; exit 2; }
 
 podman machine inspect "$machine" >/dev/null
-image_arch="$(podman --connection "$machine" inspect "$scope" --format '{{.Architecture}}')" ||
+image_arch="$(podman --connection "$machine" exec "$scope" uname -m)" ||
   { echo 'Nix-Alpine runtime not found' >&2; exit 1; }
 case "$system:$image_arch" in
-  aarch64-linux:arm64|aarch64-linux:arm|x86_64-linux:amd64) ;;
+  aarch64-linux:aarch64|aarch64-linux:arm64|x86_64-linux:x86_64) ;;
   *) printf 'Runtime architecture mismatch: system=%s image=%s\n' "$system" "$image_arch" >&2; exit 1 ;;
 esac
 
