@@ -45,6 +45,7 @@ help:
 	  'make arm-rebootstrap-diagnose|arm-rebootstrap-plan|arm-rebootstrap-reset|arm-rebootstrap-bootstrap|arm-rebootstrap-verify' \
 	  'make arm-qualify-recreation MACHINE=... SCOPE=...    Check same store after Quadlet recreates container' \
 	  'make arm-wind-down-plan|arm-wind-down-stop       Log provider inventory and stop known nix.xd workloads' \
+	  'make arm-inspect-legacy                         Inspect old Podman Machine then stop it' \
 	  'make arm-rebootstrap MACHINE=... SCOPE=... ARM_RESET_CONFIRM=ERASE:<machine>:<scope>:<scope>-store' \
 	  'make machine-handoff FROM_MACHINE=... MACHINE=... (transfer CoreOS image, preserve Nix store)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
@@ -93,6 +94,10 @@ arm-rebootstrap-verify:
 arm-rebootstrap:
 	@test "$(PROVIDER)" = podman || { echo "Requires PROVIDER=podman" >&2; exit 2; }
 	@$(ARM_REBOOTSTRAP_ENV) bash bin/nix-xd-log "$(SCOPE)" arm-rebootstrap bash arm/rebootstrap-podman.sh all
+
+.PHONY: arm-inspect-legacy
+arm-inspect-legacy:
+	@bash bin/nix-xd-log "$(SCOPE)" arm-inspect-legacy bash arm/inspect-legacy.sh
 
 .PHONY: arm-wind-down-plan arm-wind-down-stop
 arm-wind-down-plan:
@@ -193,7 +198,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
+	@bash -n arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/machine-contract.sh
