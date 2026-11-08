@@ -68,7 +68,6 @@ boot() {
   "${p[@]}" run --detach --pull=never --name "$name" --volume "$state:/state:rw" \
     --publish "127.0.0.1:$port:2222" "$id" run \
     -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m 4096 -smp 4 \
-    -bios /nix/store/NOT_CONFIGURED_FIRMWARE \
     -drive if=none,id=disk0,file=/state/overlay.qcow2,format=qcow2 \
     -device virtio-blk-pci,drive=disk0 \
     -fw_cfg name=opt/com.coreos/config,file=/state/config.ign \
