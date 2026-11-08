@@ -13,7 +13,11 @@ if [[ "$*" == *" uname -m" ]]; then echo aarch64; exit 0; fi
 if [[ "$*" == *" test -d /workspaces" ]]; then exit 1; fi
 exit 0
 MOCK
-chmod +x "$tmp/bin/podman"
+cat >"$tmp/bin/uname" <<'MOCK_UNAME'
+#!/usr/bin/env bash
+if [[ "$1" == -s ]]; then echo Darwin; else command /usr/bin/uname "$@"; fi
+MOCK_UNAME
+chmod +x "$tmp/bin/podman" "$tmp/bin/uname"
 export PATH="$tmp/bin:$PATH"
 export STAGE_TEST_RECORD="$tmp/record"
 NIX_XD_PROVIDER=podman NIX_XD_SCOPE=nix-xd-arm NIX_XD_MACHINE=selected-machine \
