@@ -45,7 +45,7 @@ cleanup() {
       rc=1
     fi
   fi
-  for artifact in serial.log manifest.txt ssh-readiness-last-error.log nix-9p.log nix-9p-nested.log; do
+  for artifact in serial.log manifest.txt ssh-readiness-last-error.log nix-9p.log nix-9p-oci-archive.log nix-9p-nested.log; do
     if [[ -f "$state/$artifact" ]]; then
       cp "$state/$artifact" "$run_dir/$artifact" || rc=1
       if [[ -f "$run_dir/$artifact" ]]; then
@@ -105,6 +105,7 @@ fi
   printf 'ram_mib=%s\ncpus=%s\n' "${COREOS_RAM_MIB:-2048}" "${COREOS_CPUS:-2}"
   printf 'ready_timeout_sec=%s\nshared_nix_volume=%s\n' "${COREOS_READY_TIMEOUT_SEC:-900}" "${COREOS_NIX_STORE_VOLUME:-none}"
   printf 'guest_probe_rootfs=%s\n' "${COREOS_GUEST_PROBE_ROOTFS:-none}"
+  printf 'guest_oci_archive=%s\n' "${COREOS_GUEST_OCI_ARCHIVE:-none}"
 } > "$run_dir/qualification.txt"
 step preflight bash "$adapter" preflight
 if [[ -e "$state/overlay.qcow2" ]]; then
