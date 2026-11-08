@@ -52,7 +52,8 @@ set -Eeuo pipefail
 if [[ "$MOCK_MODE" == failure ]]; then exit 42; fi
 echo 'PASS: Wisp mocked' > "$COREOS_STATE_ROOT/starwisp/wisp.log"
 MOCK
-chmod +x "$tmp/bin/podman" "$tmp/work/bin/nix-xd-"*
+chmod +x "$tmp/bin/podman"
+chmod 0644 "$tmp/work/bin/nix-xd-coreos-podman" "$tmp/work/bin/nix-xd-wisp-ssh"
 state="$tmp/work/.state/coreos/starwisp"
 echo image > "$state/base.qcow2"
 echo ignition > "$state/config.ign"
