@@ -56,7 +56,9 @@ else
         echo "Nonempty unmarked Nix store: explicit redeployment required" >&2; exit 1;
       }
     }
-    chown 1000:1000 /nix
+    if test ! -f /nix/.nix-xd-direct-volume-v1; then
+      chown 1000:1000 /nix
+    fi
   '
   say "Starting direct-volume ARM Nix-Alpine bootstrap"
   container run -d --name "$scope" --volume "$volume:/nix" "$image" sleep infinity
