@@ -13,6 +13,7 @@ on:
       - bin/nix-xd-wisp-ssh
       - bin/nix-xd-sync
       - tests/make-contract.sh
+      - tests/stage-workspace-contract.sh
       - tests/coreos-host-contract.sh
       - .github/workflows/arm-make-check.yml
   pull_request:
@@ -28,6 +29,7 @@ on:
       - bin/nix-xd-wisp-ssh
       - bin/nix-xd-sync
       - tests/make-contract.sh
+      - tests/stage-workspace-contract.sh
       - .github/workflows/arm-make-check.yml
 jobs:
   static:
@@ -38,6 +40,8 @@ jobs:
         run: make check-static
       - name: Test generic Nix command contract
         run: bash tests/make-contract.sh
+      - name: Check workspace staging contract
+        run: bash tests/stage-workspace-contract.sh
       - name: Check host CoreOS adapter contract
         run: bash tests/coreos-host-contract.sh
       - name: Verify both provider command interfaces
