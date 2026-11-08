@@ -11,7 +11,7 @@ fail() { printf "error: %s\n" "$*" >&2; exit 1; }
 grep -Eq " /nix rw(,| )" /proc/self/mountinfo || fail "Refusing to initialize without a writable /nix mount"
 
 if [[ ! -e "$marker" ]]; then
-  [[ -z "$(find "$store" -mindepth 1 -maxdepth 1 -print -quit)" ]] ||
+  [[ -z "$(find "$store" -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]] ||
     fail "Existing unmarked store: refusing to copy, overwrite, or migrate; re-provision explicitly"
   installer="$(mktemp)"
   trap 'rm -f -- "$installer"' EXIT
