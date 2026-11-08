@@ -10,8 +10,12 @@ system="${NIX_XD_SYSTEM:-aarch64-linux}"
 [[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] || { echo 'Invalid system' >&2; exit 2; }
 [[ "$provider" == podman ]] || { echo 'Secrets qualifier currently requires Podman provider' >&2; exit 2; }
 
-podman machine inspect "$machine" >/dev/null
-image_arch="$(podman --connection "$machine" exec "$scope" uname -m)" ||
+runtime=(podman)
+if [[ "$(uname -s)" == Darwin ]]; then
+  podman machine inspect "$machine" >/dev/null
+  runtime=(podman --connection "$machine")
+fi
+image_arch="$("${runtime[@]}" exec "$scope" uname -m)" ||
   { echo 'Nix-Alpine runtime not found' >&2; exit 1; }
 case "$system:$image_arch" in
   aarch64-linux:aarch64|aarch64-linux:arm64|x86_64-linux:x86_64) ;;
@@ -22,7 +26,7 @@ printf 'SECRETS_QUALIFY_RUNTIME=podman machine=%s scope=%s system=%s\n' "$machin
 # The script itself contains no credentials and is delivered by stdin.
 # The private age key and plaintext are generated inside the runtime and
 # deleted on exit. nix shell only installs age and sops executable closures.
-podman --connection "$machine" exec -i "$scope" \
+"${runtime[@]}" exec -i "$scope" \
   nix --extra-experimental-features 'nix-command flakes' shell \
     nixpkgs#age nixpkgs#sops nixpkgs#jq --command bash -se <<'RUNTIME'
 set -Eeuo pipefail
