@@ -32,7 +32,9 @@ fi
 store="$(make -sn qualify MODULES=store-recreation ARCH=amd64 PROVIDER=podman)"
 [[ "$store" == *"NIX_XD_SYSTEM='x86_64-linux'"* && "$store" == *'qualifiers/dispatch.sh'* ]] ||
   { echo 'Native store recreation module not dispatched through the common interface' >&2; exit 1; }
-grep -Fq 'systemctl --user restart "$scope.service"' qualifiers/modules/store-recreation.sh
+grep -Fq 'service restart "$scope.service"' qualifiers/modules/store-recreation.sh
+grep -Fq 'podman machine ssh "$machine" systemctl --user "$@"' qualifiers/modules/store-recreation.sh
+grep -Fq 'service() { systemctl --user "$@"; }' qualifiers/modules/store-recreation.sh
 grep -Fq 'STORE_RECREATION_STORE_PRESERVED=passed' qualifiers/modules/store-recreation.sh
 grep -Fq 'bin/nix-xd-store-export-check' qualifiers/modules/store-recreation.sh
 if NIX_XD_QUALIFY_MODULES=unknown bash qualifiers/dispatch.sh >/dev/null 2>&1; then
