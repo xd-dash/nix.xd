@@ -46,8 +46,8 @@ podman machine ssh "$machine" 'test "$(podman info --format "{{.Host.Security.Ro
 
 say "Building the ARM64 image"
 podman --connection "$machine" build --platform linux/arm64 -t "$image" "$repo/arm"
-podman --connection "$machine" run --rm "$image" nix --version
 podman --connection "$machine" volume exists "$scope-store" || podman --connection "$machine" volume create "$scope-store" >/dev/null
+# First install occurs only in the persistent /nix volume after Quadlet starts.
 
 say "Installing rootless Quadlet"
 # The VM's user service manager supervises the container; no macOS daemon needed.
