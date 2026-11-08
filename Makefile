@@ -40,6 +40,7 @@ help:
 	  'make bootstrap PROVIDER=podman|container       Bootstrap ARM host (default podman)' \
 	  'make machine-init MACHINE=... MACHINE_MEMORY_MIB=8192 MACHINE_CPUS=6 MACHINE_DISK_GIB=120' \
 	  'make machine-check MACHINE=... (enforce minimum requested VM resources)' \
+	  'make store-export-check MACHINE=...    Verify rootless read-only Nix volume sharing' \
 	  'make machine-handoff FROM_MACHINE=... MACHINE=... (transfer CoreOS image, preserve Nix store)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
 	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path]' \
@@ -154,7 +155,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/machine-contract.sh
@@ -180,12 +181,16 @@ COREOS_READY_TIMEOUT_SEC ?= 900
 COREOS_READY_RETRY_SEC ?= 10
 COREOS_SSH_CONNECT_TIMEOUT_SEC ?= 10
 COREOS_AGNI_REV ?=
+COREOS_NIX_STORE_VOLUME ?=
 VMM ?= podman
 COREOS_FLAKE ?= /workspaces/agni/qemu/coreos-live/local
 COREOS_RUNNER_IMAGE ?= localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64
-COREOS_HOST_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' COREOS_FLAKE='$(COREOS_FLAKE)' COREOS_RUNNER_IMAGE='$(COREOS_RUNNER_IMAGE)' COREOS_VMM='$(VMM)' COREOS_PROFILE='$(PROFILE)' COREOS_STATE_ROOT='$(COREOS_STATE_ROOT)' COREOS_IMAGE='$(COREOS_IMAGE)' COREOS_IMAGE_SHA256='$(COREOS_IMAGE_SHA256)' COREOS_IGNITION='$(COREOS_IGNITION)' COREOS_FIRMWARE='$(COREOS_FIRMWARE)' COREOS_SSH_PORT='$(COREOS_SSH_PORT)' COREOS_RAM_MIB='$(COREOS_RAM_MIB)' COREOS_CPUS='$(COREOS_CPUS)' COREOS_GUEST_USER='$(COREOS_GUEST_USER)' COREOS_SSH_KEY='$(COREOS_SSH_KEY)' COREOS_SSH_PUBLIC_KEY='$(COREOS_SSH_PUBLIC_KEY)' COREOS_ORPHANED_OVERLAY='$(COREOS_ORPHANED_OVERLAY)' NIX_XD_FROM_MACHINE='$(FROM_MACHINE)' COREOS_READY_TIMEOUT_SEC='$(COREOS_READY_TIMEOUT_SEC)' COREOS_READY_RETRY_SEC='$(COREOS_READY_RETRY_SEC)' COREOS_SSH_CONNECT_TIMEOUT_SEC='$(COREOS_SSH_CONNECT_TIMEOUT_SEC)' COREOS_AGNI_REV='$(COREOS_AGNI_REV)'
+COREOS_HOST_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' COREOS_FLAKE='$(COREOS_FLAKE)' COREOS_RUNNER_IMAGE='$(COREOS_RUNNER_IMAGE)' COREOS_VMM='$(VMM)' COREOS_PROFILE='$(PROFILE)' COREOS_STATE_ROOT='$(COREOS_STATE_ROOT)' COREOS_IMAGE='$(COREOS_IMAGE)' COREOS_IMAGE_SHA256='$(COREOS_IMAGE_SHA256)' COREOS_IGNITION='$(COREOS_IGNITION)' COREOS_FIRMWARE='$(COREOS_FIRMWARE)' COREOS_SSH_PORT='$(COREOS_SSH_PORT)' COREOS_RAM_MIB='$(COREOS_RAM_MIB)' COREOS_CPUS='$(COREOS_CPUS)' COREOS_GUEST_USER='$(COREOS_GUEST_USER)' COREOS_SSH_KEY='$(COREOS_SSH_KEY)' COREOS_SSH_PUBLIC_KEY='$(COREOS_SSH_PUBLIC_KEY)' COREOS_ORPHANED_OVERLAY='$(COREOS_ORPHANED_OVERLAY)' NIX_XD_FROM_MACHINE='$(FROM_MACHINE)' COREOS_READY_TIMEOUT_SEC='$(COREOS_READY_TIMEOUT_SEC)' COREOS_READY_RETRY_SEC='$(COREOS_READY_RETRY_SEC)' COREOS_SSH_CONNECT_TIMEOUT_SEC='$(COREOS_SSH_CONNECT_TIMEOUT_SEC)' COREOS_AGNI_REV='$(COREOS_AGNI_REV)' COREOS_NIX_STORE_VOLUME='$(COREOS_NIX_STORE_VOLUME)'
 
-.PHONY: coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify coreos-reset-failed qualify-starwisp
+.PHONY: store-export-check coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify coreos-reset-failed qualify-starwisp
+store-export-check:
+	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_IMAGE='$(IMAGE)' COREOS_NIX_STORE_VOLUME='$(if $(COREOS_NIX_STORE_VOLUME),$(COREOS_NIX_STORE_VOLUME),$(SCOPE)-store)' bash bin/nix-xd-log "$(SCOPE)" store-export-check bash bin/nix-xd-store-export-check
+
 coreos-container-build:
 	@test "$(VMM)" = podman || { echo 'coreos-container-build requires VMM=podman' >&2; exit 2; }
 	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-container-build bash bin/nix-xd-coreos-podman build
