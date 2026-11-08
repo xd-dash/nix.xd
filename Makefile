@@ -76,6 +76,7 @@ help:
 	  'make qualify-plan FLAKE=path PLAN_TARGET=\x23app (application-owned plan)' \
 	  'make start|stop|restart|status|logs|shell|exec|ps|inspect|store-info' \
 	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
+	  'make qualify-starwisp-shared COREOS_SSH_KEY=...  Build current store closures and qualify guest 9P' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
 	  'make check-static                            Host-independent static checks'
 
@@ -233,12 +234,13 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
+	@bash -n bin/nix-xd-qualify-starwisp-shared bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/bootstrap-architecture-contract.sh
 	@bash tests/qualification-modules.sh
 	@bash tests/machine-contract.sh
+	@bash tests/starwisp-shared-contract.sh
 	@bash tests/starwisp-lifecycle.sh
 	@echo 'Static command checks passed; no ARM runtime executed.'
 
@@ -263,6 +265,7 @@ COREOS_SSH_CONNECT_TIMEOUT_SEC ?= 10
 COREOS_AGNI_REV ?=
 COREOS_NIX_STORE_VOLUME ?=
 COREOS_GUEST_PROBE_ROOTFS ?=
+COREOS_PROBE_FLAKE ?= /workspaces/nix.xd
 COREOS_GUEST_NIX_EXECUTABLE ?=
 COREOS_GUEST_DYNAMIC_EXECUTABLE ?=
 COREOS_GUEST_OCI_ARCHIVE ?=
@@ -272,7 +275,7 @@ COREOS_FLAKE ?= /workspaces/agni/qemu/coreos-live/local
 COREOS_RUNNER_IMAGE ?= localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64
 COREOS_HOST_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' COREOS_FLAKE='$(COREOS_FLAKE)' COREOS_RUNNER_IMAGE='$(COREOS_RUNNER_IMAGE)' COREOS_VMM='$(VMM)' COREOS_PROFILE='$(PROFILE)' COREOS_STATE_ROOT='$(COREOS_STATE_ROOT)' COREOS_IMAGE='$(COREOS_IMAGE)' COREOS_IMAGE_SHA256='$(COREOS_IMAGE_SHA256)' COREOS_IGNITION='$(COREOS_IGNITION)' COREOS_FIRMWARE='$(COREOS_FIRMWARE)' COREOS_SSH_PORT='$(COREOS_SSH_PORT)' COREOS_RAM_MIB='$(COREOS_RAM_MIB)' COREOS_CPUS='$(COREOS_CPUS)' COREOS_GUEST_USER='$(COREOS_GUEST_USER)' COREOS_SSH_KEY='$(COREOS_SSH_KEY)' COREOS_SSH_PUBLIC_KEY='$(COREOS_SSH_PUBLIC_KEY)' COREOS_ORPHANED_OVERLAY='$(COREOS_ORPHANED_OVERLAY)' NIX_XD_FROM_MACHINE='$(FROM_MACHINE)' COREOS_READY_TIMEOUT_SEC='$(COREOS_READY_TIMEOUT_SEC)' COREOS_READY_RETRY_SEC='$(COREOS_READY_RETRY_SEC)' COREOS_SSH_CONNECT_TIMEOUT_SEC='$(COREOS_SSH_CONNECT_TIMEOUT_SEC)' COREOS_AGNI_REV='$(COREOS_AGNI_REV)' COREOS_NIX_STORE_VOLUME='$(COREOS_NIX_STORE_VOLUME)' COREOS_GUEST_PROBE_ROOTFS='$(COREOS_GUEST_PROBE_ROOTFS)' COREOS_GUEST_OCI_ARCHIVE='$(COREOS_GUEST_OCI_ARCHIVE)' COREOS_GUEST_DYNAMIC_EXECUTABLE='$(COREOS_GUEST_DYNAMIC_EXECUTABLE)' COREOS_GUEST_NIX_EXECUTABLE='$(COREOS_GUEST_NIX_EXECUTABLE)' COREOS_CONTAINER_NAME='$(COREOS_CONTAINER_NAME)'
 
-.PHONY: store-export-check coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify coreos-reset-failed qualify-starwisp
+.PHONY: store-export-check coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify coreos-reset-failed qualify-starwisp qualify-starwisp-shared
 store-export-check:
 	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_IMAGE='$(IMAGE)' COREOS_NIX_STORE_VOLUME='$(if $(COREOS_NIX_STORE_VOLUME),$(COREOS_NIX_STORE_VOLUME),$(SCOPE)-store)' bash bin/nix-xd-log "$(SCOPE)" store-export-check bash bin/nix-xd-store-export-check
 
@@ -297,6 +300,12 @@ coreos-preflight coreos-boot coreos-stop:
 
 coreos-qualify:
 	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-qualify bash bin/nix-xd-wisp-ssh
+
+# Prepare fresh closure outputs in the authoritative store, then run the
+# existing guest 9P and nested Podman qualification. No Nix store copies.
+qualify-starwisp-shared:
+	@test "$(ARCH)" = arm64 && test "$(PROVIDER)" = podman && test "$(VMM)" = podman || { echo 'Shared-store Starwisp gate requires ARM64 Podman Machine' >&2; exit 2; }
+	@$(COREOS_HOST_ENV) COREOS_PROBE_FLAKE='$(COREOS_PROBE_FLAKE)' bash bin/nix-xd-log "$(SCOPE)" qualify-starwisp-shared bash bin/nix-xd-qualify-starwisp-shared
 
 qualify-starwisp:
 	@test "$(VMM)" = podman || { echo "qualify-starwisp requires VMM=podman" >&2; exit 2; }
