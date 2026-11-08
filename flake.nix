@@ -23,7 +23,16 @@
               ${builtins.readFile ./bin/nix-xd}
             '';
           };
-        in { default = installer; inherit installer; });
+        in {
+          default = installer;
+          inherit installer;
+          storeProbeRootfs = pkgs.runCommand "nix-xd-store-probe-rootfs" {
+            nativeBuildInputs = [ pkgs.coreutils ];
+          } ''
+            mkdir -p "$out/bin" "$out/nix/store"
+            ln -s "${pkgs.pkgsStatic.busybox}/bin/busybox" "$out/bin/sh"
+          '';
+        });
       apps = eachSystem (system: {
         default = {
           type = "app";
