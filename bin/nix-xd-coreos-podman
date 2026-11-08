@@ -79,6 +79,10 @@ preflight() {
   [[ -f "$state/config.ign" ]] || fail 'Missing config.ign; export application-owned Ignition here'
   [[ -f "$state/build.txt" ]] || fail 'Missing build manifest'
   [[ "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" == "$(sed -n 's/^ignition_sha256=//p' "$state/build.txt")" ]] || fail 'Ignition SHA256 mismatch'
+  local configured_share
+  configured_share="$(sed -n 's/^shared_nix_volume=//p' "$state/build.txt")"
+  [[ "$configured_share" == "${store_volume:-none}" || ( -z "$configured_share" && -z "$store_volume" ) ]] ||
+    fail 'Shared Nix store option does not match the built Ignition configuration'
   [[ "$(shasum -a 256 "$state/base.qcow2" | awk '{print $1}')" == "$(sed -n 's/^disk_sha256=//p' "$state/build.txt")" ]] || fail 'CoreOS disk digest mismatch'
   local id
   id="$(runner_id)"
