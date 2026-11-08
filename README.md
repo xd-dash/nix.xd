@@ -77,6 +77,22 @@ make coreos-boot PROFILE=starwisp COREOS_RAM_MIB=2048
 make coreos-qualify PROFILE=starwisp COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
 ```
 
+If a previous, failed boot left `overlay.qcow2` on macOS but its
+container remains on the stopped source machine, archive it explicitly
+before booting on the new machine:
+
+```sh
+make coreos-reset-failed PROFILE=starwisp \
+  COREOS_ORPHANED_OVERLAY=1 FROM_MACHINE=podman-machine-default
+```
+
+This refuses to archive a stale overlay unless the original machine is
+stopped and the runner identity in the manifest matches the selected OCI
+image. The overlay, serial log, and manifest are retained in a dated
+`failed-*` directory; `base.qcow2`, `config.ign`, and `build.txt`
+are left intact. Do not enable this for a guest that may still be running
+on another machine.
+
 The handoff serializes the specified OCI image to a temporary host archive,
 stops the old VM, starts the new VM, loads the image, checks that the image
 digest is unchanged, and writes the selected machine into
