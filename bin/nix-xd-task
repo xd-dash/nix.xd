@@ -28,7 +28,11 @@ command -v "$runtime" >/dev/null || fail "Runtime not installed: $runtime"
 
 runtime_cmd() {
   if [[ "$provider" == podman ]]; then
-    podman --connection "$machine" "$@"
+    if [[ "$(uname -s)" == Darwin ]]; then
+      podman --connection "$machine" "$@"
+    else
+      podman "$@"
+    fi
   else
     container "$@"
   fi
