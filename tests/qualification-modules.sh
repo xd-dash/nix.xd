@@ -29,6 +29,12 @@ if make --no-print-directory --silent qualify QUALIFY_APP=bad >/dev/null 2>&1; t
   echo 'Invalid application qualification switch accepted' >&2
   exit 1
 fi
+store="$(make -sn qualify MODULES=store-recreation ARCH=amd64 PROVIDER=podman)"
+[[ "$store" == *"NIX_XD_SYSTEM='x86_64-linux'"* && "$store" == *'qualifiers/dispatch.sh'* ]] ||
+  { echo 'Native store recreation module not dispatched through the common interface' >&2; exit 1; }
+grep -Fq 'systemctl --user restart "$scope.service"' qualifiers/modules/store-recreation.sh
+grep -Fq 'STORE_RECREATION_STORE_PRESERVED=passed' qualifiers/modules/store-recreation.sh
+grep -Fq 'bin/nix-xd-store-export-check' qualifiers/modules/store-recreation.sh
 if NIX_XD_QUALIFY_MODULES=unknown bash qualifiers/dispatch.sh >/dev/null 2>&1; then
   echo 'Unknown qualifier accepted' >&2
   exit 1
