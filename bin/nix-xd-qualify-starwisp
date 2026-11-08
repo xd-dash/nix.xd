@@ -7,11 +7,13 @@ state_root="${COREOS_STATE_ROOT:-$PWD/.state/coreos}"
 image="${COREOS_RUNNER_IMAGE:-localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64}"
 key="${COREOS_SSH_KEY:-}"
 vmm="${COREOS_VMM:-podman}"
+container_name="${COREOS_CONTAINER_NAME:-coreos-$profile}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 adapter="$repo/bin/nix-xd-coreos-podman"
 qualifier="$repo/bin/nix-xd-wisp-ssh"
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$vmm" == podman ]] || fail 'qualify-starwisp currently requires VMM=podman'
+[[ "$container_name" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || fail "Invalid CoreOS container name"
 [[ "$profile" == starwisp ]] || fail 'qualify-starwisp requires PROFILE=starwisp'
 [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Invalid machine'
 [[ -r "$key" ]] || fail 'COREOS_SSH_KEY must point to a readable private SSH key'
@@ -37,9 +39,9 @@ cleanup() {
   rc=$?
   trap - EXIT INT TERM
   if (( started == 1 )); then
-    podman --connection "$machine" logs "coreos-$profile" > "$run_dir/qemu-container.log" 2>&1 || true
+    podman --connection "$machine" logs "$container_name" > "$run_dir/qemu-container.log" 2>&1 || true
     if ! bash "$adapter" stop >> "$run_dir/run.log" 2>&1; then
-      printf 'warning: guest stop failed; inspect container coreos-%s\n' "$profile" >&2
+      printf 'warning: guest stop failed; inspect container %s\n' "$container_name" >&2
       rc=1
     fi
   fi
