@@ -13,7 +13,18 @@ fail() { echo "error: $*" >&2; exit 1; }
 state="$root/$profile"
 [[ -f "$state/manifest.txt" ]] || fail "Missing CoreOS boot manifest"
 grep -Fxq "port=$port" "$state/manifest.txt" || fail "SSH port does not match boot manifest"
-[[ -f "$state/qemu.pid" ]] && kill -0 "$(cat "$state/qemu.pid")" 2>/dev/null || fail "QEMU is not running"
+case "${COREOS_VMM:-podman}" in
+  podman)
+    machine="${NIX_XD_MACHINE:-podman-machine-default}"
+    scope_name="coreos-$profile"
+    [[ "$(podman --connection "$machine" inspect "$scope_name" --format '{{.State.Running}}' 2>/dev/null)" == true ]] ||
+      fail "Podman CoreOS guest is not running"
+    ;;
+  hvf)
+    [[ -f "$state/qemu.pid" ]] && kill -0 "$(cat "$state/qemu.pid")" 2>/dev/null || fail "QEMU is not running"
+    ;;
+  *) fail "Unknown COREOS_VMM" ;;
+esac
 opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes
   -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new
   -o "UserKnownHostsFile=$state/known_hosts")
