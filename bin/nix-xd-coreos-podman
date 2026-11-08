@@ -56,7 +56,12 @@ ignition() {
   [[ "$key" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+$ ]] || fail "Expected one valid ssh-ed25519 public key"
   output="$("${p[@]}" exec "$scope" env COREOS_TEST_SSH_PUBLIC_KEY="$key" \
     nix build --impure --no-write-lock-file --no-link --print-out-paths "$flake#ignitionStarwisp")"
-  [[ "$output" == /nix/store/* && "$output" != *
+  [[ "$output" == /nix/store/* && "$output" != *$'\n'* ]] || fail 'Unexpected Ignition output path'
+  "${p[@]}" cp "$scope:$output/config.ign" "$state/config.ign"
+  printf "ignition_sha256=%s\n" "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" >> "$state/build.txt"
+  echo "IGNITION_BUILT profile=$profile state=$state"
+}
+preflight() {
   [[ -f "$state/base.qcow2" ]] || fail 'Missing base.qcow2; run coreos-container-build'
   [[ -f "$state/config.ign" ]] || fail 'Missing config.ign; export application-owned Ignition here'
   [[ -f "$state/build.txt" ]] || fail 'Missing build manifest'
@@ -98,49 +103,4 @@ case "$action" in
   boot) boot ;;
   stop) stop ;;
   *) fail 'Usage: coreos-podman build|ignition|preflight|boot|stop' ;;
-esac
-\n'* ]] || fail "Unexpected Ignition output path"
-  "${p[@]}" cp "$scope:$output/config.ign" "$state/config.ign"
-  printf "ignition_sha256=%s\n" "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" >> "$state/build.txt"
-  echo "IGNITION_BUILT profile=$profile state=$state"
-}
-preflight() {
-  [[ -f "$state/base.qcow2" ]] || fail 'Missing base.qcow2; run coreos-container-build'
-  [[ -f "$state/config.ign" ]] || fail 'Missing config.ign; export application-owned Ignition here'
-  [[ -f "$state/build.txt" ]] || fail 'Missing build manifest'
-  [[ "$(shasum -a 256 "$state/base.qcow2" | awk '{print $1}')" == "$(sed -n 's/^disk_sha256=//p' "$state/build.txt")" ]] || fail 'CoreOS disk digest mismatch'
-  local id
-  id="$(runner_id)"
-  [[ "$(sed -n 's/^runner=//p' "$state/build.txt")" == "$id" ]] || fail 'QEMU runner identity mismatch'
-  "${p[@]}" run --rm --pull=never --volume "$state:/state:ro" "$id" img info /state/base.qcow2 >/dev/null || fail 'Runner cannot read host state; verify Podman Machine file sharing'
-  echo "PASS profile=$profile image=$id accel=tcg"
-}
-boot() {
-  preflight
-  [[ ! -e "$state/overlay.qcow2" ]] || fail 'Overlay exists; refusing overwrite'
-  if "${p[@]}" container exists "$name"; then fail "Existing guest container: $name"; fi
-  local id
-  id="$(runner_id)"
-  "${p[@]}" run --rm --pull=never --volume "$state:/state:rw" "$id" img create -q -f qcow2 -F qcow2 -b /state/base.qcow2 /state/overlay.qcow2
-  printf 'port=%s\nrunner=%s\n' "$port" "$id" > "$state/manifest.txt"
-  "${p[@]}" run --detach --pull=never --name "$name" --volume "$state:/state:rw" \
-    --publish "127.0.0.1:$port:2222" "$id" run \
-    -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m 4096 -smp 4 \
-    -drive if=none,id=disk0,file=/state/overlay.qcow2,format=qcow2 \
-    -device virtio-blk-pci,drive=disk0 \
-    -fw_cfg name=opt/com.coreos/config,file=/state/config.ign \
-    -netdev user,id=n0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=n0 \
-    -display none -serial file:/state/serial.log -monitor none
-  echo "BOOT_REQUESTED profile=$profile container=$name accel=tcg"
-}
-stop() {
-  "${p[@]}" stop "$name"
-  echo "STOPPED profile=$profile; state retained: $state"
-}
-case "$action" in
-  build) build ;;
-  preflight) preflight ;;
-  boot) boot ;;
-  stop) stop ;;
-  *) fail 'Usage: coreos-podman build|preflight|boot|stop' ;;
 esac
