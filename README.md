@@ -32,6 +32,46 @@ make status PROVIDER=container
 Use `make bootstrap` for the default Podman Machine + rootless Quadlet path.
 Neither bootstrap installs, runs, or hardcodes Agni.
 
+### Apple Silicon Podman Machine provisioning
+
+`make machine-init` is an explicit, logged, idempotent machine creation command.
+It uses `applehv` unless `MACHINE_PROVIDER=libkrun` is requested.
+The default new-machine profile is 6 CPUs, 8192 MiB RAM, and 120 GiB
+virtual disk. Nothing is removed or resized automatically.
+
+```sh
+# Provision a separate CoreOS-capable machine; preserve existing podman-machine-default
+make machine-init MACHINE=coreos-arm64 MACHINE_PROVIDER=applehv \
+  MACHINE_CPUS=6 MACHINE_MEMORY_MIB=8192 MACHINE_DISK_GIB=120
+
+# Inspect the existing VM against the desired minimum, without altering it
+make machine-check MACHINE=podman-machine-default \
+  MACHINE_CPUS=4 MACHINE_MEMORY_MIB=8192 MACHINE_DISK_GIB=100
+
+# Optionally provision and bootstrap Nix-Alpine as one step
+make bootstrap PROVIDER=podman MACHINE=coreos-arm64 \
+  MACHINE_BOOTSTRAP=1 MACHINE_VERIFY=1 \
+  MACHINE_CPUS=6 MACHINE_MEMORY_MIB=8192 MACHINE_DISK_GIB=120
+```
+
+`MACHINE_BOOTSTRAP=1` creates a missing machine during `make bootstrap`;
+`MACHINE_BOOTSTRAP=0` requires an existing machine. Explicit
+`make machine-init` and `make machine-check` require the existing machine
+to meet the requested minimum resources. By default `make bootstrap`
+preserves and warns about an undersized existing machine, rather than
+resizing or deleting a persistent VM; set `MACHINE_VERIFY=1` to fail closed.
+`MACHINE_DEFAULT=1` opts into changing Podman's default system connection.
+All operational `nix.xd` commands select `MACHINE` explicitly, so this
+global change is not required.
+
+Creating a new Podman Machine creates a **separate** Podman image and volume
+store. The existing Nix-Alpine store is not migrated automatically. After
+bootstrapping the new machine, use the same `make sync`, `stage`, `build`,
+`run`, and `qualify` commands as with the original machine, setting
+`MACHINE=coreos-arm64` for provider-backed operations. Nix owns
+application-level execution; the host Make targets only bootstrap or provide
+required runtime transport.
+
 ### Generic source and flake interface
 
 `WORKSPACES` defaults to the `nix.xd` checkout root. This matches the x86
