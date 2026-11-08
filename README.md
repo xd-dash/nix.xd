@@ -287,7 +287,7 @@ opt-in Butane profile mounts `nixstore` at
 
 Do not reuse existing `config.ign` for this option:
 `coreos-ignition-build` intentionally refuses overwriting it.
-Create an independently scoped state/profile instead. Preflight checks
+Create an independently scoped `COREOS_STATE_ROOT` and generate a fresh artifact set instead. Preflight checks
 that the selected volume matches the Ignition generation manifest.
 
 The host volume readability check does **not** establish that the
