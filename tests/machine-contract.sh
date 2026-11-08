@@ -41,4 +41,9 @@ if NIX_XD_MACHINE=bad/name bash "$root/bin/nix-xd-machine" init >/dev/null 2>&1;
 fi
 NIX_XD_MACHINE=starwisp-arm NIX_XD_MACHINE_DEFAULT=1   bash "$root/bin/nix-xd-machine" init >/dev/null
 grep -Fq 'system connection default starwisp-arm' "$MOCK_CALLS"
-echo 'PASS: Machine provisioned once, undersized machine rejected, connection default opt-in'
+handoff_plan="$(make -sn -C "$root" PROVIDER=podman OS=Darwin FROM_MACHINE=podman-machine-default MACHINE=coreos-arm64 machine-handoff)"
+[[ "$handoff_plan" == *'bin/nix-xd-machine-handoff handoff'* ]] || { echo "Missing handoff routing" >&2; exit 1; }
+[[ "$handoff_plan" == *'NIX_XD_FROM_MACHINE="podman-machine-default"'* ]] || { echo "Missing old machine routing" >&2; exit 1; }
+grep -Fq 'source_id="$(podman --connection "$source_machine" image inspect "$image"' "$root/bin/nix-xd-machine-handoff" || { echo "Missing source image verification" >&2; exit 1; }
+grep -Fq '[[ "$target_id" == "$source_id" ]]' "$root/bin/nix-xd-machine-handoff" || { echo "Missing destination image identity verification" >&2; exit 1; }
+echo 'PASS: Machine provisioning, resource fencing, explicit handoff and identity verification'
