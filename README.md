@@ -527,3 +527,46 @@ This gate validates age/SOPS runtime operations, **not** persistent credential
 bootstrap or Smoke's Go SOPS/age integration. Those are application-owned gates
 and should be integrated as additional modules or flake-owned qualifiers rather
 than adding top-level `secrets` orchestration commands.
+
+
+### Common bootstrap contract and modular Makefiles
+
+The repository has **one top-level Make interface** with small included bootstrap
+adapters in `mk/bootstrap-arm64.mk` and `mk/bootstrap-amd64.mk`. Both use the
+same command form:
+
+```sh
+make bootstrap ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm
+make bootstrap ARCH=amd64 PROVIDER=podman SCOPE=nix-xd-amd64 \
+  X86_SOURCE=/absolute/path/to/pinned/nix-alpine
+```
+
+The native Linux AMD64 adapter uses the pinned `dash-xd/nix-alpine` source,
+checks its full revision and clean tracked state, and delegates to that
+source's existing `local/bootstrap.sh` through Make. Its default source
+path is `./nix-alpine/nix-alpine` and the default pin is
+`80a2821b7571edd09507f9b4349e2f1ed3daf900`; if the checkout differs,
+bootstrap **fails closed**. It never fetches a moving branch during bootstrap.
+The adapter requires a native x86_64 Linux host with rootless Podman and a
+user systemd session.
+
+On Apple Silicon, the ARM64 adapter continues to bootstrap into the
+selected Podman Machine (or Apple Container provider). On native Linux,
+generic tasks now use local rootless Podman, not macOS Podman Machine
+connections. The selected runtime architecture is checked before flake
+execution.
+
+This is *interface parity*, not yet runtime qualification parity: upstream
+x86_64 bootstrap and the ARM64 direct-volume bootstrap currently have
+different OCI/store-installation contracts. The common interface deliberately
+does not copy or migrate Nix stores between them. The x86_64 runtime must pass
+its own bootstrap, persistence, and store-isolation gates before it is
+considered interchangeable with the ARM64 implementation.
+
+The top-level `make bootstrap` remains an escape hatch for creating or
+repairing the execution substrate. Once Nix-Alpine is running, declarative
+application and host changes should use pinned flake outputs via
+`make build`, `make run`, or `make qualify`. Make should not accumulate
+application-specific imperative mutation recipes. Runtime process controls
+(`start`, `stop`, `status`, `logs`) remain operational conveniences,
+not a substitute for deterministic flake-owned system changes.
