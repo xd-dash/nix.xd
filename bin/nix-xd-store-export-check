@@ -16,6 +16,7 @@ owner_volume="$("${p[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .D
 [[ "$owner_volume" == "$volume" ]] || die "Nix-Alpine /nix expected volume $volume, got $owner_volume"
 "${p[@]}" exec "$scope" /bin/sh -ec '
   test -d /nix/store && test -d /nix/var/nix
+  test -f /nix/.nix-xd-direct-volume-v1
   grep -Eq " /nix rw(,| )" /proc/self/mountinfo || exit 1
   nix --version
   nix store info >/dev/null
