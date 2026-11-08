@@ -24,7 +24,7 @@ printf 'SECRETS_QUALIFY_RUNTIME=podman machine=%s scope=%s system=%s\n' "$machin
 # deleted on exit. nix shell only installs age and sops executable closures.
 podman --connection "$machine" exec -i "$scope" \
   nix --extra-experimental-features 'nix-command flakes' shell \
-    nixpkgs#age nixpkgs#sops --command bash -se <<'RUNTIME'
+    nixpkgs#age nixpkgs#sops nixpkgs#jq --command bash -se <<'RUNTIME'
 set -Eeuo pipefail
 umask 077
 scratch="$(mktemp -d /tmp/nix-xd-secrets.XXXXXXXX)"
@@ -46,14 +46,17 @@ recipient="$(age-keygen -y "$key")"
 printf '%s\n' '{"sandbox":"nix-xd-qualification","roundtrip":true}' >"$plaintext"
 sops --encrypt --age "$recipient" --input-type json --output-type json "$plaintext" >"$ciphertext"
 SOPS_AGE_KEY_FILE="$key" sops --decrypt --input-type json --output-type json "$ciphertext" >"$roundtrip"
-cmp -s "$plaintext" "$roundtrip" || { echo 'SOPS roundtrip mismatch' >&2; exit 1; }
+jq -cS . "$plaintext" >"$scratch/expected.canonical.json"
+jq -cS . "$roundtrip" >"$scratch/actual.canonical.json"
+cmp -s "$scratch/expected.canonical.json" "$scratch/actual.canonical.json" ||
+  { echo 'SOPS semantic JSON roundtrip mismatch' >&2; exit 1; }
 grep -q '"sops"' "$ciphertext" || { echo 'Missing SOPS metadata' >&2; exit 1; }
 if grep -q 'nix-xd-qualification' "$ciphertext"; then
   echo 'Plaintext leaked into encrypted SOPS document' >&2
   exit 1
 fi
 printf 'SECRETS_AGE_IDENTITY=passed mode=0600 location=runtime-scratch\n'
-printf 'SECRETS_SOPS_ROUNDTRIP=passed\n'
+printf 'SECRETS_SOPS_ROUNDTRIP=passed validation=canonical-json\n'
 printf 'SECRETS_NIX_STORE_ISOLATION=passed private-material-in-store=no\n'
 RUNTIME
 printf 'SECRETS_QUALIFY_RESULT=passed\n'
