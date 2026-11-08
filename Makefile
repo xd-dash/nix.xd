@@ -54,12 +54,12 @@ help:
 	@printf '%s\n' \
 	  'make bootstrap ARCH=arm64|amd64 PROVIDER=podman  Bootstrap selected host architecture' \
 	  'make bootstrap ARCH=amd64 PROVIDER=podman  Direct-volume native Linux x86_64 runtime' \
-	  'make qualify MODULES=store-recreation ARCH=amd64  Native Quadlet and store persistence' \
+	  'make qualify MODULES=store-recreation ARCH=arm64|amd64  Shared store recreation gate' \
 	  'make machine-init MACHINE=... MACHINE_MEMORY_MIB=8192 MACHINE_CPUS=6 MACHINE_DISK_GIB=120' \
 	  'make machine-check MACHINE=... (enforce minimum requested VM resources)' \
 	  'make store-export-check MACHINE=...    Verify rootless read-only Nix volume sharing' \
 	  'make arm-rebootstrap-diagnose|arm-rebootstrap-plan|arm-rebootstrap-reset|arm-rebootstrap-bootstrap|arm-rebootstrap-verify' \
-	  'make arm-qualify-recreation MACHINE=... SCOPE=...    Check same store after Quadlet recreates container' \
+	  'make arm-qualify-recreation MACHINE=... SCOPE=...    Legacy alias for shared store recreation gate' \
 	  'make arm-wind-down-plan|arm-wind-down-stop       Log provider inventory and stop known nix.xd workloads' \
 	  'make arm-inspect-legacy                         Inspect old Podman Machine then stop it' \
 	  'make arm-purge-legacy-plan|arm-purge-legacy      Remove duplicate Apple stores and old Podman VM' \
