@@ -5,10 +5,9 @@ RUN addgroup -g 1000 nixuser && adduser -D -u 1000 -G nixuser -s /bin/bash nixus
 COPY init-nix-store.sh /usr/local/bin/nix-xd-init-store
 RUN chmod 755 /usr/local/bin/nix-xd-init-store
 USER nixuser
-ENV HOME=/home/nixuser USER=nixuser
-WORKDIR /home/nixuser
-ENV PATH=/home/nixuser/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH
-RUN mkdir -p /home/nixuser/.config/nix
-COPY --chown=nixuser:nixuser nix.conf /home/nixuser/.config/nix/nix.conf
+ENV HOME=/nix/home/nixuser USER=nixuser
+WORKDIR /workspaces
+ENV PATH=/nix/home/nixuser/.nix-profile/bin:$PATH
+COPY nix.conf /etc/nix-xd/nix.conf
 ENTRYPOINT ["/usr/local/bin/nix-xd-init-store"]
 CMD ["sleep", "infinity"]
