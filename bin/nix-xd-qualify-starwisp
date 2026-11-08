@@ -43,7 +43,7 @@ cleanup() {
       rc=1
     fi
   fi
-  for artifact in serial.log manifest.txt ssh-readiness-last-error.log nix-9p.log; do
+  for artifact in serial.log manifest.txt ssh-readiness-last-error.log nix-9p.log nix-9p-nested.log; do
     if [[ -f "$state/$artifact" ]]; then
       cp "$state/$artifact" "$run_dir/$artifact" || rc=1
       if [[ -f "$run_dir/$artifact" ]]; then
