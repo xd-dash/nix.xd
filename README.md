@@ -5,12 +5,10 @@ This does not install NixOS or change host packages.
 
 | Host | Build context |
 | --- | --- |
-| x86_64 Linux | Exact flake input from dash-xd/nix-alpine |
-| ARM64 Linux (aarch64) | arm/ in this repository |
+| x86_64 Linux | `arm/` shared direct-volume OCI context; native Podman/Quadlet |
+| ARM64 Linux (aarch64) | `arm/` shared direct-volume OCI context; Mac Podman Machine |
 
-The x86_64 input is pinned to upstream main at 80a2821b7571edd09507f9b4349e2f1ed3daf900.
-No changes to nix-alpine are required. Developing branches are deliberately excluded.
-Only the build-context adapter should need adjustment when upstream settles.
+The separate `nix-alpine` flake source is pinned to upstream commit 80a2821b7571edd09507f9b4349e2f1ed3daf900. Its Dockerfile is not used for the direct-volume runtime bootstrap.
 
 
 ## Generic Make orchestration on Apple Silicon
