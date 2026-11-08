@@ -38,7 +38,7 @@ cleanup() {
   trap - EXIT INT TERM
   if (( started == 1 )); then
     podman --connection "$machine" logs "coreos-$profile" > "$run_dir/qemu-container.log" 2>&1 || true
-    if ! "$adapter" stop >> "$run_dir/run.log" 2>&1; then
+    if ! bash "$adapter" stop >> "$run_dir/run.log" 2>&1; then
       printf 'warning: guest stop failed; inspect container coreos-%s\n' "$profile" >&2
       rc=1
     fi
@@ -103,15 +103,15 @@ fi
   printf 'ram_mib=%s\ncpus=%s\n' "${COREOS_RAM_MIB:-2048}" "${COREOS_CPUS:-2}"
   printf 'ready_timeout_sec=%s\n' "${COREOS_READY_TIMEOUT_SEC:-900}"
 } > "$run_dir/qualification.txt"
-step preflight "$adapter" preflight
+step preflight bash "$adapter" preflight
 if [[ -e "$state/overlay.qcow2" ]]; then
   [[ -f "$state/manifest.txt" ]] || fail 'Existing overlay lacks boot manifest; refuse overwrite'
-  step archive-previous "$adapter" reset-failed
+  step archive-previous bash "$adapter" reset-failed
 fi
 [[ ! -e "$state/overlay.qcow2" ]] || fail 'Overlay remains after archival'
-step boot "$adapter" boot
+step boot bash "$adapter" boot
 started=1
-step wisp-qualification "$qualifier"
+step wisp-qualification bash "$qualifier"
 [[ -s "$state/wisp.log" ]] || fail 'Wisp evidence missing or empty'
 cp "$state/wisp.log" "$run_dir/wisp.log"
 printf 'wisp_log_sha256=%s\n' "$(sha "$run_dir/wisp.log")" >> "$run_dir/qualification.txt"
