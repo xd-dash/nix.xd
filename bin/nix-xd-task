@@ -15,7 +15,7 @@ cmd="${NIX_XD_CMD:-nix --version}"
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$provider" == podman || "$provider" == container ]] || fail "Unsupported provider: $provider"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid scope"
-[[ "$system" == aarch64-linux ]] || fail "ARM runner requires aarch64-linux"
+[[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] || fail "Unsupported Nix system: $system"
 runtime="$provider"
 machine="${NIX_XD_MACHINE:-podman-machine-default}"
 if [[ "$provider" == podman ]]; then
@@ -34,6 +34,14 @@ runtime_cmd() {
   fi
 }
 inside() { runtime_cmd exec "$scope" "$@"; }
+validate_runtime_arch() {
+  local actual
+  actual="$(inside uname -m)" || fail "Cannot inspect runtime architecture"
+  case "$system:$actual" in
+    aarch64-linux:aarch64|aarch64-linux:arm64|x86_64-linux:x86_64) ;;
+    *) fail "Runtime system mismatch: requested $system, runtime $actual" ;;
+  esac
+}
 interactive() { runtime_cmd exec -it "$scope" "$@"; }
 
 validate_checkout() {
@@ -96,6 +104,10 @@ nix_task() {
     develop) interactive nix --option system "$system" develop --no-write-lock-file "$ref" -c bash ;;
   esac
 }
+
+case "$action" in
+  stage|show|check|build|path-info|run|qualify|develop|shell|exec|store-info) validate_runtime_arch ;;
+esac
 
 case "$action" in
   stage) stage ;;
