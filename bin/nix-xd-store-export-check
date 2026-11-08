@@ -7,8 +7,14 @@ image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die 'Invalid machine'
 [[ "$volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die 'Invalid volume'
-[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || die 'Podman Machine not running'
-p=(podman --connection "$machine")
+if [[ "$(uname -s)" == Darwin ]]; then
+  [[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || die 'Podman Machine not running'
+  p=(podman --connection "$machine")
+else
+  [[ "$(uname -s)" == Linux ]] || die 'Unsupported host OS'
+  p=(podman)
+  machine=native-linux
+fi
 "${p[@]}" volume exists "$volume" || die "Nix store volume missing on $machine: $volume"
 "${p[@]}" image exists "$image" || die "Nix-Alpine probe image missing on $machine: $image"
 "${p[@]}" container exists "$scope" || die "Nix-Alpine store owner container is missing: $scope"
