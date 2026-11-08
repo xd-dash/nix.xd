@@ -43,6 +43,17 @@ cleanup() {
       rc=1
     fi
   fi
+  for artifact in serial.log manifest.txt ssh-readiness-last-error.log; do
+    if [[ -f "$state/$artifact" ]]; then
+      cp "$state/$artifact" "$run_dir/$artifact" || rc=1
+      if [[ -f "$run_dir/$artifact" ]]; then
+        printf '%s_sha256=%s\n' "${artifact//./_}" "$(shasum -a 256 "$run_dir/$artifact" | awk '{print $1}')" >> "$run_dir/qualification.txt"
+      fi
+    fi
+  done
+  if [[ -f "$state/overlay.qcow2" ]]; then
+    printf 'overlay_sha256=%s\n' "$(shasum -a 256 "$state/overlay.qcow2" | awk '{print $1}')" >> "$run_dir/qualification.txt"
+  fi
   if (( qualified == 1 && rc == 0 )); then status=passed; fi
   printf 'status=%s\nfinished_utc=%s\nexit_code=%s\n' "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" >> "$run_dir/qualification.txt"
   printf 'QUALIFY_STARWISP_RESULT status=%s exit=%s evidence=%s\n' "$status" "$rc" "$run_dir"
