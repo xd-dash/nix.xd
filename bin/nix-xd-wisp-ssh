@@ -114,5 +114,31 @@ GUEST_NIX_9P
     fail 'Guest 9P store mount qualification failed'
   fi
   cat "$state/nix-9p.log"
+  if [[ -n "${COREOS_GUEST_PROBE_IMAGE:-}" ]]; then
+    probe_image="$COREOS_GUEST_PROBE_IMAGE"
+    [[ "$probe_image" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || fail 'Invalid COREOS_GUEST_PROBE_IMAGE'
+    echo "NIX_9P_NESTED_CHECK_START image=$probe_image"
+    if ! ssh "${opts[@]}" "$user@127.0.0.1" "env COREOS_GUEST_PROBE_IMAGE='$probe_image' bash -se" > "$state/nix-9p-nested.log" 2>&1 <<'GUEST_NIX_NESTED'
+set -Eeuo pipefail
+podman image exists "$COREOS_GUEST_PROBE_IMAGE" || {
+  echo "FAIL: Guest image absent: $COREOS_GUEST_PROBE_IMAGE (pull it explicitly before qualification)"
+  exit 1
+}
+podman run --rm --pull=never --user 1000:1000 \
+  --security-opt label=disable \
+  --mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro \
+  --entrypoint /bin/sh "$COREOS_GUEST_PROBE_IMAGE" -ec '
+    test -d /nix/store && test -r /nix/store && test -x /nix/store
+    grep -Eq " /nix/store ro(,| )" /proc/self/mountinfo
+    find /nix/store -mindepth 1 -maxdepth 1 -print -quit | grep -q .
+  '
+echo 'PASS: NIX_9P_NESTED_PODMAN_READONLY'
+GUEST_NIX_NESTED
+    then
+      cat "$state/nix-9p-nested.log" >&2
+      fail 'Nested rootless Podman 9P read qualification failed'
+    fi
+    cat "$state/nix-9p-nested.log"
+  fi
 fi
 printf "QUALIFIED profile=%s evidence=%s\n" "$profile" "$state/wisp.log"
