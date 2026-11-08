@@ -489,3 +489,33 @@ The bootstrap transaction generates and checks flake.lock before publication.
 Existing Quadlet files are never overwritten. To remove an installation, stop
 its service, remove its exact .container file, and reload the user systemd
 manager. Store-volume deletion is a separate explicit data-removal operation.
+
+
+### Architecture selection and optional qualification modules
+
+The orchestration entrypoint accepts `ARCH=arm64|amd64` (default inferred from the host).
+The selected Linux Nix system is `aarch64-linux` or `x86_64-linux`. The generic
+`run`, `show`, `build`, `check`, and flake-owned `qualify` paths check
+the actual runtime architecture and fail on a mismatch. The macOS OCI bootstrap
+adapter currently supports only Apple Silicon; the existing x86_64 Linux flake
+installer remains a separate, unqualified-for-this-host bootstrap path.
+
+`qualify` continues to use the selected application's `#qualify` output by
+default. When `MODULES` is supplied, it executes named optional qualification
+modules instead:
+
+```sh
+make qualify PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm ARCH=arm64 MODULES=secrets
+```
+
+The `secrets` module uses Nix to provide age and SOPS executables inside the
+running Nix-Alpine container. It generates a disposable age identity and test
+JSON in a private `/tmp` directory, performs a SOPS encrypt/decrypt round trip,
+and removes all runtime secret files with an exit trap. Private identities and
+plaintext are never supplied as derivation inputs, command arguments, or log
+output. The Nix store may cache the *age/SOPS binaries*, not the private identity.
+
+This gate validates age/SOPS runtime operations, **not** persistent credential
+bootstrap or Smoke's Go SOPS/age integration. Those are application-owned gates
+and should be integrated as additional modules or flake-owned qualifiers rather
+than adding top-level `secrets` orchestration commands.
