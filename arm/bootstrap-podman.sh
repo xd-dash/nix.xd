@@ -55,7 +55,7 @@ fi
 podman --connection "$machine" run --rm --pull=never --user 0:0 \
   --mount "type=volume,src=$scope-store,dst=/nix" \
   --entrypoint /bin/sh "$image" -ec '
-    if [ -e /nix/.nix-xd-direct-volume-v1 ]; then
+    if [ -e /nix/.nix-xd-direct-volume-v2 ]; then
       exit 0
     fi
     if [ -n "$(find /nix -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]; then
@@ -142,9 +142,9 @@ podman machine ssh "$machine" systemctl --user is-active "$unit"
 ready=0
 for attempt in $(seq 1 120); do
   if podman --connection "$machine" exec "$scope" /bin/sh -ec '
-    test -f /nix/.nix-xd-direct-volume-v1
-    test -x /home/nixuser/.nix-profile/bin/nix
-    /home/nixuser/.nix-profile/bin/nix --version >/dev/null
+    test -f /nix/.nix-xd-direct-volume-v2
+    test -x /nix/home/nixuser/.nix-profile/bin/nix
+    /nix/home/nixuser/.nix-profile/bin/nix --version >/dev/null
   ' >/dev/null 2>&1; then
     ready=1
     printf 'NIX_XD_BOOTSTRAP_READY attempts=%s\n' "$attempt"
