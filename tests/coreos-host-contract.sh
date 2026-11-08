@@ -69,4 +69,10 @@ grep -Fq 'owner_volume=' bin/nix-xd-store-export-check || { echo "Authoritative 
 grep -Fq 'NIX_9P_NIX_CLI_READONLY' bin/nix-xd-wisp-ssh || { echo "Shared Nix CLI execution gate missing"; exit 1; }
 grep -Fq 'storeProbeNix = pkgs.nix;' flake.nix || { echo "Nix CLI closure is not declared"; exit 1; }
 grep -Fq 'COREOS_GUEST_NIX_EXECUTABLE=' Makefile || { echo "Nix CLI closure path not propagated"; exit 1; }
+grep -Fq 'ENTRYPOINT ["/usr/local/bin/nix-xd-init-store"]' arm/Dockerfile || { echo "ARM image must initialize mounted store at runtime"; exit 1; }
+grep -Fq 'NIX_XD_DIRECT_STORE_READY' arm/init-nix-store.sh || { echo "Missing authoritative direct-volume installer"; exit 1; }
+grep -Fq '.nix-xd-direct-volume-v1' bin/nix-xd-store-export-check || { echo "Legacy image-seeded store must fail closed"; exit 1; }
+if grep -Eq 'cp -a /nix/|cp -r /nix/|cp -R /nix/' arm/bootstrap-container.sh arm/bootstrap-podman.sh arm/init-nix-store.sh; then echo "Copying the Nix store is forbidden"; exit 1; fi
+if grep -Eq 'RUN.*(install-nix|nix-[0-9].*/install)' arm/Dockerfile; then echo "Building Nix into OCI image store is forbidden"; exit 1; fi
+bash -n arm/init-nix-store.sh
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
