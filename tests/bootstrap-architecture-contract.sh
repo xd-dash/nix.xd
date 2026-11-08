@@ -26,7 +26,15 @@ case "$1" in
   *) echo "Unexpected native Podman command $*" >&2; exit 1 ;;
 esac
 PODMAN
-chmod +x "$tmp/bin/podman"
+cat >"$tmp/bin/uname" <<'UNAME'
+#!/usr/bin/env bash
+case "$1" in
+  -s) echo Linux ;;
+  -m) echo x86_64 ;;
+  *) /usr/bin/uname "$@" ;;
+esac
+UNAME
+chmod +x "$tmp/bin/podman" "$tmp/bin/uname"
 export PATH="$tmp/bin:$PATH"
 out="$(NIX_XD_PROVIDER=podman NIX_XD_X86_SOURCE="$source" NIX_XD_X86_REV="$rev" NIX_XD_WORKSPACES="$tmp/workspaces" NIX_XD_SCOPE=nix-xd-amd64 NIX_XD_IMAGE=localhost/nix-xd:amd64 bash "$root/bin/nix-xd-bootstrap-amd64")"
 [[ "$out" == *'X86_FIXTURE_BOOTSTRAP scope=nix-xd-amd64 container=nix-xd-amd64 volume=nix-xd-amd64-store image=localhost/nix-xd:amd64 checkout=nix-alpine'* ]] ||
