@@ -11,6 +11,16 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 p=(podman --connection "$machine")
 "${p[@]}" volume exists "$volume" || die "Nix store volume missing on $machine: $volume"
 "${p[@]}" image exists "$image" || die "Nix-Alpine probe image missing on $machine: $image"
+"${p[@]}" container exists "$scope" || die "Nix-Alpine store owner container is missing: $scope"
+owner_volume="$("${p[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')"
+[[ "$owner_volume" == "$volume" ]] || die "Nix-Alpine /nix expected volume $volume, got $owner_volume"
+"${p[@]}" exec "$scope" /bin/sh -ec '
+  test -d /nix/store && test -d /nix/var/nix
+  grep -Eq " /nix rw(,| )" /proc/self/mountinfo || exit 1
+  nix --version
+  nix store info >/dev/null
+' || die "Nix-Alpine owner store not ready or not writable"
+printf 'NIX_STORE_OWNER_READY machine=%s scope=%s volume=%s mode=read-write\n' "$machine" "$scope" "$volume"
 # Use the same rootless Podman volume mapping as the QEMU runner. Never chown or
 # recursively chmod the store to make an exporter work.
 for user in 0:0 1000:1000; do
