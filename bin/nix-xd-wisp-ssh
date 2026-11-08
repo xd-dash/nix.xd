@@ -104,11 +104,11 @@ findmnt -rn --mountpoint "$mountpoint" >/dev/null || {
     -p FragmentPath -p WantedBy -p RequiredBy -p Before -p After || true
   systemctl --no-pager list-dependencies multi-user.target --all || true
   journalctl -b --no-pager -u var-mnt-nixstore.mount -n 80 || true
-  printf '%s\\n' '--- 9P kernel support ---'
+  printf '%s\n' '--- 9P kernel support ---'
   grep -E '(^nodev[[:space:]]+9p$|[[:space:]]9p$)' /proc/filesystems || true
-  printf '%s\\n' '--- loaded 9P modules ---'
+  printf '%s\n' '--- loaded 9P modules ---'
   grep -E '^(9p|9pnet|9pnet_virtio)[[:space:]]' /proc/modules || true
-  printf '%s\\n' '--- VirtIO devices ---'
+  printf '%s\n' '--- VirtIO devices ---'
   for device in /sys/bus/virtio/devices/*; do
     [[ -e "$device/device" ]] || continue
     printf '%s device_id=%s\\n' "$device" "$(cat "$device/device")"
