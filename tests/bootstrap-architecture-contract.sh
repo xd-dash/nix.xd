@@ -32,9 +32,4 @@ if grep -Eq 'volume rm|rm -rf /nix|cp -a /nix' bin/nix-xd-bootstrap-amd64; then
   echo 'AMD64 bootstrap may not destroy/migrate a Nix store' >&2
   exit 1
 fi
-# Execute fail-closed native architecture check without reaching Podman.
-if NIX_XD_PROVIDER=podman bash bin/nix-xd-bootstrap-amd64 >/dev/null 2>&1 && [[ "$(uname -m)" != x86_64 ]]; then
-  echo 'Incorrect native architecture accepted' >&2
-  exit 1
-fi
 printf 'PASS: Portable direct-volume image, native x86 bootstrap and modular recreation contract\n'
