@@ -89,7 +89,7 @@ qualify-plan:
 ifeq ($(PROVIDER),podman)
 ifeq ($(OS),Darwin)
 machine-init machine-check:
-	@$(MACHINE_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-machine $(patsubst machine-%,%,$@)
+	@$(MACHINE_ENV) NIX_XD_MACHINE_VERIFY=1 bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-machine $(patsubst machine-%,%,$@)
 
 machine-start:
 	@state="$$(podman machine inspect "$(MACHINE)" --format '{{.State}}')"; \
