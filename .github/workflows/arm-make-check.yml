@@ -9,6 +9,7 @@ on:
       - bin/nix-xd-container
       - bin/nix-xd-task
       - bin/nix-xd-coreos-hvf
+      - bin/nix-xd-coreos-podman
       - bin/nix-xd-wisp-ssh
       - bin/nix-xd-sync
       - tests/make-contract.sh
@@ -23,6 +24,7 @@ on:
       - bin/nix-xd-container
       - bin/nix-xd-task
       - bin/nix-xd-coreos-hvf
+      - bin/nix-xd-coreos-podman
       - bin/nix-xd-wisp-ssh
       - bin/nix-xd-sync
       - tests/make-contract.sh
