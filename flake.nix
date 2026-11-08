@@ -29,7 +29,7 @@
           storeProbeRootfs = pkgs.runCommand "nix-xd-store-probe-rootfs" {
             nativeBuildInputs = [ pkgs.coreutils ];
           } ''
-            mkdir -p "$out/bin" "$out/nix/store"
+            mkdir -p "$out/bin" "$out/nix/store" "$out/dev" "$out/proc" "$out/sys" "$out/run" "$out/tmp" "$out/etc"
             ln -s "${pkgs.pkgsStatic.busybox}/bin/busybox" "$out/bin/sh"
           '';
         });
