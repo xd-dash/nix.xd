@@ -62,8 +62,11 @@ dynamic_executable="$dynamic/bin/hello"
 # Roots and dynamically linked executables need their dependent store paths.
 # nix-store -qR ensures the closure is registered, not merely present by name.
 for output in "$rootfs" "$dynamic" "$nix_package" "$archive"; do
-  "${p[@]}" exec "$scope" nix-store -qR "$output" >/dev/null ||
-    fail "Unregistered closure: $output"
+  "${p[@]}" exec "$scope" /bin/sh -ec '
+    nix-store -qR "$1" | while IFS= read -r dependency; do
+      test -e "$dependency" || { echo "Missing closure dependency: $dependency" >&2; exit 1; }
+    done
+  ' sh "$output" || fail "Closure is incomplete: $output"
 done
 printf 'STARWISP_SHARED_PREPARE_RESULT=passed volume=%s rootfs=%s dynamic=%s nix=%s archive=%s\n' \
   "$store_volume" "$rootfs" "$dynamic_executable" "$nix_executable" "$archive"
