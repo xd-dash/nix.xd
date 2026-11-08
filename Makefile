@@ -49,6 +49,7 @@ help:
 	  'make compose|qualify|qualify-process|qualify-service|qualify-composition' \
 	  'make qualify-plan FLAKE=path PLAN_TARGET=\x23app (application-owned plan)' \
 	  'make start|stop|restart|status|logs|shell|exec|ps|inspect|store-info' \
+	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
 	  'make check-static                            Host-independent static checks'
 
@@ -153,7 +154,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh
+	@bash -n arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/machine-contract.sh
@@ -174,12 +175,16 @@ COREOS_GUEST_USER ?= wisp
 COREOS_SSH_KEY ?=
 COREOS_SSH_PUBLIC_KEY ?=
 COREOS_ORPHANED_OVERLAY ?= 0
+COREOS_READY_TIMEOUT_SEC ?= 900
+COREOS_READY_RETRY_SEC ?= 10
+COREOS_SSH_CONNECT_TIMEOUT_SEC ?= 10
+COREOS_AGNI_REV ?=
 VMM ?= podman
 COREOS_FLAKE ?= /workspaces/agni/qemu/coreos-live/local
 COREOS_RUNNER_IMAGE ?= localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64
-COREOS_HOST_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' COREOS_FLAKE='$(COREOS_FLAKE)' COREOS_RUNNER_IMAGE='$(COREOS_RUNNER_IMAGE)' COREOS_VMM='$(VMM)' COREOS_PROFILE='$(PROFILE)' COREOS_STATE_ROOT='$(COREOS_STATE_ROOT)' COREOS_IMAGE='$(COREOS_IMAGE)' COREOS_IMAGE_SHA256='$(COREOS_IMAGE_SHA256)' COREOS_IGNITION='$(COREOS_IGNITION)' COREOS_FIRMWARE='$(COREOS_FIRMWARE)' COREOS_SSH_PORT='$(COREOS_SSH_PORT)' COREOS_RAM_MIB='$(COREOS_RAM_MIB)' COREOS_CPUS='$(COREOS_CPUS)' COREOS_GUEST_USER='$(COREOS_GUEST_USER)' COREOS_SSH_KEY='$(COREOS_SSH_KEY)' COREOS_SSH_PUBLIC_KEY='$(COREOS_SSH_PUBLIC_KEY)' COREOS_ORPHANED_OVERLAY='$(COREOS_ORPHANED_OVERLAY)' NIX_XD_FROM_MACHINE='$(FROM_MACHINE)'
+COREOS_HOST_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' COREOS_FLAKE='$(COREOS_FLAKE)' COREOS_RUNNER_IMAGE='$(COREOS_RUNNER_IMAGE)' COREOS_VMM='$(VMM)' COREOS_PROFILE='$(PROFILE)' COREOS_STATE_ROOT='$(COREOS_STATE_ROOT)' COREOS_IMAGE='$(COREOS_IMAGE)' COREOS_IMAGE_SHA256='$(COREOS_IMAGE_SHA256)' COREOS_IGNITION='$(COREOS_IGNITION)' COREOS_FIRMWARE='$(COREOS_FIRMWARE)' COREOS_SSH_PORT='$(COREOS_SSH_PORT)' COREOS_RAM_MIB='$(COREOS_RAM_MIB)' COREOS_CPUS='$(COREOS_CPUS)' COREOS_GUEST_USER='$(COREOS_GUEST_USER)' COREOS_SSH_KEY='$(COREOS_SSH_KEY)' COREOS_SSH_PUBLIC_KEY='$(COREOS_SSH_PUBLIC_KEY)' COREOS_ORPHANED_OVERLAY='$(COREOS_ORPHANED_OVERLAY)' NIX_XD_FROM_MACHINE='$(FROM_MACHINE)' COREOS_READY_TIMEOUT_SEC='$(COREOS_READY_TIMEOUT_SEC)' COREOS_READY_RETRY_SEC='$(COREOS_READY_RETRY_SEC)' COREOS_SSH_CONNECT_TIMEOUT_SEC='$(COREOS_SSH_CONNECT_TIMEOUT_SEC)' COREOS_AGNI_REV='$(COREOS_AGNI_REV)'
 
-.PHONY: coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify coreos-reset-failed
+.PHONY: coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify coreos-reset-failed qualify-starwisp
 coreos-container-build:
 	@test "$(VMM)" = podman || { echo 'coreos-container-build requires VMM=podman' >&2; exit 2; }
 	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-container-build bash bin/nix-xd-coreos-podman build
@@ -201,3 +206,7 @@ coreos-preflight coreos-boot coreos-stop:
 
 coreos-qualify:
 	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-qualify bash bin/nix-xd-wisp-ssh
+
+qualify-starwisp:
+	@test "$(VMM)" = podman || { echo "qualify-starwisp requires VMM=podman" >&2; exit 2; }
+	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" qualify-starwisp bash bin/nix-xd-qualify-starwisp
