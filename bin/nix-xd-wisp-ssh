@@ -188,6 +188,7 @@ GUEST_NIX_OCI
       fail 'Nested rootless Podman shared-store rootfs qualification failed'
     fi
     cat "$state/nix-9p-nested.log"
+    echo "PASS: NIX_9P_NESTED_PODMAN_READONLY"
   fi
 fi
 printf "QUALIFIED profile=%s evidence=%s\n" "$profile" "$state/wisp.log"
