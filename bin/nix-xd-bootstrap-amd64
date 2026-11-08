@@ -3,50 +3,88 @@ set -Eeuo pipefail
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] ||
-  die 'Native x86_64 Linux is required; no cross-architecture emulation is implied'
-[[ "${NIX_XD_PROVIDER:-podman}" == podman ]] || die 'x86_64 bootstrap currently requires Podman'
-for cmd in git podman systemctl make realpath; do
-  command -v "$cmd" >/dev/null || die "Missing $cmd"
-done
-source="${NIX_XD_X86_SOURCE:-}"
-workspaces="${NIX_XD_WORKSPACES:-}"
+  die 'Native x86_64 Linux required'
+[[ "${NIX_XD_PROVIDER:-podman}" == podman ]] || die 'AMD64 bootstrap requires Podman'
+for cmd in podman systemctl realpath; do command -v "$cmd" >/dev/null || die "Missing $cmd"; done
 scope="${NIX_XD_SCOPE:-nix-xd-amd64}"
-expected="${NIX_XD_X86_REV:-}"
 image="${NIX_XD_IMAGE:-localhost/nix-xd:amd64}"
+volume="$scope-store"
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die 'Invalid scope'
-[[ "$expected" =~ ^[0-9a-f]{40}$ ]] || die 'X86_REV must be a full pinned 40-character commit'
-[[ -d "$source/.git" ]] || die "Missing checked-out dash-xd/nix-alpine source: $source"
-[[ -d "$workspaces" ]] || die "Missing WORKSPACES path: $workspaces"
-source="$(realpath "$source")"
-workspaces="$(realpath "$workspaces")"
-case "$source" in
-  "$workspaces"/*) ;;
-  *) die 'X86_SOURCE must be a checkout within WORKSPACES' ;;
-esac
-checkout="${source#"$workspaces"/}"
-[[ "$checkout" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ ]] ||
-  die 'Unsafe x86 checkout path'
-head="$(git -C "$source" rev-parse HEAD)"
-[[ "$head" == "$expected" ]] ||
-  die "x86 source revision mismatch: expected=$expected actual=$head"
-[[ -z "$(git -C "$source" status --porcelain --untracked-files=no)" ]] ||
-  die 'x86 source has tracked edits; refuses nondeterministic bootstrap'
-remote="$(git -C "$source" remote get-url origin)"
-case "$remote" in
-  https://github.com/dash-xd/nix-alpine|https://github.com/dash-xd/nix-alpine.git|git@github.com:dash-xd/nix-alpine.git) ;;
-  *) die "Unexpected source remote: $remote" ;;
-esac
-[[ -f "$source/local/bootstrap.sh" && -f "$source/local/Makefile" ]] ||
-  die 'Expected x86 source bootstrap is unavailable'
+[[ "$image" == localhost/nix-xd:amd64 ]] || die 'Unexpected image; use dedicated AMD64 bootstrap image'
+[[ "$(id -u)" != 0 ]] || die 'Run under ordinary user'
 [[ "$(podman info --format '{{.Host.Security.Rootless}}')" == true ]] ||
   die 'Podman must be rootless'
-printf 'X86_BOOTSTRAP_SOURCE=%s revision=%s\n' "$checkout" "$head"
-# Explicit bridge to the pinned x86_64 bootstrap implementation. No ambient
-# WORKSPACE_KEY/CONTAINER/VOLUME/IMAGE from the caller is inherited.
-env -u CONTAINER -u SERVICE -u VOLUME -u IMAGE -u WORKSPACE_KEY \
-  make --no-print-directory -C "$source/local" bootstrap \
-    SCOPE="$scope" WORKSPACES="$workspaces" NIX_ALPINE_CHECKOUT="$checkout" \
-    CONTAINER="$scope" SERVICE="$scope.service" VOLUME="$scope-store" \
-    IMAGE="$image"
-podman exec "$scope" nix --version
-printf 'X86_BOOTSTRAP_RESULT=passed source=%s revision=%s scope=%s\n' "$checkout" "$head" "$scope"
+systemctl --user show-environment >/dev/null ||
+  die 'User systemd manager unavailable'
+printf 'X86_BOOTSTRAP_STEP=build-image\n'
+podman build --platform linux/amd64 -t "$image" "$repo/arm"
+if ! podman volume exists "$volume"; then
+  printf 'X86_BOOTSTRAP_STEP=create-authoritative-volume\n'
+  podman volume create "$volume" >/dev/null
+fi
+podman run --rm --pull=never --user 0:0 \
+  --mount "type=volume,src=$volume,dst=/nix" \
+  --entrypoint /bin/sh "$image" -ec '
+    if [ -e /nix/.nix-xd-direct-volume-v2 ]; then exit 0; fi
+    if [ -n "$(find /nix -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]; then
+      echo "Existing unmarked store: clean rebootstrap required; refusing migration" >&2
+      exit 1
+    fi
+    chown 1000:1000 /nix
+  '
+dir="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
+mkdir -p "$dir"
+file="$dir/$scope.container"
+tmp="$(mktemp "$dir/.nix-xd.XXXXXXXX")"
+trap 'rm -f -- "$tmp"' EXIT
+cat >"$tmp" <<EOF
+[Unit]
+Description=Nix-Alpine AMD64 ($scope)
+
+[Container]
+Image=$image
+ContainerName=$scope
+Pull=never
+Volume=$volume:/nix
+Exec=sleep infinity
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
+EOF
+if [[ -e "$file" ]]; then
+  cmp -s "$tmp" "$file" || die "Existing Quadlet differs: $file"
+else
+  install -m 600 "$tmp" "$file"
+fi
+systemctl --user daemon-reload
+systemctl --user start "$scope.service"
+ready=0
+for attempt in $(seq 1 120); do
+  if podman exec "$scope" /bin/sh -ec '
+    test -f /nix/.nix-xd-direct-volume-v2
+    test -x /nix/home/nixuser/.nix-profile/bin/nix
+    /nix/home/nixuser/.nix-profile/bin/nix --version >/dev/null
+  ' >/dev/null 2>&1; then
+    ready=1
+    printf 'X86_BOOTSTRAP_READY attempts=%s\n' "$attempt"
+    break
+  fi
+  if ! systemctl --user is-active --quiet "$scope.service"; then
+    echo 'Nix-Alpine user service inactive during initialization' >&2
+    break
+  fi
+  sleep 5
+done
+if [[ "$ready" != 1 ]]; then
+  podman logs --tail 100 "$scope" >&2 || true
+  journalctl --user --no-pager -u "$scope.service" -n 100 >&2 || true
+  die 'AMD64 direct-volume bootstrap not ready'
+fi
+NIX_XD_SCOPE="$scope" NIX_XD_IMAGE="$image" COREOS_NIX_STORE_VOLUME="$volume" \
+  bash "$repo/bin/nix-xd-store-export-check"
+printf 'X86_BOOTSTRAP_RESULT=passed scope=%s volume=%s image=%s store=direct-volume\n' "$scope" "$volume" "$image"
