@@ -178,53 +178,14 @@ GUEST_NIX_OCI
       [[ "$dynamic_executable" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/bin/hello$ ]] ||
         fail 'COREOS_GUEST_DYNAMIC_EXECUTABLE must be a Nix store GNU hello executable path'
       probe_script+=$'\n'"$dynamic_executable"
-      probe_script+=
-    printf -v remote_cmd 'bash -s -- %q %q %q %q' \
-      "$probe_rootfs/bin/sh" /bin/sh -ec "$probe_script"
-    if ! ssh -T "${opts[@]}" "$user@127.0.0.1" "$remote_cmd" \
-      < "$helper" > "$state/nix-9p-nested.log" 2>&1; then
-      cat "$state/nix-9p-nested.log" >&2
-      fail 'Nested rootless Podman shared-store rootfs qualification failed'
-    fi
-    cat "$state/nix-9p-nested.log"
-    echo "PASS: NIX_9P_NESTED_PODMAN_READONLY"
-  fi
-fi
-printf "QUALIFIED profile=%s evidence=%s\n" "$profile" "$state/wisp.log"
-\n''echo "PASS: NIX_9P_DYNAMIC_CLOSURE_EXECUTABLE"'
+      probe_script+=$'\n''echo "PASS: NIX_9P_DYNAMIC_CLOSURE_EXECUTABLE"'
     fi
     if [[ -n "${COREOS_GUEST_NIX_EXECUTABLE:-}" ]]; then
       nix_executable="$COREOS_GUEST_NIX_EXECUTABLE"
       [[ "$nix_executable" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/bin/nix$ ]] ||
-        fail 'COREOS_GUEST_NIX_EXECUTABLE must be a Nix store CLI path'
-      probe_script+=
-    printf -v remote_cmd 'bash -s -- %q %q %q %q' \
-      "$probe_rootfs/bin/sh" /bin/sh -ec "$probe_script"
-    if ! ssh -T "${opts[@]}" "$user@127.0.0.1" "$remote_cmd" \
-      < "$helper" > "$state/nix-9p-nested.log" 2>&1; then
-      cat "$state/nix-9p-nested.log" >&2
-      fail 'Nested rootless Podman shared-store rootfs qualification failed'
-    fi
-    cat "$state/nix-9p-nested.log"
-    echo "PASS: NIX_9P_NESTED_PODMAN_READONLY"
-  fi
-fi
-printf "QUALIFIED profile=%s evidence=%s\n" "$profile" "$state/wisp.log"
-\n'"$nix_executable --version"
-      probe_script+=
-    printf -v remote_cmd 'bash -s -- %q %q %q %q' \
-      "$probe_rootfs/bin/sh" /bin/sh -ec "$probe_script"
-    if ! ssh -T "${opts[@]}" "$user@127.0.0.1" "$remote_cmd" \
-      < "$helper" > "$state/nix-9p-nested.log" 2>&1; then
-      cat "$state/nix-9p-nested.log" >&2
-      fail 'Nested rootless Podman shared-store rootfs qualification failed'
-    fi
-    cat "$state/nix-9p-nested.log"
-    echo "PASS: NIX_9P_NESTED_PODMAN_READONLY"
-  fi
-fi
-printf "QUALIFIED profile=%s evidence=%s\n" "$profile" "$state/wisp.log"
-\n''echo "PASS: NIX_9P_NIX_CLI_READONLY"'
+        fail 'COREOS_GUEST_NIX_EXECUTABLE must be an absolute Nix store CLI path'
+      probe_script+=$'\n'"$nix_executable --version"
+      probe_script+=$'\n''echo "PASS: NIX_9P_NIX_CLI_READONLY"'
     fi
     printf -v remote_cmd 'bash -s -- %q %q %q %q' \
       "$probe_rootfs/bin/sh" /bin/sh -ec "$probe_script"
