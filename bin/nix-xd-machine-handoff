@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+source_machine="${NIX_XD_FROM_MACHINE:-podman-machine-default}"
+target_machine="${NIX_XD_MACHINE:-coreos-arm64}"
+image="${NIX_XD_TRANSFER_IMAGE:-localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64}"
+action="${1:?Expected handoff|select}"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+selection="$root/.state/active-podman-machine"
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+[[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail 'Requires Apple Silicon macOS'
+command -v podman >/dev/null || fail 'Podman required'
+for name in "$source_machine" "$target_machine"; do
+  [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid machine: $name"
+done
+[[ "$source_machine" != "$target_machine" ]] || fail 'Source and target machines must differ'
+[[ "$image" =~ ^[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$ ]] || fail 'Invalid image reference'
+[[ "$action" == handoff || "$action" == select ]] || fail 'Expected handoff|select'
+podman machine inspect "$target_machine" >/dev/null || fail "Missing target machine $target_machine; run make machine-init"
+state() { podman machine inspect "$1" --format '{{.State}}'; }
+start_target() {
+  [[ "$(state "$target_machine")" == running ]] || podman machine start --update-connection=false "$target_machine"
+}
+switch_selection() {
+  mkdir -p "$(dirname "$selection")"
+  local tmp="$selection.tmp.$$"
+  printf '%s\n' "$target_machine" > "$tmp"
+  mv "$tmp" "$selection"
+  printf 'MACHINE_SELECTED target=%s file=%s\n' "$target_machine" "$selection"
+}
+if [[ "$action" == select ]]; then
+  [[ "$(state "$target_machine")" == running ]] || fail 'Target machine is not running; start it first'
+  switch_selection
+  exit
+fi
+[[ "$(state "$source_machine")" == running ]] || fail "Source machine is not running: $source_machine"
+[[ "$(state "$target_machine")" != running ]] || fail 'Stop target machine before handoff; source must be active for export'
+source_id="$(podman --connection "$source_machine" image inspect "$image" --format '{{.Id}}')" ||
+  fail "Missing source image $image"
+[[ "$source_id" == sha256:* ]] || source_id="sha256:$source_id"
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/nix-xd-handoff.XXXXXXXX")"
+trap 'rm -rf "$tmpdir"' EXIT
+archive="$tmpdir/runner.tar"
+printf 'Exporting %s from %s to host temporary archive\n' "$image" "$source_machine"
+podman --connection "$source_machine" save --format docker-archive --output "$archive" "$image"
+[[ -s "$archive" ]] || fail 'Empty image archive'
+expected="$(shasum -a 256 "$archive" | awk '{print $1}')"
+podman machine stop "$source_machine"
+start_target
+[[ "$(shasum -a 256 "$archive" | awk '{print $1}')" == "$expected" ]] || fail 'Image archive changed during transfer'
+podman --connection "$target_machine" load --input "$archive"
+target_id="$(podman --connection "$target_machine" image inspect "$image" --format '{{.Id}}')" ||
+  fail 'Target image was not loaded'
+[[ "$target_id" == sha256:* ]] || target_id="sha256:$target_id"
+[[ "$target_id" == "$source_id" ]] || fail "Image identity mismatch: source=$source_id target=$target_id"
+switch_selection
+printf 'HANDOFF_PASS source=%s target=%s image=%s image_id=%s\n' "$source_machine" "$target_machine" "$image" "$target_id"
+printf 'Original machine and its Nix store are preserved. This action transfers only the specified OCI image.\n'
