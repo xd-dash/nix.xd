@@ -31,6 +31,7 @@
             };
           };
           storeProbeDynamic = pkgs.hello;
+          storeProbeNix = pkgs.nix;
           installer = pkgs.writeShellApplication {
             name = "nix-xd";
             runtimeInputs = [ pkgs.coreutils pkgs.gnused ];
@@ -42,7 +43,7 @@
           };
         in {
           default = installer;
-          inherit installer storeProbeRootfs storeProbeOciArchive storeProbeDynamic;
+          inherit installer storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
       apps = eachSystem (system: {
         default = {
