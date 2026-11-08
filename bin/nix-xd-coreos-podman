@@ -129,7 +129,7 @@ reset_failed() {
   else
     printf 'Orphaned overlay from stopped machine %s; no container exists on %s\n' "$source_machine" "$machine" > "$archive/container.log"
   fi
-  for file in overlay.qcow2 serial.log manifest.txt; do
+  for file in overlay.qcow2 serial.log manifest.txt wisp.log known_hosts ssh-readiness-last-error.log; do
     if [[ -e "$state/$file" ]]; then mv "$state/$file" "$archive/$file"; fi
   done
   echo "RESET_FAILED profile=$profile archived=$archive status=$status; base disk and Ignition preserved"
