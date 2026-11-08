@@ -51,6 +51,9 @@ grep -Fq 'storeProbeRootfs = pkgs.runCommand' flake.nix || { echo "Missing Nix s
 grep -Fq -- '--rootfs "$scratch"' bin/nix-xd-wisp-ssh || { echo "Nested Podman must use guest-local writable rootfs scaffolding"; exit 1; }
 grep -Fq 'scratch="$(mktemp -d "$XDG_RUNTIME_DIR/nix-xd-rootfs.XXXXXXXX")"' bin/nix-xd-wisp-ssh || { echo "Missing disposable rootfs outside Nix store"; exit 1; }
 grep -Fq 'ln -s "$store_shell" "$scratch/bin/sh"' bin/nix-xd-wisp-ssh || { echo "Rootfs must execute shared-store shell"; exit 1; }
+grep -Fq 'ln -s "$store_shell" "$scratch/bin/busybox"' bin/nix-xd-wisp-ssh || { echo "Shared-store BusyBox applets must be available explicitly"; exit 1; }
+grep -Fq '/bin/busybox id -u' bin/nix-xd-wisp-ssh || { echo "Nested uid probe must not depend on missing id applet links"; exit 1; }
+grep -Fq '/bin/busybox grep -Eq' bin/nix-xd-wisp-ssh || { echo "Nested mount probe must not depend on missing grep applet links"; exit 1; }
 grep -Fq 'trap '\''rm -rf -- "$scratch"'\'' EXIT' bin/nix-xd-wisp-ssh || { echo "Rootfs scratch cleanup absent"; exit 1; }
 if grep -Fq -- '--rootfs "$probe_rootfs:O"' bin/nix-xd-wisp-ssh; then echo "9P-backed rootfs overlay forbidden"; exit 1; fi
 grep -Fq -- '--mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro' bin/nix-xd-wisp-ssh || { echo "Nested Podman must mount shared store read-only"; exit 1; }
