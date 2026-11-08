@@ -173,13 +173,14 @@ probe_rootfs="$mountpoint/${COREOS_GUEST_PROBE_ROOTFS#/nix/store/}"
 test -d "$probe_rootfs"
 test -L "$probe_rootfs/bin/sh"
 test -d "$probe_rootfs/nix/store"
-podman run --rm --read-only --read-only-tmpfs=false --user 1000:1000 \
+podman run --rm --user 1000:1000 \
   --network none --security-opt label=disable \
   --mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro \
-  --rootfs "$probe_rootfs" \
+  --rootfs "$probe_rootfs:O" \
   /bin/sh -ec '
     test "$(id -u)" = 1000
     test -d /nix/store && test -r /nix/store && test -x /nix/store
+    test -f /run/.containerenv
     grep -Eq " /nix/store ro(,| )" /proc/self/mountinfo
     /bin/sh -c "echo PASS: NIX_9P_NESTED_EXECUTABLE"
   '
