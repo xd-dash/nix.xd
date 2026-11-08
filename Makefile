@@ -15,6 +15,7 @@ else
 $(error Unsupported ARCH=$(ARCH); expected arm64 or amd64)
 endif
 MODULES ?=
+QUALIFY_APP ?= $(if $(strip $(MODULES)),0,1)
 MACHINE ?= $(shell cat .state/active-podman-machine 2>/dev/null || echo podman-machine-default)
 FROM_MACHINE ?= podman-machine-default
 TRANSFER_IMAGE ?= localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64
@@ -69,6 +70,7 @@ help:
 	  'make run FLAKE=path TARGET=\x23app ARGS="..."' \
 	  'make compose|qualify|qualify-process|qualify-service|qualify-composition' \
 	  'make qualify MODULES=secrets ARCH=arm64  Optional age/SOPS runtime qualification' \
+	  'make qualify QUALIFY_APP=1 MODULES=secrets FLAKE=path  Flake qualification plus modules' \
 	  'make qualify-plan FLAKE=path PLAN_TARGET=\x23app (application-owned plan)' \
 	  'make start|stop|restart|status|logs|shell|exec|ps|inspect|store-info' \
 	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
@@ -146,10 +148,13 @@ compose:
 	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),$(HASH)compose)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)"
 
 qualify:
+ifeq ($(QUALIFY_APP),1)
+	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),$(HASH)qualify)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" MACHINE="$(MACHINE)" SCOPE="$(SCOPE)" ARCH="$(ARCH)"
+else ifneq ($(QUALIFY_APP),0)
+	@echo 'QUALIFY_APP must be 0 or 1' >&2; exit 2
+endif
 ifneq ($(strip $(MODULES)),)
 	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' NIX_XD_QUALIFY_MODULES='$(MODULES)' bash bin/nix-xd-log "$(SCOPE)" qualify-modules bash qualifiers/dispatch.sh
-else
-	@$(MAKE) --no-print-directory run FLAKE="$(FLAKE)" TARGET="$(if $(TARGET),$(TARGET),$(HASH)qualify)" ARGS="$(ARGS)" PROVIDER="$(PROVIDER)" SCOPE="$(SCOPE)" ARCH="$(ARCH)"
 endif
 
 qualify-process:
