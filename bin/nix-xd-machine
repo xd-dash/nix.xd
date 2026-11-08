@@ -38,6 +38,9 @@ read -r actual_cpus actual_memory actual_disk actual_rootful < <(
 [[ "$actual_rootful" == false ]] || fail 'Machine is configured rootful; refusing rootless bootstrap'
 [[ "$actual_cpus" =~ ^[0-9]+$ && "$actual_memory" =~ ^[0-9]+$ && "$actual_disk" =~ ^[0-9]+$ ]] ||
   fail 'Unexpected machine resource metadata'
+if [[ "$action" == init && "$verify" == 0 ]] && (( actual_memory < memory || actual_cpus < cpus || actual_disk < disk )); then
+  printf "warning: existing machine resources below requested specs; use make machine-check or MACHINE_VERIFY=1 to require them\n" >&2
+fi
 if [[ "$action" == check || "$verify" == 1 ]]; then
   (( actual_cpus >= cpus )) || fail "Machine CPUs=$actual_cpus, requires at least $cpus; create a new machine"
   (( actual_memory >= memory )) || fail "Machine memory=$actual_memory MiB, requires at least $memory MiB; create a new machine"
