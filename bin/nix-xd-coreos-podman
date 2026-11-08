@@ -7,6 +7,8 @@ scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 profile="${COREOS_PROFILE:-starwisp}"
 root="${COREOS_STATE_ROOT:-$PWD/.state/coreos}"
 port="${COREOS_SSH_PORT:-2222}"
+ram="${COREOS_RAM_MIB:-2048}"
+cpus="${COREOS_CPUS:-2}"
 flake="${COREOS_FLAKE:-/workspaces/agni/qemu/coreos-live/local}"
 image="${COREOS_RUNNER_IMAGE:-localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64}"
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -14,6 +16,8 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid scope'
 [[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid profile'
 [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Invalid port'
+[[ "$ram" =~ ^[0-9]+$ ]] && (( ram >= 2048 && ram <= 65536 )) || fail 'COREOS_RAM_MIB must be 2048..65536'
+[[ "$cpus" =~ ^[0-9]+$ ]] && (( cpus >= 1 && cpus <= 64 )) || fail 'COREOS_CPUS must be 1..64'
 [[ "$flake" == /workspaces/* && "$flake" != *..* ]] || fail 'COREOS_FLAKE must be a safe staged /workspaces path'
 command -v podman >/dev/null || fail 'Podman client is required'
 p=(podman --connection "$machine")
@@ -86,13 +90,31 @@ boot() {
   printf 'port=%s\nrunner=%s\n' "$port" "$id" > "$state/manifest.txt"
   "${p[@]}" run --detach --pull=never --name "$name" --volume "$state:/state:rw" \
     --publish "127.0.0.1:$port:2222" "$id" run \
-    -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m 4096 -smp 4 \
+    -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m "$ram" -smp "$cpus" \
     -drive if=none,id=disk0,file=/state/overlay.qcow2,format=qcow2 \
     -device virtio-blk-pci,drive=disk0 \
     -fw_cfg name=opt/com.coreos/config,file=/state/config.ign \
     -netdev user,id=n0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=n0 \
     -display none -serial file:/state/serial.log -monitor none
-  echo "BOOT_REQUESTED profile=$profile container=$name accel=tcg"
+  echo "BOOT_REQUESTED profile=$profile container=$name accel=tcg ram_mib=$ram cpus=$cpus"
+}
+reset_failed() {
+  [[ -f "$state/overlay.qcow2" ]] || fail "No overlay to archive; refusing reset"
+  [[ -f "$state/manifest.txt" ]] || fail "No boot manifest; refusing reset"
+  local status stamp archive
+  status="$("${p[@]}" inspect "$name" --format '{{.State.Status}}' 2>/dev/null)" ||
+    fail "Missing expected guest container $name; refusing reset"
+  [[ "$status" == exited || "$status" == created ]] || fail "Guest status is $status, not safely resettable"
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  archive="$state/failed-$stamp"
+  [[ ! -e "$archive" ]] || fail "Existing archive: $archive"
+  mkdir -m 700 "$archive"
+  "${p[@]}" logs "$name" > "$archive/container.log" 2>&1 || true
+  "${p[@]}" rm "$name" >/dev/null
+  for file in overlay.qcow2 serial.log manifest.txt; do
+    if [[ -e "$state/$file" ]]; then mv -n "$state/$file" "$archive/$file"; fi
+  done
+  echo "RESET_FAILED profile=$profile archived=$archive; base disk and Ignition preserved"
 }
 stop() {
   "${p[@]}" stop "$name"
@@ -103,6 +125,7 @@ case "$action" in
   ignition) ignition ;;
   preflight) preflight ;;
   boot) boot ;;
+  reset-failed) reset_failed ;;
   stop) stop ;;
-  *) fail 'Usage: coreos-podman build|ignition|preflight|boot|stop' ;;
+  *) fail 'Usage: coreos-podman build|ignition|preflight|boot|reset-failed|stop' ;;
 esac
