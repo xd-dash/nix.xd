@@ -24,6 +24,10 @@ state="$(cd "$state_root/$profile" && pwd -P)"
 command -v podman >/dev/null || fail 'Podman required'
 [[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] ||
   fail 'Selected Podman Machine is not running'
+if [[ -n "${COREOS_GUEST_DYNAMIC_EXECUTABLE:-}${COREOS_GUEST_NIX_EXECUTABLE:-}" ]]; then
+  [[ -n "${COREOS_NIX_STORE_VOLUME:-}" && -n "${COREOS_GUEST_PROBE_ROOTFS:-}" ]] ||
+    fail 'Nix closure gates require the shared store volume and probe shell'
+fi
 [[ -z "${COREOS_AGNI_REV:-}" || "${COREOS_AGNI_REV}" =~ ^[0-9a-f]{40}$ ]] ||
   fail 'COREOS_AGNI_REV must be a full Git commit SHA'
 [[ ! -e "$state/.qualify-starwisp.lock" ]] || fail 'Qualification lock exists: another run may be active'
@@ -106,6 +110,8 @@ fi
   printf 'ready_timeout_sec=%s\nshared_nix_volume=%s\n' "${COREOS_READY_TIMEOUT_SEC:-900}" "${COREOS_NIX_STORE_VOLUME:-none}"
   printf 'guest_probe_rootfs=%s\n' "${COREOS_GUEST_PROBE_ROOTFS:-none}"
   printf 'guest_oci_archive=%s\n' "${COREOS_GUEST_OCI_ARCHIVE:-none}"
+  printf 'guest_dynamic_executable=%s\n' "${COREOS_GUEST_DYNAMIC_EXECUTABLE:-none}"
+  printf 'guest_nix_executable=%s\n' "${COREOS_GUEST_NIX_EXECUTABLE:-none}"
 } > "$run_dir/qualification.txt"
 step preflight bash "$adapter" preflight
 if [[ -e "$state/overlay.qcow2" ]]; then
