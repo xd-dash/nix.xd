@@ -141,15 +141,20 @@ COREOS_FIRMWARE ?=
 COREOS_SSH_PORT ?= 2222
 COREOS_GUEST_USER ?= wisp
 COREOS_SSH_KEY ?=
+COREOS_SSH_PUBLIC_KEY ?=
 VMM ?= podman
 COREOS_FLAKE ?= /workspaces/agni/qemu/coreos-live/local
 COREOS_RUNNER_IMAGE ?= localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64
-COREOS_HOST_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' COREOS_FLAKE='$(COREOS_FLAKE)' COREOS_RUNNER_IMAGE='$(COREOS_RUNNER_IMAGE)' COREOS_VMM='$(VMM)' COREOS_PROFILE='$(PROFILE)' COREOS_STATE_ROOT='$(COREOS_STATE_ROOT)' COREOS_IMAGE='$(COREOS_IMAGE)' COREOS_IMAGE_SHA256='$(COREOS_IMAGE_SHA256)' COREOS_IGNITION='$(COREOS_IGNITION)' COREOS_FIRMWARE='$(COREOS_FIRMWARE)' COREOS_SSH_PORT='$(COREOS_SSH_PORT)' COREOS_GUEST_USER='$(COREOS_GUEST_USER)' COREOS_SSH_KEY='$(COREOS_SSH_KEY)'
+COREOS_HOST_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' COREOS_FLAKE='$(COREOS_FLAKE)' COREOS_RUNNER_IMAGE='$(COREOS_RUNNER_IMAGE)' COREOS_VMM='$(VMM)' COREOS_PROFILE='$(PROFILE)' COREOS_STATE_ROOT='$(COREOS_STATE_ROOT)' COREOS_IMAGE='$(COREOS_IMAGE)' COREOS_IMAGE_SHA256='$(COREOS_IMAGE_SHA256)' COREOS_IGNITION='$(COREOS_IGNITION)' COREOS_FIRMWARE='$(COREOS_FIRMWARE)' COREOS_SSH_PORT='$(COREOS_SSH_PORT)' COREOS_GUEST_USER='$(COREOS_GUEST_USER)' COREOS_SSH_KEY='$(COREOS_SSH_KEY)' COREOS_SSH_PUBLIC_KEY='$(COREOS_SSH_PUBLIC_KEY)'
 
-.PHONY: coreos-container-build coreos-preflight coreos-boot coreos-stop coreos-qualify
+.PHONY: coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify
 coreos-container-build:
 	@test "$(VMM)" = podman || { echo 'coreos-container-build requires VMM=podman' >&2; exit 2; }
 	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-container-build bash bin/nix-xd-coreos-podman build
+
+coreos-ignition-build:
+	@test "$(VMM)" = podman || { echo 'coreos-ignition-build requires VMM=podman' >&2; exit 2; }
+	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-ignition-build bash bin/nix-xd-coreos-podman ignition
 
 coreos-preflight coreos-boot coreos-stop:
 	@case "$(VMM)" in \
