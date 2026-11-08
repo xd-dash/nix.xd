@@ -66,6 +66,7 @@ ignition() {
   id="$(runner_id)"
   [[ "$(sed -n 's/^runner=//p' "$state/build.txt")" == "$id" ]] || fail 'QEMU runner identity mismatch'
   "${p[@]}" run --rm --pull=never --volume "$state:/state:ro" "$id" img info /state/base.qcow2 >/dev/null || fail 'Runner cannot read host state; verify Podman Machine file sharing'
+  "${p[@]}" run --rm --pull=never "$id" run -machine help >/dev/null || fail 'ARM64 QEMU firmware or runner execution unavailable'
   echo "PASS profile=$profile image=$id accel=tcg"
 }
 boot() {
