@@ -40,4 +40,10 @@ grep -Fq 'runner_id=%s' bin/nix-xd-qualify-starwisp || { echo "Missing runner pr
 grep -Fq 'disk_sha256=%s' bin/nix-xd-qualify-starwisp || { echo "Missing disk provenance"; exit 1; }
 grep -Fq 'wisp_log_sha256=%s' bin/nix-xd-qualify-starwisp || { echo "Missing Wisp evidence hash"; exit 1; }
 grep -Fq 'step archive-previous bash "$adapter" reset-failed' bin/nix-xd-qualify-starwisp || { echo "Missing prior-run archival"; exit 1; }
+grep -Fq "COREOS_CONTAINER_NAME='\\$(COREOS_CONTAINER_NAME)'" Makefile || { echo "Missing isolated guest name propagation"; exit 1; }
+grep -Fq 'scope_name="${COREOS_CONTAINER_NAME:-coreos-$profile}"' bin/nix-xd-wisp-ssh || { echo "SSH qualifier does not select isolated guest"; exit 1; }
+grep -Fq 'shared_nix_volume=%s' bin/nix-xd-coreos-podman || { echo "Ignition exporter does not record 9P source"; exit 1; }
+grep -Fq 'NIX_9P_GUEST_MOUNT' bin/nix-xd-wisp-ssh || { echo "Guest 9P mount is unqualified"; exit 1; }
+grep -Fq 'NIX_9P_NESTED_PODMAN_READONLY' bin/nix-xd-wisp-ssh || { echo "Nested Podman gate missing"; exit 1; }
+grep -Fq 'nix-9p-nested.log' bin/nix-xd-qualify-starwisp || { echo "Nested Podman evidence missing"; exit 1; }
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
