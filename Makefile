@@ -273,7 +273,37 @@ COREOS_CONTAINER_NAME ?=
 VMM ?= podman
 COREOS_FLAKE ?= /workspaces/agni/qemu/coreos-live/local
 COREOS_RUNNER_IMAGE ?= localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64
-COREOS_HOST_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' COREOS_FLAKE='$(COREOS_FLAKE)' COREOS_RUNNER_IMAGE='$(COREOS_RUNNER_IMAGE)' COREOS_VMM='$(VMM)' COREOS_PROFILE='$(PROFILE)' COREOS_STATE_ROOT='$(COREOS_STATE_ROOT)' COREOS_IMAGE='$(COREOS_IMAGE)' COREOS_IMAGE_SHA256='$(COREOS_IMAGE_SHA256)' COREOS_IGNITION='$(COREOS_IGNITION)' COREOS_FIRMWARE='$(COREOS_FIRMWARE)' COREOS_SSH_PORT='$(COREOS_SSH_PORT)' COREOS_RAM_MIB='$(COREOS_RAM_MIB)' COREOS_CPUS='$(COREOS_CPUS)' COREOS_GUEST_USER='$(COREOS_GUEST_USER)' COREOS_SSH_KEY='$(COREOS_SSH_KEY)' COREOS_SSH_PUBLIC_KEY='$(COREOS_SSH_PUBLIC_KEY)' COREOS_ORPHANED_OVERLAY='$(COREOS_ORPHANED_OVERLAY)' NIX_XD_FROM_MACHINE='$(FROM_MACHINE)' COREOS_READY_TIMEOUT_SEC='$(COREOS_READY_TIMEOUT_SEC)' COREOS_READY_RETRY_SEC='$(COREOS_READY_RETRY_SEC)' COREOS_SSH_CONNECT_TIMEOUT_SEC='$(COREOS_SSH_CONNECT_TIMEOUT_SEC)' COREOS_AGNI_REV='$(COREOS_AGNI_REV)' COREOS_NIX_STORE_VOLUME='$(COREOS_NIX_STORE_VOLUME)' COREOS_GUEST_PROBE_ROOTFS='$(COREOS_GUEST_PROBE_ROOTFS)' COREOS_GUEST_OCI_ARCHIVE='$(COREOS_GUEST_OCI_ARCHIVE)' COREOS_GUEST_DYNAMIC_EXECUTABLE='$(COREOS_GUEST_DYNAMIC_EXECUTABLE)' COREOS_GUEST_NIX_EXECUTABLE='$(COREOS_GUEST_NIX_EXECUTABLE)' COREOS_CONTAINER_NAME='$(COREOS_CONTAINER_NAME)'
+# Export CoreOS configuration through Make's environment; never interpolate
+# arbitrary path/key values into an executable shell assignment string.
+export NIX_XD_MACHINE = $(MACHINE)
+export NIX_XD_SCOPE = $(SCOPE)
+export COREOS_FLAKE = $(COREOS_FLAKE)
+export COREOS_RUNNER_IMAGE = $(COREOS_RUNNER_IMAGE)
+export COREOS_VMM = $(VMM)
+export COREOS_PROFILE = $(PROFILE)
+export COREOS_STATE_ROOT = $(COREOS_STATE_ROOT)
+export COREOS_IMAGE = $(COREOS_IMAGE)
+export COREOS_IMAGE_SHA256 = $(COREOS_IMAGE_SHA256)
+export COREOS_IGNITION = $(COREOS_IGNITION)
+export COREOS_FIRMWARE = $(COREOS_FIRMWARE)
+export COREOS_SSH_PORT = $(COREOS_SSH_PORT)
+export COREOS_RAM_MIB = $(COREOS_RAM_MIB)
+export COREOS_CPUS = $(COREOS_CPUS)
+export COREOS_GUEST_USER = $(COREOS_GUEST_USER)
+export COREOS_SSH_KEY = $(COREOS_SSH_KEY)
+export COREOS_SSH_PUBLIC_KEY = $(COREOS_SSH_PUBLIC_KEY)
+export COREOS_ORPHANED_OVERLAY = $(COREOS_ORPHANED_OVERLAY)
+export NIX_XD_FROM_MACHINE = $(FROM_MACHINE)
+export COREOS_READY_TIMEOUT_SEC = $(COREOS_READY_TIMEOUT_SEC)
+export COREOS_READY_RETRY_SEC = $(COREOS_READY_RETRY_SEC)
+export COREOS_SSH_CONNECT_TIMEOUT_SEC = $(COREOS_SSH_CONNECT_TIMEOUT_SEC)
+export COREOS_AGNI_REV = $(COREOS_AGNI_REV)
+export COREOS_NIX_STORE_VOLUME = $(COREOS_NIX_STORE_VOLUME)
+export COREOS_GUEST_PROBE_ROOTFS = $(COREOS_GUEST_PROBE_ROOTFS)
+export COREOS_GUEST_OCI_ARCHIVE = $(COREOS_GUEST_OCI_ARCHIVE)
+export COREOS_GUEST_DYNAMIC_EXECUTABLE = $(COREOS_GUEST_DYNAMIC_EXECUTABLE)
+export COREOS_GUEST_NIX_EXECUTABLE = $(COREOS_GUEST_NIX_EXECUTABLE)
+export COREOS_CONTAINER_NAME = $(COREOS_CONTAINER_NAME)
 
 .PHONY: store-export-check coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify coreos-reset-failed qualify-starwisp qualify-starwisp-shared
 store-export-check:
@@ -281,32 +311,32 @@ store-export-check:
 
 coreos-container-build:
 	@test "$(VMM)" = podman || { echo 'coreos-container-build requires VMM=podman' >&2; exit 2; }
-	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-container-build bash bin/nix-xd-coreos-podman build
+	@bash bin/nix-xd-log "$(SCOPE)" coreos-container-build bash bin/nix-xd-coreos-podman build
 
 coreos-ignition-build:
 	@test "$(VMM)" = podman || { echo 'coreos-ignition-build requires VMM=podman' >&2; exit 2; }
-	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-ignition-build bash bin/nix-xd-coreos-podman ignition
+	@bash bin/nix-xd-log "$(SCOPE)" coreos-ignition-build bash bin/nix-xd-coreos-podman ignition
 
 coreos-reset-failed:
 	@test "$(VMM)" = podman || { echo "coreos-reset-failed requires VMM=podman" >&2; exit 2; }
-	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-reset-failed bash bin/nix-xd-coreos-podman reset-failed
+	@bash bin/nix-xd-log "$(SCOPE)" coreos-reset-failed bash bin/nix-xd-coreos-podman reset-failed
 
 coreos-preflight coreos-boot coreos-stop:
 	@case "$(VMM)" in \
-	  podman) $(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-coreos-podman $(patsubst coreos-%,%,$@) ;; \
-	  hvf) $(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-coreos-hvf $(patsubst coreos-%,%,$@) ;; \
+	  podman) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-coreos-podman $(patsubst coreos-%,%,$@) ;; \
+	  hvf) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-coreos-hvf $(patsubst coreos-%,%,$@) ;; \
 	  *) echo 'VMM must be podman or hvf' >&2; exit 2 ;; \
 	  esac
 
 coreos-qualify:
-	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-qualify bash bin/nix-xd-wisp-ssh
+	@bash bin/nix-xd-log "$(SCOPE)" coreos-qualify bash bin/nix-xd-wisp-ssh
 
 # Prepare fresh closure outputs in the authoritative store, then run the
 # existing guest 9P and nested Podman qualification. No Nix store copies.
 qualify-starwisp-shared:
 	@test "$(ARCH)" = arm64 && test "$(PROVIDER)" = podman && test "$(VMM)" = podman || { echo 'Shared-store Starwisp gate requires ARM64 Podman Machine' >&2; exit 2; }
-	@$(COREOS_HOST_ENV) COREOS_PROBE_FLAKE='$(COREOS_PROBE_FLAKE)' bash bin/nix-xd-log "$(SCOPE)" qualify-starwisp-shared bash bin/nix-xd-qualify-starwisp-shared
+	@COREOS_PROBE_FLAKE='$(COREOS_PROBE_FLAKE)' bash bin/nix-xd-log "$(SCOPE)" qualify-starwisp-shared bash bin/nix-xd-qualify-starwisp-shared
 
 qualify-starwisp:
 	@test "$(VMM)" = podman || { echo "qualify-starwisp requires VMM=podman" >&2; exit 2; }
-	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" qualify-starwisp bash bin/nix-xd-qualify-starwisp
+	@bash bin/nix-xd-log "$(SCOPE)" qualify-starwisp bash bin/nix-xd-qualify-starwisp
