@@ -12,6 +12,7 @@ MACHINE_MEMORY_MIB ?= 8192
 MACHINE_DISK_GIB ?= 120
 MACHINE_DEFAULT ?= 0
 MACHINE_BOOTSTRAP ?= 1
+LEGACY_PURGE_CONFIRM ?=
 ARM_RESET_CONFIRM ?=
 MACHINE_VERIFY ?= 0
 MACHINE_ENV = NIX_XD_MACHINE="$(MACHINE)" NIX_XD_MACHINE_PROVIDER="$(MACHINE_PROVIDER)" NIX_XD_MACHINE_CPUS="$(MACHINE_CPUS)" NIX_XD_MACHINE_MEMORY_MIB="$(MACHINE_MEMORY_MIB)" NIX_XD_MACHINE_DISK_GIB="$(MACHINE_DISK_GIB)" NIX_XD_MACHINE_DEFAULT="$(MACHINE_DEFAULT)" NIX_XD_MACHINE_BOOTSTRAP="$(MACHINE_BOOTSTRAP)" NIX_XD_MACHINE_VERIFY="$(MACHINE_VERIFY)"
@@ -46,6 +47,7 @@ help:
 	  'make arm-qualify-recreation MACHINE=... SCOPE=...    Check same store after Quadlet recreates container' \
 	  'make arm-wind-down-plan|arm-wind-down-stop       Log provider inventory and stop known nix.xd workloads' \
 	  'make arm-inspect-legacy                         Inspect old Podman Machine then stop it' \
+	  'make arm-purge-legacy-plan|arm-purge-legacy      Remove duplicate Apple stores and old Podman VM' \
 	  'make arm-rebootstrap MACHINE=... SCOPE=... ARM_RESET_CONFIRM=ERASE:<machine>:<scope>:<scope>-store' \
 	  'make machine-handoff FROM_MACHINE=... MACHINE=... (transfer CoreOS image, preserve Nix store)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
@@ -94,6 +96,12 @@ arm-rebootstrap-verify:
 arm-rebootstrap:
 	@test "$(PROVIDER)" = podman || { echo "Requires PROVIDER=podman" >&2; exit 2; }
 	@$(ARM_REBOOTSTRAP_ENV) bash bin/nix-xd-log "$(SCOPE)" arm-rebootstrap bash arm/rebootstrap-podman.sh all
+
+.PHONY: arm-purge-legacy-plan arm-purge-legacy
+arm-purge-legacy-plan:
+	@bash bin/nix-xd-log "$(SCOPE)" arm-purge-legacy-plan bash arm/purge-legacy.sh plan
+arm-purge-legacy:
+	@NIX_XD_LEGACY_PURGE_CONFIRM="$(LEGACY_PURGE_CONFIRM)" bash bin/nix-xd-log "$(SCOPE)" arm-purge-legacy bash arm/purge-legacy.sh apply
 
 .PHONY: arm-inspect-legacy
 arm-inspect-legacy:
@@ -198,7 +206,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
-	@bash -n arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
+	@bash -n arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/machine-contract.sh
