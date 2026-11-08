@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# The lifecycle fixture exercises the ordinary Wisp path, not the optional
+# 9P/closure gates. Ignore caller overrides so check-static is hermetic.
+unset COREOS_NIX_STORE_VOLUME COREOS_GUEST_PROBE_ROOTFS
+unset COREOS_GUEST_NIX_EXECUTABLE COREOS_GUEST_DYNAMIC_EXECUTABLE
+unset COREOS_GUEST_OCI_ARCHIVE COREOS_AGNI_REV
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
