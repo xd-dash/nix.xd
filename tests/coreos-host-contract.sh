@@ -92,4 +92,11 @@ grep -Fq 'volume rm "$volume"' arm/rebootstrap-podman.sh || { echo 'Missing scop
 if grep -Eq '(volume rm -f|volume rm --force|podman system prune)' arm/rebootstrap-podman.sh; then echo 'Forced broad deletion forbidden'; exit 1; fi
 grep -Fq 'bash bin/nix-xd-log "$(SCOPE)" arm-rebootstrap' Makefile || { echo 'Rebootstrap output must be logged'; exit 1; }
 bash -n arm/rebootstrap-podman.sh
+grep -Fq 'arm-qualify-recreation:' Makefile || { echo 'Missing modular recreation qualification target'; exit 1; }
+grep -Fq 'arm-qualify-recreation bash arm/qualify-recreation-podman.sh' Makefile || { echo 'Recreation must use retained diagnostic log'; exit 1; }
+grep -Fq 'RECREATION_CONTAINER_CHANGED=passed' arm/qualify-recreation-podman.sh || { echo 'Recreation must prove new container identity'; exit 1; }
+grep -Fq 'RECREATION_STORE_PRESERVED=passed' arm/qualify-recreation-podman.sh || { echo 'Recreation must compare preserved persistent Nix store'; exit 1; }
+grep -Fq 'systemctl --user restart' arm/qualify-recreation-podman.sh || { echo 'Recreation must use user Quadlet'; exit 1; }
+if grep -Eq 'volume (rm|create)|podman (save|load)|nix (build|store gc)' arm/qualify-recreation-podman.sh; then echo 'Recreation qualifier must be nondestructive'; exit 1; fi
+bash -n arm/qualify-recreation-podman.sh
 echo "PASS: ARM64 Podman QEMU and repeatable Starwisp qualification contract"
