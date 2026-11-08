@@ -124,7 +124,7 @@ logs:
 	@journalctl --user --no-pager -u "$(SCOPE).service" -n 100
 endif
 image-build: machine-start
-	@podman build --platform linux/arm64 -t "$(IMAGE)" ./arm
+	@podman --connection "$(MACHINE)" build --platform linux/arm64 -t "$(IMAGE)" ./arm
 else ifeq ($(PROVIDER),container)
 ifeq ($(OS),Darwin)
 APPLE = NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-container
