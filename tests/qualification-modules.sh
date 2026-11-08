@@ -39,7 +39,9 @@ if NIX_XD_QUALIFY_MODULES='../secrets' bash qualifiers/dispatch.sh >/dev/null 2>
 fi
 grep -Fq 'mktemp -d /tmp/nix-xd-secrets.' qualifiers/modules/secrets.sh
 grep -Fq 'SOPS_AGE_KEY_FILE="$key"' qualifiers/modules/secrets.sh
-grep -Fq 'cmp -s "$plaintext" "$roundtrip"' qualifiers/modules/secrets.sh
+grep -Fq 'jq -cS . "$plaintext"' qualifiers/modules/secrets.sh
+grep -Fq 'jq -cS . "$roundtrip"' qualifiers/modules/secrets.sh
+grep -Fq 'cmp -s "$scratch/expected.canonical.json" "$scratch/actual.canonical.json"' qualifiers/modules/secrets.sh
 grep -Fq 'trap cleanup EXIT' qualifiers/modules/secrets.sh
 if grep -Eq '(nix (build|store add)|podman cp|/nix/store/.*keys.txt)' qualifiers/modules/secrets.sh; then
   echo 'Secrets qualifier must not store private material in Nix' >&2
