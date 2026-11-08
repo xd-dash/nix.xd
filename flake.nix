@@ -19,6 +19,7 @@
           } ''
             mkdir -p "$out/bin" "$out/nix/store" "$out/dev" "$out/proc" "$out/sys" "$out/run" "$out/tmp" "$out/etc"
             ln -s "${pkgs.pkgsStatic.busybox}/bin/busybox" "$out/bin/sh"
+            ln -s /proc/self/mounts "$out/etc/mtab"
           '';
           storeProbeOciArchive = pkgs.dockerTools.buildLayeredImage {
             name = "localhost/nix-xd-store-probe";
