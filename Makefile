@@ -149,14 +149,14 @@ COREOS_HOST_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' COREOS_FLA
 .PHONY: coreos-container-build coreos-preflight coreos-boot coreos-stop coreos-qualify
 coreos-container-build:
 	@test "$(VMM)" = podman || { echo 'coreos-container-build requires VMM=podman' >&2; exit 2; }
-	@$(COREOS_HOST_ENV) bash bin/nix-xd-coreos-podman build
+	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-container-build bash bin/nix-xd-coreos-podman build
 
 coreos-preflight coreos-boot coreos-stop:
 	@case "$(VMM)" in \
-	  podman) $(COREOS_HOST_ENV) bash bin/nix-xd-coreos-podman $(patsubst coreos-%,%,$@) ;; \
-	  hvf) $(COREOS_HOST_ENV) bash bin/nix-xd-coreos-hvf $(patsubst coreos-%,%,$@) ;; \
+	  podman) $(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-coreos-podman $(patsubst coreos-%,%,$@) ;; \
+	  hvf) $(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-coreos-hvf $(patsubst coreos-%,%,$@) ;; \
 	  *) echo 'VMM must be podman or hvf' >&2; exit 2 ;; \
 	  esac
 
 coreos-qualify:
-	@$(COREOS_HOST_ENV) bash bin/nix-xd-wisp-ssh
+	@$(COREOS_HOST_ENV) bash bin/nix-xd-log "$(SCOPE)" coreos-qualify bash bin/nix-xd-wisp-ssh
