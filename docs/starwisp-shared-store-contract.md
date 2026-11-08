@@ -78,3 +78,39 @@ keep runtime IPC out of the read-only Nix store export.
 - Verify Nix binary-cache substitution independently from `.tar.gz` archive readability.
 - Add cross-VM IPC transport only with explicit need and isolation requirements.
 - Compare VirtIO-FS with 9P only after these correctness gates.
+
+## Bootstrap ownership and Nix-Alpine consumer gates
+
+The host-side Podman bootstrap is authoritative for the named `/nix` volume.
+`bin/nix-xd-store-export-check` now verifies the persistent `nix-xd-arm`
+container mounts the **same named volume** read/write at `/nix`, that the
+Nix CLI can query its store, and that separate rootless containers can only
+read the exported volume. This verification is part of `make bootstrap`
+for the Podman provider and is independent of a QEMU boot.
+
+The CoreOS guest is deliberately not another writable Nix store owner.
+Its `/var/mnt/nixstore` is a read-only 9P view of that volume; rootless
+Podman uses a guest-local disposable rootfs and bind-mounts the immutable
+store at `/nix/store`. The bootstrap is BusyBox, not a copy of an OCI image.
+
+`storeProbeNix = pkgs.nix` is an additional optional closure and
+`COREOS_GUEST_NIX_EXECUTABLE=/nix/store/.../bin/nix` tests a Nix CLI process
+inside guest rootless Podman. It executes `nix --version` (read-only) through
+that store mount. This proves the dynamic Nix CLI closure can start there;
+it **does not** qualify full nested Nix-Alpine OCI bootstrapping or Nix
+build/write operations inside CoreOS. Such operations require an explicit
+separate writable metadata and output store or a remote Nix daemon interface.
+There must never be a second unsynchronized writer to the host store.
+
+These changes replace the previous assumptions that 9P itself can provide
+a writable Podman rootfs or that merely opening an OCI `.tar.gz` proves
+an executable Nix-Alpine container. Those bootstrap strategies are retired.
+The 2026-11-08 static BusyBox qualification remains the prior successful
+baseline; the newly extracted helper and Nix CLI execution gate require
+an additional runtime qualification before promotion.
+
+For the optional Nix CLI gate, build the pinned `#storeProbeNix` output
+inside the running ARM Nix-Alpine and append `/bin/nix` to that store path;
+pass it as `COREOS_GUEST_NIX_EXECUTABLE` to `make qualify-starwisp` together
+with `COREOS_GUEST_PROBE_ROOTFS`, the existing 9P volume, and the prior
+Starwisp credentials and QEMU settings.
