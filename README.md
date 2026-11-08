@@ -114,7 +114,48 @@ Agni remains the authority for QEMU/CoreOS/Farcaster configuration and optional
 Wisp/Fatline behavior. Running nested accelerated QEMU from Apple's container
 runtime cannot be assumed.
 
-### ARM64 host QEMU / Starwisp qualification (experimental)
+### ARM64 Agni QEMU OCI runner on Podman Machine (default)
+
+The default CoreOS VMM is now `podman`. QEMU runs **inside the Nix-built Agni
+ARM64 OCI container**, not through Homebrew. It uses software TCG emulation
+inside Podman Machine, because the Linux guest VM cannot directly use macOS HVF.
+The existing `VMM=hvf` adapter is optional for host-accelerated experiments.
+
+Agni's development branch `codex/coreos-arm64-qemu-container` adds the
+`#qemuRunner` Nix OCI archive and pinned Fedora CoreOS `#qcow` ARM64 disk.
+The existing `x86_64-linux` outputs are preserved.
+
+```sh
+cd ~/workspace/nix.xd
+make bootstrap PROVIDER=podman SCOPE=nix-xd-arm
+make sync REPO=dash-xd/agni BRANCH=codex/coreos-arm64-qemu-container SYNC_NAME=agni
+make stage CHECKOUT=agni PROVIDER=podman
+make coreos-container-build PROFILE=starwisp
+```
+
+`coreos-container-build` builds the Agni ARM64 OCI image with Nix inside
+the persistent Nix-Alpine container, loads it into that Podman Machine,
+and exports the checksum-verified ARM64 CoreOS QCOW2 into
+`.state/coreos/starwisp/base.qcow2`. It does not invent an Ignition profile.
+Agni/Smoke must produce a rendered `config.ign` in that directory with
+the required unprivileged Wisp user, SSH key, enabled user systemd manager,
+and rootless Podman readiness before attempting boot.
+
+```sh
+make coreos-preflight PROFILE=starwisp
+make coreos-boot PROFILE=starwisp
+make coreos-qualify PROFILE=starwisp COREOS_SSH_KEY=/path/to/ephemeral-key
+make coreos-stop PROFILE=starwisp
+```
+
+The Podman adapter selects the configured machine's connection explicitly
+and uses a named, disposable QEMU guest container and QCOW2 overlay.
+Host state must be shared into Podman Machine. The guest SSH port is mapped
+to loopback. Never treat a successful image build or static check as
+evidence of successful CoreOS boot or Wisp execution.
+
+### Optional host HVF adapter (not required for Podman mode)
+
 
 CoreOS boot qualification runs directly on Apple Silicon macOS under QEMU/HVF,
 not in Podman Machine or an Apple container micro-VM. Nix-Alpine prepares
