@@ -48,7 +48,11 @@ grep -Fq 'NIX_9P_NESTED_PODMAN_READONLY' bin/nix-xd-wisp-ssh || { echo "Nested P
 grep -Fq 'nix-9p-nested.log' bin/nix-xd-qualify-starwisp || { echo "Nested Podman evidence missing"; exit 1; }
 grep -Fq 'COREOS_GUEST_PROBE_ROOTFS=' Makefile || { echo "Missing shared rootfs propagation"; exit 1; }
 grep -Fq 'storeProbeRootfs = pkgs.runCommand' flake.nix || { echo "Missing Nix store rootfs probe"; exit 1; }
-grep -Fq -- '--rootfs "$probe_rootfs:O"' bin/nix-xd-wisp-ssh || { echo "Nested Podman must use disposable overlay on shared store"; exit 1; }
+grep -Fq -- '--rootfs "$scratch"' bin/nix-xd-wisp-ssh || { echo "Nested Podman must use guest-local writable rootfs scaffolding"; exit 1; }
+grep -Fq 'scratch="$(mktemp -d "$XDG_RUNTIME_DIR/nix-xd-rootfs.XXXXXXXX")"' bin/nix-xd-wisp-ssh || { echo "Missing disposable rootfs outside Nix store"; exit 1; }
+grep -Fq 'ln -s "$store_shell" "$scratch/bin/sh"' bin/nix-xd-wisp-ssh || { echo "Rootfs must execute shared-store shell"; exit 1; }
+grep -Fq 'trap '\''rm -rf -- "$scratch"'\'' EXIT' bin/nix-xd-wisp-ssh || { echo "Rootfs scratch cleanup absent"; exit 1; }
+if grep -Fq -- '--rootfs "$probe_rootfs:O"' bin/nix-xd-wisp-ssh; then echo "9P-backed rootfs overlay forbidden"; exit 1; fi
 grep -Fq -- '--mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro' bin/nix-xd-wisp-ssh || { echo "Nested Podman must mount shared store read-only"; exit 1; }
 grep -Fq 'NIX_9P_NESTED_EXECUTABLE' bin/nix-xd-wisp-ssh || { echo "Missing nested executable qualification"; exit 1; }
 if grep -Eq 'podman (save|load)|COREOS_GUEST_PROBE_IMAGE' bin/nix-xd-wisp-ssh; then echo "OCI image copies are forbidden in zero-copy qualification"; exit 1; fi
