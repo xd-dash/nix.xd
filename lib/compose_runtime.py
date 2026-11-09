@@ -2,12 +2,14 @@
 """Run independent sandbox phases from a resolved flake composition."""
 import argparse
 import fcntl
-import re
 import json
+import re
 import os
 from pathlib import Path
 import platform
 import subprocess
+import sys
+import tempfile
 import uuid
 
 from compositions import validate, require
@@ -16,8 +18,27 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 def run(argv, env, capture=False):
-    result = subprocess.run(argv, env=env, text=True, stdout=subprocess.PIPE if capture else None, check=True)
+    try:
+        result = subprocess.run(argv, env=env, text=True,
+                                stdout=subprocess.PIPE if capture else None, check=True)
+    except subprocess.CalledProcessError as error:
+        if capture and error.stdout:
+            print(error.stdout, end='', flush=True)
+        raise
     return result.stdout if capture else ''
+
+
+def write_json(path, value):
+    with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            json.dump(value, stream, indent=2, sort_keys=True)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 class Runtime:
@@ -41,16 +62,16 @@ class Runtime:
 
     def resolve(self, fresh=False):
         path = self.root / 'plan.json'
+        revision = self.owner('cat', self.flake + '/.nix-xd-source-revision')
+        require(revision == self.env.get('NIX_XD_WORKLOAD_REV'), 'Stage the selected committed revision first')
         if fresh:
-            revision = self.owner('cat', self.flake + '/.nix-xd-source-revision')
-            require(revision == self.env.get('NIX_XD_WORKLOAD_REV'), 'Stage the selected committed revision first')
             plan = validate(json.loads(self.owner('nix', 'run', '--no-write-lock-file', self.flake + '#composition-plan')))
             require(plan['system'] == self.env['NIX_XD_SYSTEM'], 'Composition architecture mismatch')
             plan['sourceRevision'] = revision
             # Preparation independently pins and validates each workload's immutable source.
             if path.exists() and json.loads(path.read_text()) != plan:
                 raise ValueError('Existing composition plan differs; stop its readers before replacing plan.json')
-            path.write_text(json.dumps(plan, indent=2, sort_keys=True) + '\n')
+            write_json(path, plan)
         else:
             require(path.exists(), 'Run composition-plan first')
             plan = validate(json.loads(path.read_text()))
@@ -58,6 +79,7 @@ class Runtime:
         for workload in plan['workloads'].values():
             require(workload['domain'] == 'common' and plan['domains']['common']['provisioning'] == 'existing-host-store',
                     'Additional store domains are declarative; provisioning is deferred')
+        require(plan['system'] == self.env['NIX_XD_SYSTEM'], 'Composition architecture mismatch')
         self.plan = plan
         return plan
 
@@ -84,13 +106,31 @@ class Runtime:
 
     def workload(self, name, action, **extra):
         env = dict(self.environment(name), **extra)
+        print('COMPOSITION_WORKLOAD name=' + name + ' action=' + action, flush=True)
         output = run(['bash', str(REPO / 'bin/nix-xd-workload'), action], env, True)
         print(output, end='', flush=True)
         return dict(line.split('=', 1) for line in output.splitlines() if '=' in line)
 
+    def control(self, name, action):
+        return self.owner('nix', 'run', '--no-write-lock-file', self.flake + '#workload-control',
+                          '--', action, '--name', name)
+
+    def verify_bindings(self):
+        for name, binding in self.plan['workloads'].items():
+            state = json.loads(self.control(name, 'inspect'))
+            generation = state['active'] or state['prepared']
+            require(generation, 'Prepare every composition workload first: ' + name)
+            manifest = state['generations'][generation]['manifest']
+            declaration = manifest['declaration']
+            expected = 'host' if self.plan['placements'][binding['placement']]['kind'] == 'host' else 'guest'
+            require(manifest['source']['revision'] == self.plan['sourceRevision'] and
+                    manifest['system'] == self.plan['system'], 'Workload source or architecture differs: ' + name)
+            require(declaration.get('storeDomain') == binding['domain'] and
+                    declaration.get('placement') == expected and
+                    declaration['qualification']['mode'] == 'running', 'Workload binding differs: ' + name)
+
     def roots(self, name):
-        return self.owner('nix', 'run', '--no-write-lock-file', self.flake + '#workload-control', '--',
-                          'assert-retained', '--name', name)
+        return self.control(name, 'assert-retained')
 
     def probe(self, names, token, write=False):
         snapshots = {}
@@ -103,6 +143,8 @@ class Runtime:
     def qualify(self):
         names = sorted(self.plan['workloads'])
         require(len(names) == 6, 'This qualification requires six readers')
+        require(all(sum(w['placement'] == place for w in self.plan['workloads'].values()) == 2
+                    for place in self.plan['placements']), 'Expected two readers per placement')
         token = uuid.uuid4().hex
         self.probe(names, token, write=True)
         before = self.probe(names, token)
@@ -136,8 +178,7 @@ class Runtime:
                     'Replacement roots changed')
             before[victim] = after
             self.workload(victim, 'stop')
-            stopped = json.loads(self.owner('nix', 'run', '--no-write-lock-file', self.flake + '#workload-control',
-                                            '--', 'summary', '--name', victim))
+            stopped = json.loads(self.control(victim, 'summary'))
             require(not stopped['active'] and not stopped['rootsRetained'], 'Stopped reader roots not released')
             stopped_peers = self.probe(peers, token)
             for peer in peers:
@@ -148,21 +189,23 @@ class Runtime:
             self.workload(victim, 'activate')
             self.workload(victim, 'check')
             before[victim] = self.probe([victim], token, write=True)[victim]
-        self.probe(names, token)
-        (self.root / 'qualification.json').write_text(json.dumps({'result': 'passed', 'plan': self.plan,
-                                                                 'readers': before}, indent=2) + '\n')
+        final = self.probe(names, token)
+        write_json(self.root / 'qualification.json', {'result': 'passed', 'plan': self.plan, 'readers': final})
         print('COMPOSITION_QUALIFICATION=passed readers=6 placements=3')
 
     def execute(self, phase):
         self.resolve(phase == 'plan')
         names = sorted(self.plan['workloads'])
+        if phase in ('prepare', 'start', 'qualify', 'stop'):
+            write_json(self.root / 'qualification.json', {'result': 'unqualified', 'phase': phase})
+        if phase in ('start', 'qualify'):
+            self.verify_bindings()
         if phase == 'plan':
             print(json.dumps(self.plan, indent=2, sort_keys=True))
         elif phase in ('prepare', 'status', 'stop'):
             for name in names:
                 if phase == 'stop':
-                    state = json.loads(self.owner('nix', 'run', '--no-write-lock-file', self.flake + '#workload-control',
-                                                  '--', 'inspect', '--name', name))
+                    state = json.loads(self.control(name, 'inspect'))
                     if not state['active']:
                         continue
                     entry = state['generations'][state['active']]
@@ -170,6 +213,8 @@ class Runtime:
                         self.workload(name, 'recreate-abandon')
                         continue
                 self.workload(name, phase)
+            if phase == 'prepare':
+                self.verify_bindings()
             if phase == 'stop':
                 # VMs are deliberately left running: they may host other compositions.
                 (self.root / 'plan.json').unlink()
@@ -194,6 +239,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('phase', choices=('plan', 'prepare', 'start', 'status', 'qualify', 'stop'))
     args = parser.parse_args()
+    require(sys.version_info >= (3, 9), 'Host qualification requires Python 3.9 or newer')
     runtime = Runtime(os.environ)
     with (runtime.root / 'composition.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -201,4 +247,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
+        print('composition error: ' + str(error), file=sys.stderr)
+        sys.exit(1)

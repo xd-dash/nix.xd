@@ -991,6 +991,11 @@ configure mounts or access controls. Additional domain provisioning must supply
 its own backing store, single writer, roots, and export adapter. No experimental
 overlay store is needed for the common read-only domain.
 
+Bootstrap remains Bash-only. Composition phases require host Python 3.9 or newer
+using only its standard library; `PYTHON=/path/to/python3` selects the interpreter.
+The owner-side controller and validator use Python supplied by the locked Nix
+flake. Make is the public interface; no separate Python CLI is required.
+
 Run each phase from the same committed and staged revision:
 
 ```sh
@@ -1020,6 +1025,12 @@ pauses recreation after confirmed stop, checks the other five remain healthy
 and rooted, resumes replacement, then checks normal stop/start isolation.
 Generation roots remain retained while replacement is pending. The gate leaves
 all six readers running and records evidence below `.state/compositions/`.
+Each phase authenticates the staged revision, and preparation/start/qualification
+check the workload source, architecture, domain, and placement against the plan.
+Starting a new preparation, start, qualification, or stop invalidates the prior
+qualification result. A successful gate atomically records the final six-reader
+snapshots in `qualification.json`; runtime command failures retain their output
+in the normal scope-specific Make log.
 
 Phases are intentionally independent for sandbox CI/CD. On interruption, finish
 or abandon a pending recreation with the existing lifecycle before changing the

@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Exercise domain boundaries and the sandbox composition sequencer."""
-import copy
-import importlib.util
+import contextlib
+import io
 import json
 from pathlib import Path
 import sys
 import unittest
+import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
 from compositions import validate
-from compose_runtime import Runtime
+from compose_runtime import Runtime, write_json
 
 
 def plan():
@@ -80,6 +81,88 @@ class Contracts(unittest.TestCase):
         self.assertEqual(second['COREOS_ARTIFACT_STATE'], '/state/primary/starwisp')
         self.assertNotEqual(first['COREOS_STATE_ROOT'], second['COREOS_STATE_ROOT'])
         self.assertEqual(first['COREOS_NIX_STORE_VOLUME'], second['COREOS_NIX_STORE_VOLUME'])
+
+
+class Sequencer(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.runtime = Runtime.__new__(Runtime)
+        self.runtime.plan = plan()
+        self.runtime.plan['sourceRevision'] = 'a' * 40
+        self.runtime.root = Path(self.temp.name)
+        self.runtime.env = {'NIX_XD_SYSTEM': 'aarch64-linux'}
+        self.calls = []
+        self.snapshots = {}
+        for index, (name, binding) in enumerate(self.runtime.plan['workloads'].items()):
+            self.snapshots[name] = {'ISOLATION_CONTAINER_ID': 'container-' + name,
+                'ISOLATION_BOOT_ID': 'boot-' + binding['placement'],
+                'ISOLATION_ROOT_FINGERPRINT': 'roots-' + name,
+                'ISOLATION_PID_NAMESPACE': 'pid-' + str(index),
+                'ISOLATION_NIX_PATH': '/nix/store/nix/bin/nix',
+                'ISOLATION_HELLO_PATH': '/nix/store/hello'}
+        self.runtime.probe = self.probe
+        self.runtime.roots = lambda name: self.snapshots[name]['ISOLATION_ROOT_FINGERPRINT']
+        self.runtime.workload = self.workload
+        self.runtime.control = lambda *args: json.dumps({'active': None, 'rootsRetained': False})
+
+    def probe(self, names, token, write=False):
+        return {name: dict(self.snapshots[name]) for name in names}
+
+    def workload(self, name, action, **extra):
+        self.calls.append((name, action, extra))
+        if action == 'recreate' and not extra:
+            self.snapshots[name]['ISOLATION_CONTAINER_ID'] += '-replacement'
+
+    def test_recreation_visits_all_placements_and_leaves_final_evidence(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.runtime.qualify()
+        pauses = [(name, extra) for name, action, extra in self.calls if extra]
+        self.assertEqual({self.runtime.plan['workloads'][name]['placement'] for name, _ in pauses},
+                         {'host', 'vm1', 'vm2'})
+        self.assertEqual(len(pauses), 3)
+        evidence = json.loads((self.runtime.root / 'qualification.json').read_text())
+        self.assertEqual(evidence['result'], 'passed')
+        self.assertEqual(len(evidence['readers']), 6)
+
+    def test_peer_replacement_during_victim_stop_fails_gate(self):
+        original = self.workload
+        def disrupt(name, action, **extra):
+            original(name, action, **extra)
+            if extra:
+                peer = next(n for n in self.snapshots if n != name)
+                self.snapshots[peer]['ISOLATION_CONTAINER_ID'] = 'unexpected-replacement'
+        self.runtime.workload = disrupt
+        with self.assertRaisesRegex(ValueError, 'Peer identity'):
+            self.runtime.qualify()
+        self.assertFalse((self.runtime.root / 'qualification.json').exists())
+
+    def test_shared_boot_identity_fails_before_recreation(self):
+        for snapshot in self.snapshots.values():
+            snapshot['ISOLATION_BOOT_ID'] = 'same-boot'
+        with self.assertRaisesRegex(ValueError, 'independently booted'):
+            self.runtime.qualify()
+        self.assertFalse(self.calls)
+
+    def test_failed_recheck_cannot_leave_stale_pass(self):
+        write_json(self.runtime.root / 'qualification.json', {'result': 'passed'})
+        self.runtime.resolve = lambda fresh=False: self.runtime.plan
+        self.runtime.verify_bindings = lambda: None
+        self.runtime.qualify = lambda: (_ for _ in ()).throw(ValueError('runtime unavailable'))
+        with self.assertRaisesRegex(ValueError, 'runtime unavailable'):
+            self.runtime.execute('qualify')
+        evidence = json.loads((self.runtime.root / 'qualification.json').read_text())
+        self.assertEqual(evidence['result'], 'unqualified')
+
+    def test_binding_rejects_workload_from_different_revision(self):
+        name = next(iter(self.runtime.plan['workloads']))
+        state = {'active': None, 'prepared': 'generation', 'generations': {'generation': {
+            'manifest': {'source': {'revision': 'b' * 40}, 'system': 'aarch64-linux',
+                         'declaration': {'placement': 'host', 'storeDomain': 'common',
+                                         'qualification': {'mode': 'running'}}}}}}
+        self.runtime.control = lambda *args: json.dumps(state)
+        with self.assertRaisesRegex(ValueError, 'source or architecture'):
+            self.runtime.verify_bindings()
 
 
 if __name__ == '__main__':

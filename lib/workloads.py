@@ -466,7 +466,7 @@ printf 'RECREATE_METADATA_QUERY=passed\n'
         if action == "isolation":
             require(isolation_mode in ("write", "check") and re.fullmatch(r"[a-f0-9]{32}", isolation_token or ""), "Invalid isolation probe")
             probe = "set -eu\nlabel=" + q(name) + "\ntoken=" + q(isolation_token) + "\n" + r'''test "$(id -u)" = 1000
-for directory in "$HOME" /nix/var/nix "$XDG_RUNTIME_DIR"; do
+for directory in "$HOME" /nix/var/nix "$XDG_RUNTIME_DIR" /tmp; do
   file="$directory/.nix-xd-isolation-$token"
 ''' + ("  umask 077; printf '%s\\n' \"$label\" > \"$file\"\n" if isolation_mode == "write" else '') + r'''  test "$(cat "$file")" = "$label"
 done
