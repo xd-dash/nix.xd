@@ -119,7 +119,7 @@ case "$action" in
   shell) interactive bash -l ;;
   exec) inside bash -lc "$cmd" ;;
   store-info) inside nix store info ;;
-  store-diagnose) inside sh -s < "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/nix-xd-store-diagnose" ;;
+  store-diagnose) runtime_cmd exec -i "$scope" sh -s < "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/nix-xd-store-diagnose" ;;
   ps) runtime_cmd ps -a ;;
   inspect) runtime_cmd inspect "$scope" ;;
   *) fail "Unknown action $action" ;;
