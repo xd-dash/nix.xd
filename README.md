@@ -901,7 +901,7 @@ explicit stop of the previous one before replacement.
 
 Use the same variables with these common post-bootstrap commands:
 
-- `make workload-status`: show owner state/root retention and live guest unit/container state.
+- `make workload-status`: show recorded owner intent/root retention separately from live guest health (`WORKLOAD_HEALTH`). A successful status query does not mean the workload is healthy.
 - `make workload-check`: run the live readiness check again.
 - `make workload-shell`: enter `/bin/sh` as UID 1000; exiting leaves the environment running.
 - `make workload-stop`: stop the container and unit, then release its generation roots.
@@ -923,3 +923,10 @@ currently supports ARM64 macOS Podman Machine; native AMD64/CoreOS VM bootstrap
 and qualification remain deferred. CI additionally exercises the real running
 container, readiness, shell execution and stop with rootless Podman on its
 native runner; it substitutes a readonly bind for QEMU's 9P transport.
+
+
+Store executable symlinks are resolved inside the container at `/nix/store`, not
+against CoreOS's `/var/mnt/nixstore` export. Readiness is the execution check;
+store-path executability is not probed from the wrong host namespace. An updated
+controller can still stop a previously prepared generation safely; only activation
+requires matching executor content. Roots remain until the guest acknowledges stop.

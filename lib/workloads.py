@@ -210,7 +210,8 @@ class Controller:
             entry = state["generations"].get(generation, {})
             return {"name": name, "active": generation, "prepared": state["prepared"],
                     "status": entry.get("status", "stopped"), "bootId": state.get("target"),
-                    "rootsRetained": bool(generation and (self.roots / name / generation).is_dir())}
+                    "rootsRetained": bool(generation and (self.roots / name / generation).is_dir()),
+                    "stateType": "owner-intent"}
         if action == "status-selection":
             return state["active"] or "none"
         if action == "mode":
@@ -273,8 +274,9 @@ class Controller:
         expected = {"activate": ("activating",), "stop": ("stopping",), "check": ("active",), "status": ("activating", "active", "stopping"), "shell": ("active",)}
         require(action in expected and entry["status"] in expected[action], "Wrong guest operation state")
         m = entry["manifest"]
-        require(hashlib.sha256(self.executor.read_bytes()).hexdigest() == m["executorSha256"],
-                "Executor changed; use the same controller revision as preparation")
+        if action == "activate":
+            require(hashlib.sha256(self.executor.read_bytes()).hexdigest() == m["executorSha256"],
+                    "Executor changed; prepare with the current executor before activation")
         unit = "nix-xd-" + name + "-" + generation[:32]
         q = shlex.quote
         header = "set -Eeuo pipefail\n" + "\n".join([
@@ -297,10 +299,17 @@ class Controller:
             return header + r'''load="$(systemctl --user show "$unit.service" -p LoadState --value)" || [[ "$load" == not-found ]]
 printf 'WORKLOAD_GENERATION=%s\nWORKLOAD_UNIT_LOAD=%s\n' "$generation" "$load"
 systemctl --user show "$unit.service" -p ActiveState -p SubState -p Result -p MainPID || [[ "$load" == not-found ]]
+running=false
 if container_exists; then
-  podman inspect "$unit" --format 'WORKLOAD_CONTAINER_RUNNING={{.State.Running}} WORKLOAD_CONTAINER_ID={{.Id}}'
+  running="$(podman inspect "$unit" --format '{{.State.Running}}')"
+  podman inspect "$unit" --format 'WORKLOAD_CONTAINER_ID={{.Id}}'
+fi
+printf 'WORKLOAD_CONTAINER_RUNNING=%s\n' "$running"
+active="$(systemctl --user show "$unit.service" -p ActiveState --value)" || [[ "$load" == not-found ]]
+if [[ "$active" == active && "$running" == true ]]; then
+  printf 'WORKLOAD_HEALTH=running\n'
 else
-  printf 'WORKLOAD_CONTAINER_RUNNING=false\n'
+  printf 'WORKLOAD_HEALTH=not-running\n'
 fi
 printf 'WORKLOAD_STATUS_OK=%s\n' "$generation"
 '''

@@ -24,7 +24,7 @@ if args[0] == 'inspect':
     if status == 'missing': sys.exit(1)
     if args[-1] == '{{.State.Status}}': print(status)
     elif args[-1] == '{{.Id}}': print('b'*64)
-    elif args[-1] == '{{.Image}}': print('sha256:'+'a'*64)
+    elif args[-1] == '{{.Image}}': print(('sha256:' if os.environ.get('IMAGE_PREFIX') else '')+'a'*64)
     else: raise AssertionError(args)
 elif args[0] == 'start': print('coreos-starwisp')
 elif args[0] == 'run':
@@ -71,6 +71,9 @@ class ManagedStart(unittest.TestCase):
         result = self.run_start('running')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('reused=true', result.stdout)
+        self.env['IMAGE_PREFIX'] = '1'
+        prefixed = self.run_start('running')
+        self.assertEqual(prefixed.returncode, 0, prefixed.stderr)
         calls = self.record.read_text()
         self.assertNotIn('--detach', calls)
         self.assertNotIn('["--connection", "coreos-arm64", "start"', calls)

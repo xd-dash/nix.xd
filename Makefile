@@ -245,6 +245,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
+	@python3 tests/guest-executor.py
 	@python3 tests/coreos-managed-start.py
 	@python3 tests/workload-transport.py
 	@python3 tests/workloads.py

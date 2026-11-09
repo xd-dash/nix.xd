@@ -112,4 +112,8 @@ fi
 cat "$evidence/$operation.log"
 grep -Fxq "$marker=$generation" "$evidence/$operation.log" || fail 'Guest acknowledgement missing; roots retained'
 if [[ -n "$confirm_action" ]]; then control "$confirm_action" --generation "$generation"; fi
-printf 'WORKLOAD_%s_RESULT=passed generation=%s\n' "$operation" "$generation"
+if [[ "$operation" == status ]]; then
+  printf 'WORKLOAD_STATUS_QUERY=passed generation=%s\n' "$generation"
+else
+  printf 'WORKLOAD_%s_RESULT=passed generation=%s\n' "$operation" "$generation"
+fi

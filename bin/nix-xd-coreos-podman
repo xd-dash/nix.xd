@@ -165,7 +165,7 @@ start() {
   mkdir "$state/.managed-start.lock" || fail 'Managed VM start is already running'
   trap 'rmdir "$state/.managed-start.lock"' EXIT
   preflight
-  local status cid recorded
+  local status cid recorded actual_image
   if status="$("${p[@]}" inspect "$name" --format '{{.State.Status}}' 2>/dev/null)"; then
     cid="$("${p[@]}" inspect "$name" --format '{{.Id}}')"
     recorded="$(sed -n 's/^container_id=//p' "$state/manifest.txt")"
@@ -173,7 +173,9 @@ start() {
       [[ "$recorded" == "$cid" ]] || fail 'Running VM lacks matching managed container identity'
       grep -Fxq "port=$port" "$state/manifest.txt" || fail 'VM SSH port differs from recorded boot'
       grep -Fxq "runner=$(runner_id)" "$state/manifest.txt" || fail 'VM runner differs from recorded boot'
-      [[ "$("${p[@]}" inspect "$name" --format '{{.Image}}')" == "$(runner_id)" ]] || fail 'VM image identity changed'
+      actual_image="$("${p[@]}" inspect "$name" --format '{{.Image}}')"
+      [[ "$actual_image" == sha256:* ]] || actual_image="sha256:$actual_image"
+      [[ "$actual_image" == "$(runner_id)" ]] || fail 'VM image identity changed'
       if [[ "$status" != running ]]; then
         [[ "$status" == exited || "$status" == created ]] || fail 'VM is not restartable'
         "${p[@]}" start "$name"

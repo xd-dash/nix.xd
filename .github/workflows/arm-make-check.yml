@@ -7,6 +7,7 @@ on:
       - guest/nix-alpine/**
       - lib/workloads.py
       - tests/workloads.py
+      - tests/guest-executor.py
       - tests/workload-transport.py
       - bin/nix-xd-workload
       - bin/nix-xd-workload-start
@@ -35,6 +36,7 @@ on:
       - guest/nix-alpine/**
       - lib/workloads.py
       - tests/workloads.py
+      - tests/guest-executor.py
       - tests/workload-transport.py
       - bin/nix-xd-workload
       - bin/nix-xd-workload-start

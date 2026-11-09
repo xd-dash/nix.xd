@@ -166,6 +166,21 @@ class Lifecycle(unittest.TestCase):
         self.lifecycle("confirm-stopped", gen)
         self.assertFalse(self.lifecycle("summary")["rootsRetained"])
 
+    def test_executor_update_blocks_activation_but_allows_safe_stop(self):
+        gen = self.prepare()
+        self.lifecycle("begin-activate", target=BOOT)
+        replacement = Path(self.temp.name) / "new-executor"
+        replacement.write_text("changed executor")
+        self.c.executor = replacement
+        with self.assertRaisesRegex(ValueError, "Executor changed"):
+            self.c.guest_script("activate", "starwisp-probe", gen)
+        self.lifecycle("begin-stop", target=BOOT)
+        script = self.c.guest_script("stop", "starwisp-probe", gen)
+        self.assertIn("WORKLOAD_STOPPED", script)
+        self.assertTrue((self.c.roots / "starwisp-probe" / gen).is_dir())
+        self.lifecycle("confirm-stopped", gen)
+        self.assertFalse((self.c.roots / "starwisp-probe" / gen).exists())
+
     def test_same_contract_for_both_systems(self):
         for system in ("aarch64-linux", "x86_64-linux"):
             self.c.declaration["system"] = system
