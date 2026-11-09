@@ -1,0 +1,28 @@
+name: Disposable store GC retention
+on:
+  push:
+    paths:
+      - tests/store-roots-gc.sh
+      - .github/workflows/store-roots-gc.yml
+  pull_request:
+    paths:
+      - tests/store-roots-gc.sh
+      - .github/workflows/store-roots-gc.yml
+permissions:
+  contents: read
+jobs:
+  gc-retention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Nix 2.34.9 CLI
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 https://releases.nixos.org/nix/nix-2.34.9/nix-2.34.9-x86_64-linux.tar.xz -o "$RUNNER_TEMP/nix.tar.xz"
+          tar -xJf "$RUNNER_TEMP/nix.tar.xz" -C "$RUNNER_TEMP"
+          sudo mkdir -p /nix/store
+          sudo cp -a "$RUNNER_TEMP/nix-2.34.9-x86_64-linux/store/." /nix/store/
+          echo /nix/store/*-nix-2.34.9/bin >> "$GITHUB_PATH"
+      - name: Verify roots protect transitive dependencies during GC
+        run: bash tests/store-roots-gc.sh
