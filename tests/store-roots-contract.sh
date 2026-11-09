@@ -11,7 +11,7 @@ done
 grep -Fq 'runtime_cmd exec -i --user 0 "$scope" sh -s --' bin/nix-xd-store-roots
 grep -Fq 'nix build --no-write-lock-file --no-link --print-out-paths' bin/nix-xd-store-roots
 grep -Fq 'mv -fT "$tmp" "$dest"' bin/nix-xd-store-root-guest
-grep -Fq 'nix path-info "$path"' bin/nix-xd-store-root-guest
+grep -Fq 'inside nix path-info "$resolved"' bin/nix-xd-store-roots
 for declaration in 'nix storeProbeNix' 'rootfs storeProbeRootfs' 'dynamic-probe storeProbeDynamic' 'oci-archive storeProbeOciArchive'; do
   grep -Fxq "$declaration" store-roots/starwisp.tsv || { echo "Missing declaration: $declaration" >&2; exit 1; }
 done
