@@ -3,10 +3,12 @@ on:
   push:
     paths:
       - tests/store-roots-gc.sh
+      - qualifiers/modules/store-gc-retention.sh
       - .github/workflows/store-roots-gc.yml
   pull_request:
     paths:
       - tests/store-roots-gc.sh
+      - qualifiers/modules/store-gc-retention.sh
       - .github/workflows/store-roots-gc.yml
 permissions:
   contents: read
@@ -16,6 +18,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Validate module syntax
+        run: bash -n qualifiers/modules/store-gc-retention.sh tests/store-roots-gc.sh
       - name: Prepare Nix 2.34.9 CLI
         shell: bash
         run: |

@@ -724,3 +724,26 @@ lower store while that overlay is mounted; our authoritative Nix-Alpine owner
 is expected to continue adding paths. Use a separately qualified, immutable
 lower-store snapshot only if guest-local Nix builds become a requirement.
 The current execution model needs only the qualified read-only 9P export.
+
+### Disposable GC retention qualification
+
+Run the same GC retention fixture inside the existing Nix-Alpine owner:
+
+```sh
+make qualify ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 \
+  SCOPE=nix-xd-arm MODULES=store-gc-retention
+```
+
+No staging or guest rebuild is needed. The host streams the fixture to the
+owner, checks its architecture, UID and authoritative volume, then selects
+an isolated `local?root=/tmp/...` store for every Nix operation. The fixture
+checks that a direct root in `gcroots/nix-xd/starwisp` retains an output and
+its dependency, an unrooted control is collected, and removing the root makes
+both retained paths collectible. Temporary store state is removed on exit.
+The authoritative store supplies the Nix CLI; GC only runs in the temporary
+store. Expected completion markers are `STORE_ROOTS_GC_RESULT=passed` and
+`QUALIFY_MODULES_RESULT=passed modules=store-gc-retention`.
+
+The same module supports native AMD64 with `ARCH=amd64` and the matching scope.
+CI runs the standalone fixture with Nix 2.34.9 on an Ubuntu x86_64 runner;
+local module execution provides separate evidence for the installed runtime.
