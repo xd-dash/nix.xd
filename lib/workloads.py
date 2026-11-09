@@ -200,6 +200,29 @@ class Controller:
         require(isinstance(command.get("args"), list) and all(isinstance(x, str) and "\x00" not in x
                 for x in command["args"]), "Arguments must be strings without NUL")
 
+    def batch(self, requests):
+        require(isinstance(requests, list) and 1 <= len(requests) <= 6, "Invalid batch size")
+        names = [request.get("name", "") for request in requests]
+        require(len(set(names)) == len(names) and all(NAME.fullmatch(name) for name in names), "Invalid batch names")
+        results = {}
+        for request in requests:
+            name = request["name"]
+            with self.locked(name):
+                action = request.get("action")
+                require(action in ("inspect", "roots", "isolation"), "Unsupported batch action")
+                state = self.load(name)
+                if action == "inspect":
+                    results[name] = state
+                    continue
+                generation = state["active"]
+                fingerprint = self.lifecycle("assert-retained", name, generation)
+                result = {"generation": generation, "fingerprint": fingerprint}
+                if action == "isolation":
+                    result["script"] = self.guest_script("isolation", name, generation,
+                        request.get("token"), request.get("mode"))
+                results[name] = result
+        return results
+
     def generation(self, state, generation):
         require(generation and re.fullmatch(r"[a-f0-9]{64}", generation), "Invalid or missing generation")
         require(generation in state["generations"], "Unknown generation")
@@ -629,11 +652,11 @@ def main():
     parser.add_argument("--executor", required=True)
     parser.add_argument("--state", default="/nix/home/nixuser/.local/state/nix-xd/workloads")
     parser.add_argument("--roots", default="/nix/var/nix/gcroots/nix-xd/workloads")
-    parser.add_argument("action", choices=["prepare", "inspect", "begin-activate", "confirm-active", "begin-stop", "confirm-stopped", "active-generation", "guest-activate", "guest-stop", "guest-check", "guest-status", "guest-shell", "status-selection", "mode", "summary", "runtime-path", "pending-recreation", "placement", "container-name", "assert-target", "assert-retained", "guest-isolation",
+    parser.add_argument("action", choices=["batch", "prepare", "inspect", "begin-activate", "confirm-active", "begin-stop", "confirm-stopped", "active-generation", "guest-activate", "guest-stop", "guest-check", "guest-status", "guest-shell", "status-selection", "mode", "summary", "runtime-path", "pending-recreation", "placement", "container-name", "assert-target", "assert-retained", "guest-isolation",
         "begin-recreate", "recreate-phase", "recreate-record-before", "recreate-record-after", "recreate-stopped",
         "recreate-activated", "recreate-checked", "confirm-recreated", "abandon-recreate",
         "guest-recreate-stop", "guest-recreate-activate", "guest-recreate-check", "guest-snapshot-before", "guest-snapshot-after"])
-    parser.add_argument("--name", required=True)
+    parser.add_argument("--name")
     parser.add_argument("--system")
     parser.add_argument("--flake")
     parser.add_argument("--revision")
@@ -645,6 +668,10 @@ def main():
     parser.add_argument("--transaction")
     args = parser.parse_args()
     controller = Controller(args.state, args.roots, args.executor)
+    if args.action == "batch":
+        print(canonical(controller.batch(json.load(sys.stdin))), end="")
+        return
+    require(NAME.fullmatch(args.name or ""), "Missing or invalid workload name")
     with controller.locked(args.name):
         if args.action == "prepare":
             result = controller.prepare(args.name, args.system, args.flake, args.revision)

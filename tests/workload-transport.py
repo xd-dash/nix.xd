@@ -50,8 +50,11 @@ if args[:2] == ['exec', '-i']: args.pop(1)
 assert args[:2] == ['exec', 'nix-xd-arm'], args
 args = args[2:]
 if args[0] == 'sh': sys.exit(0)
-assert args[:2] == ['nix', 'run'], args
-arguments = args[args.index('--') + 1:]
+if args[0].endswith('/bin/nix-xd-workload-control'):
+    arguments = args[1:]
+else:
+    assert args[:2] == ['nix', 'run'], args
+    arguments = args[args.index('--') + 1:]
 action = arguments[0]
 with open(os.environ['CALLS'], 'a') as record:
     record.write(json.dumps(arguments) + '\n')
@@ -181,6 +184,11 @@ class Transport(unittest.TestCase):
         self.assertNotIn('guest-recreate-activate', actions)
         self.assertNotIn('confirm-stopped', actions)
         self.assertIn('WORKLOAD_RECREATE_PAUSED=after-stop', result.stdout)
+
+    def test_resolved_controller_avoids_nix_run(self):
+        result = self.invoke('check', NIX_XD_WORKLOAD_CONTROLLER='/nix/store/' + 'f' * 32 + '-controller/bin/nix-xd-workload-control')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('guest-check', [c[0] for c in self.recorded()])
 
     def test_stopped_status_does_not_require_a_guest_connection(self):
         result = self.invoke('status', ACTIVE_NONE='1', COREOS_SSH_KEY='/missing/key')

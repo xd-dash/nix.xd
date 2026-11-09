@@ -3,10 +3,12 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import unittest
 import tempfile
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
 from compositions import validate
@@ -146,7 +148,7 @@ class Sequencer(unittest.TestCase):
 
     def test_failed_recheck_cannot_leave_stale_pass(self):
         write_json(self.runtime.root / 'qualification.json', {'result': 'passed'})
-        self.runtime.resolve = lambda fresh=False: self.runtime.plan
+        self.runtime.resolve = lambda fresh=False, stopping=False: self.runtime.plan
         self.runtime.verify_bindings = lambda: None
         self.runtime.qualify = lambda: (_ for _ in ()).throw(ValueError('runtime unavailable'))
         with self.assertRaisesRegex(ValueError, 'runtime unavailable'):
@@ -160,9 +162,85 @@ class Sequencer(unittest.TestCase):
             'manifest': {'source': {'revision': 'b' * 40}, 'system': 'aarch64-linux',
                          'declaration': {'placement': 'host', 'storeDomain': 'common',
                                          'qualification': {'mode': 'running'}}}}}}
-        self.runtime.control = lambda *args: json.dumps(state)
+        self.runtime.batch = lambda requests: {r['name']: state for r in requests}
         with self.assertRaisesRegex(ValueError, 'source or architecture'):
             self.runtime.verify_bindings()
+
+
+class BatchedProbes(unittest.TestCase):
+    def test_one_connection_per_placement_and_roots_rechecked(self):
+        runtime = Runtime.__new__(Runtime)
+        runtime.plan = plan()
+        batches, groups = [], []
+        def batch(requests):
+            batches.append(requests)
+            return {r['name']: {'generation': 'generation', 'fingerprint': 'roots', 'script': ''} for r in requests}
+        runtime.batch = batch
+        def placement(place, names, bundle):
+            groups.append((place, names))
+            return {name: {'ISOLATION_ROOT_FINGERPRINT': 'roots', 'ISOLATION_CONTAINER_ID': name,
+                            'ISOLATION_BOOT_ID': place} for name in names}, 0
+        runtime.placement_probe = placement
+        names = list(runtime.plan['workloads'])
+        with contextlib.redirect_stdout(io.StringIO()):
+            results = runtime.probe(names, 'f' * 32, write=True)
+        self.assertEqual(set(results), set(names))
+        self.assertEqual(len(groups), 3)
+        self.assertTrue(all(len(readers) == 2 for _, readers in groups))
+        self.assertEqual(len(batches), 2)
+        self.assertEqual({r['action'] for r in batches[0]}, {'isolation'})
+        self.assertEqual({r['action'] for r in batches[1]}, {'roots'})
+
+    def test_stop_can_use_old_staged_revision_after_host_update(self):
+        runtime = Runtime.__new__(Runtime)
+        runtime.flake = '/workspaces/nix.xd'
+        runtime.env = {'NIX_XD_SYSTEM': 'aarch64-linux', 'NIX_XD_WORKLOAD_REV': 'b' * 40}
+        runtime.owner = lambda *args: 'a' * 40
+        pinned = []
+        runtime.pin_controller = pinned.append
+        with tempfile.TemporaryDirectory() as directory:
+            runtime.root = Path(directory)
+            old = plan()
+            old['sourceRevision'] = 'a' * 40
+            write_json(runtime.root / 'plan.json', old)
+            self.assertEqual(runtime.resolve(stopping=True)['sourceRevision'], 'a' * 40)
+            self.assertEqual(pinned, ['a' * 40])
+            with self.assertRaisesRegex(ValueError, 'Stage the selected'):
+                runtime.resolve()
+
+    def test_both_readers_execute_on_one_connection_with_separate_shell_scopes(self):
+        runtime = Runtime.__new__(Runtime)
+        runtime.plan = plan()
+        runtime.environment = lambda name: dict(os.environ)
+        names = ['shared-host-a', 'shared-host-b']
+        bundle = {}
+        for name in names:
+            script = "set -eu\n"
+            for key, value in {'WORKLOAD_ISOLATION_OK': 'generation', 'ISOLATION_CONTAINER_ID': name,
+                'ISOLATION_BOOT_ID': 'host-boot', 'ISOLATION_PID_NAMESPACE': name,
+                'ISOLATION_NIX_PATH': '/nix/store/nix', 'ISOLATION_HELLO_PATH': '/nix/store/hello',
+                'ISOLATION_STATE': 'private', 'ISOLATION_STORE': 'read-only'}.items():
+                script += "printf '%s\\n' '" + key + '=' + value + "'\n"
+            bundle[name] = {'script': script, 'generation': 'generation', 'fingerprint': 'roots'}
+        with tempfile.TemporaryDirectory() as directory:
+            runtime.root = Path(directory)
+            with patch('compose_runtime.platform.system', return_value='Linux'):
+                results, elapsed = runtime.placement_probe('host', names, bundle)
+            self.assertEqual(set(results), set(names))
+            self.assertNotEqual(results[names[0]]['ISOLATION_CONTAINER_ID'], results[names[1]]['ISOLATION_CONTAINER_ID'])
+
+    def test_placement_rejects_missing_reader_acknowledgement(self):
+        runtime = Runtime.__new__(Runtime)
+        runtime.plan = plan()
+        runtime.environment = lambda name: {}
+        with tempfile.TemporaryDirectory() as directory:
+            runtime.root = Path(directory)
+            output = 'COMPOSITION_READER_BEGIN=shared-host-a\nCOMPOSITION_READER_END=shared-host-a\n'
+            with patch('compose_runtime.platform.system', return_value='Linux'), \
+                 patch('compose_runtime.run', return_value=output):
+                with self.assertRaisesRegex(ValueError, 'acknowledgement missing'):
+                    runtime.placement_probe('host', ['shared-host-a'],
+                        {'shared-host-a': {'script': ':', 'generation': 'generation', 'fingerprint': 'roots'}})
 
 
 if __name__ == '__main__':

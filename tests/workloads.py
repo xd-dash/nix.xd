@@ -313,6 +313,20 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(self.prepare(), gen)
         self.assertEqual(self.c.load("starwisp-probe")["generations"][gen]["instance"], "f" * 32)
 
+    def test_batch_retains_roots_and_matches_single_reader_script(self):
+        gen = self.prepare()
+        self.lifecycle("begin-activate", target=BOOT)
+        self.lifecycle("confirm-active", gen)
+        request = {"name": "starwisp-probe", "action": "isolation", "token": "f" * 32, "mode": "check"}
+        result = self.c.batch([request])["starwisp-probe"]
+        self.assertEqual(result["generation"], gen)
+        self.assertEqual(result["script"], self.c.guest_script("isolation", "starwisp-probe", gen, "f" * 32, "check"))
+        self.assertEqual(result["fingerprint"], self.lifecycle("assert-retained"))
+        with self.assertRaisesRegex(ValueError, "batch names"):
+            self.c.batch([request, request])
+        with self.assertRaisesRegex(ValueError, "Unsupported batch action"):
+            self.c.batch([dict(request, action="confirm-stopped")])
+
     def test_same_contract_for_both_systems(self):
         for system in ("aarch64-linux", "x86_64-linux"):
             self.c.declaration["system"] = system

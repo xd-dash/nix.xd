@@ -27,11 +27,16 @@ actual="$(inside uname -m)"
 case "$system:$actual" in aarch64-linux:aarch64|aarch64-linux:arm64|x86_64-linux:x86_64) ;; *) fail 'Owner architecture mismatch' ;; esac
 [[ "$("${runtime[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')" == "$scope-store" ]] || fail 'Unexpected owner volume'
 inside sh -ec 'test "$(id -u)" = 1000; test -f /nix/.nix-xd-direct-volume-v2'
+controller=(nix run --no-write-lock-file "$flake#workload-control" --)
+if [[ -n "${NIX_XD_WORKLOAD_CONTROLLER:-}" ]]; then
+  [[ "$NIX_XD_WORKLOAD_CONTROLLER" =~ ^/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+/bin/nix-xd-workload-control$ ]] || fail 'Invalid pinned controller'
+  controller=("$NIX_XD_WORKLOAD_CONTROLLER")
+fi
 control() {
-  inside nix run --no-write-lock-file "$flake#workload-control" -- "$@" --name "$name"
+  inside "${controller[@]}" "$@" --name "$name"
 }
 control_input() {
-  "${runtime[@]}" exec -i "$scope" nix run --no-write-lock-file "$flake#workload-control" -- "$@" --name "$name"
+  "${runtime[@]}" exec -i "$scope" "${controller[@]}" "$@" --name "$name"
 }
 selected_control() {
   if [[ -n "$generation" ]]; then

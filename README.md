@@ -1049,3 +1049,19 @@ checkout, and runs plan, prepare, start, qualify, and status serially, stopping
 at the first failure. The complete stdout/stderr is saved to
 `logs/<scope>-composition-local-<UTC>-<pid>.log`; individual phase logs remain
 available too. Static checks also have their own log when run independently.
+
+Isolation checkpoints batch script generation and root verification in the owner,
+then check both readers through one connection per placement. At most three
+placements run concurrently. Every write round completes before its check round;
+stop/recreation acknowledgements remain ordered. The controller executable is
+built and retained through a per-source Nix out-link once per phase, then invoked
+directly without repeated `nix run`. Probe rounds and lifecycle actions report
+elapsed time. Per-placement output is retained in numbered `probe-*.log` files,
+with reader identities and timing summaries in the combined Make log.
+
+To replace an interrupted sandbox run, press Ctrl-C and wait for Make to exit.
+After updating the host checkout, run `composition-stop` **before staging the
+new revision**, then `composition-local`. Stop accepts the previous plan and
+staged revision for cleanup, retains roots until termination is acknowledged,
+and leaves both VMs, the store owner, and unrelated workloads running. Other
+phases continue requiring the selected committed and staged revision to match.
