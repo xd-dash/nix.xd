@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cleanup() {
+  rc=$?
+  trap - EXIT
+  if ! bash "$repo/bin/nix-xd-workload" stop; then
+    echo 'Workload stop unconfirmed; generation roots retained' >&2
+    rc=1
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT
+bash "$repo/bin/nix-xd-workload" activate
+bash "$repo/bin/nix-xd-workload" check
+bash "$repo/bin/nix-xd-workload" stop
+trap - EXIT
+printf 'WORKLOAD_QUALIFY_RESULT=passed\n'

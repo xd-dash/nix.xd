@@ -125,4 +125,9 @@ step wisp-qualification bash "$qualifier"
 [[ -s "$state/wisp.log" ]] || fail 'Wisp evidence missing or empty'
 cp "$state/wisp.log" "$run_dir/wisp.log"
 printf 'wisp_log_sha256=%s\n' "$(sha "$run_dir/wisp.log")" >> "$run_dir/qualification.txt"
+if [[ "${NIX_XD_QUALIFY_WORKLOAD:-0}" == 1 ]]; then
+  step workload-qualification bash "$repo/bin/nix-xd-workload-qualify"
+  printf 'workload=%s\n' "$NIX_XD_WORKLOAD" >> "$run_dir/qualification.txt"
+  cp -R "$state/workloads/$NIX_XD_WORKLOAD" "$run_dir/workload"
+fi
 qualified=1

@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+operation="${1:?expected prepare, inspect, activate or stop}"
+case "$operation" in prepare|inspect|activate|check|stop) ;; *) echo 'Unknown workload action' >&2; exit 2 ;; esac
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+provider="${NIX_XD_PROVIDER:-podman}"
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+system="${NIX_XD_SYSTEM:-aarch64-linux}"
+name="${NIX_XD_WORKLOAD:-starwisp-probe}"
+flake="${NIX_XD_WORKLOAD_FLAKE:-/workspaces/nix.xd}"
+revision="${NIX_XD_WORKLOAD_REV:-}"
+generation="${NIX_XD_WORKLOAD_GENERATION:-}"
+fail() { echo "error: $*" >&2; exit 1; }
+[[ "$provider" == podman ]] || fail 'Current workload transport requires Podman'
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ && "$name" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid scope or workload'
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Invalid machine'
+[[ "$flake" =~ ^/workspaces/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$flake" != *..* ]] || fail 'Invalid staged controller flake'
+[[ -z "$generation" || "$generation" =~ ^[a-f0-9]{64}$ ]] || fail 'Invalid generation'
+runtime=(podman)
+if [[ "$(uname -s)" == Darwin ]]; then runtime+=(--connection "$machine"); fi
+inside() { "${runtime[@]}" exec "$scope" "$@"; }
+actual="$(inside uname -m)"
+case "$system:$actual" in aarch64-linux:aarch64|aarch64-linux:arm64|x86_64-linux:x86_64) ;; *) fail 'Owner architecture mismatch' ;; esac
+[[ "$("${runtime[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')" == "$scope-store" ]] || fail 'Unexpected owner volume'
+inside sh -ec 'test "$(id -u)" = 1000; test -f /nix/.nix-xd-direct-volume-v2'
+control() {
+  inside nix run --no-write-lock-file "$flake#workload-control" -- "$@" --name "$name"
+}
+selection=()
+[[ -z "$generation" ]] || selection=(--generation "$generation")
+case "$operation" in
+  prepare)
+    [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || fail 'WORKLOAD_REV must pin the staged Git revision'
+    "${runtime[@]}" exec -i --user 0 "$scope" sh -s -- init-workloads workloads < "$repo/bin/nix-xd-store-root-guest"
+    control prepare --system "$system" --flake "$flake" --revision "$revision"
+    echo 'WORKLOAD_PREPARE_RESULT=passed'
+    exit 0 ;;
+  inspect) control inspect; exit 0 ;;
+esac
+# Guest connection is an adapter. It does not rebuild or boot a VM.
+profile="${COREOS_PROFILE:-starwisp}"
+root="${COREOS_STATE_ROOT:-$repo/.state/coreos}"
+user="${COREOS_GUEST_USER:-wisp}"
+port="${COREOS_SSH_PORT:-2222}"
+key="${COREOS_SSH_KEY:-}"
+[[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ && "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail 'Invalid guest profile or user'
+[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Invalid guest SSH port'
+[[ -r "$key" ]] || fail 'Provide COREOS_SSH_KEY'
+state="$root/$profile"
+[[ -f "$state/manifest.txt" && -f "$state/build.txt" && -f "$state/known_hosts" ]] || fail 'Boot and qualify the shared-store guest first'
+grep -Fxq "port=$port" "$state/manifest.txt" || fail 'Guest port differs from boot manifest'
+grep -Fxq "shared_nix_volume=$scope-store" "$state/build.txt" || fail 'Guest exports a different owner store'
+opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10
+  -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$state/known_hosts"
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+boot_id="$(ssh -T "${opts[@]}" "$user@127.0.0.1" 'cat /proc/sys/kernel/random/boot_id')"
+[[ "$boot_id" =~ ^[a-f0-9-]{36}$ ]] || fail 'Invalid guest boot identity'
+if [[ "$operation" == activate ]]; then
+  generation="$(control begin-activate "${selection[@]}" --target "$boot_id")"
+  marker=WORKLOAD_ACTIVATED
+  guest_action=guest-activate
+  confirm_action=confirm-active
+elif [[ "$operation" == check ]]; then
+  generation="$(control active-generation "${selection[@]}")"
+  marker=WORKLOAD_CHECKED
+  guest_action=guest-check
+  confirm_action=
+else
+  generation="$(control begin-stop "${selection[@]}" --target "$boot_id")"
+  marker=WORKLOAD_STOPPED
+  guest_action=guest-stop
+  confirm_action=confirm-stopped
+fi
+[[ "$generation" =~ ^[a-f0-9]{64}$ ]] || fail 'Invalid controller generation'
+evidence="$state/workloads/$name/$generation"
+mkdir -p "$evidence"
+# Generate fully before connecting: a partial producer failure must not run a partial script.
+control inspect > "$evidence/manifest.json"
+control "$guest_action" --generation "$generation" > "$evidence/$operation.sh"
+if ! ssh -T "${opts[@]}" "$user@127.0.0.1" 'bash -se' \
+  < "$evidence/$operation.sh" > "$evidence/$operation.log" 2>&1; then
+  cat "$evidence/$operation.log" >&2
+  fail 'Guest operation failed or uncertain; roots retained. Inspect, then retry stop for recovery.'
+fi
+cat "$evidence/$operation.log"
+grep -Fxq "$marker=$generation" "$evidence/$operation.log" || fail 'Guest acknowledgement missing; roots retained'
+if [[ -n "$confirm_action" ]]; then control "$confirm_action" --generation "$generation"; fi
+printf 'WORKLOAD_%s_RESULT=passed generation=%s\n' "$operation" "$generation"

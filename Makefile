@@ -76,6 +76,7 @@ help:
 	  'make qualify-plan FLAKE=path PLAN_TARGET=\x23app (application-owned plan)' \
 	  'make start|stop|restart|status|logs|shell|exec|ps|inspect|store-info' \
 	  'make store-diagnose MACHINE=... SCOPE=...  Log read-only Nix store inventory' \
+	  'make workload-prepare|workload-inspect|workload-activate|workload-stop WORKLOAD=starwisp-probe' \
 	  'make store-roots-inspect|store-roots-apply MACHINE=... SCOPE=...  Inspect or pin Starwisp closures' \
 	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
 	  'make qualify-starwisp-shared COREOS_SSH_KEY=...  Build current store closures and qualify guest 9P' \
@@ -244,6 +245,8 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
+	@python3 tests/workloads.py
+	@bash -n bin/nix-xd-workload bin/nix-xd-workload-qualify
 	@bash tests/store-roots-contract.sh
 	@bash tests/store-diagnose-contract.sh
 	@bash -n bin/nix-xd-qualify-starwisp-shared bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
@@ -352,3 +355,24 @@ qualify-starwisp-shared:
 qualify-starwisp:
 	@test "$(VMM)" = podman || { echo "qualify-starwisp requires VMM=podman" >&2; exit 2; }
 	@bash bin/nix-xd-log "$(SCOPE)" qualify-starwisp bash bin/nix-xd-qualify-starwisp
+
+# Shared post-bootstrap lifecycle. VM provisioning remains in the CoreOS adapter.
+WORKLOAD ?= starwisp-probe
+WORKLOAD_FLAKE ?= /workspaces/nix.xd
+WORKLOAD_REV ?= $(shell git rev-parse HEAD)
+WORKLOAD_GENERATION ?=
+export NIX_XD_PROVIDER = $(PROVIDER)
+export NIX_XD_SYSTEM = $(NIX_SYSTEM)
+export NIX_XD_WORKLOAD = $(WORKLOAD)
+export NIX_XD_WORKLOAD_FLAKE = $(WORKLOAD_FLAKE)
+export NIX_XD_WORKLOAD_REV = $(WORKLOAD_REV)
+export NIX_XD_WORKLOAD_GENERATION = $(WORKLOAD_GENERATION)
+.PHONY: workload-prepare workload-inspect workload-activate workload-check workload-stop
+workload-prepare workload-inspect workload-activate workload-check workload-stop:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workload $(patsubst workload-%,%,$@)
+
+.PHONY: workload-qualify
+workload-qualify:
+	@test "$(ARCH)" = arm64 && test "$(PROVIDER)" = podman && test "$(VMM)" = podman || { echo 'Current CoreOS VM adapter requires ARM64 Podman Machine' >&2; exit 2; }
+	@bash bin/nix-xd-log "$(SCOPE)" workload-prepare bash bin/nix-xd-workload prepare
+	@NIX_XD_QUALIFY_WORKLOAD=1 COREOS_NIX_STORE_VOLUME='$(SCOPE)-store' bash bin/nix-xd-log "$(SCOPE)" workload-qualify bash bin/nix-xd-qualify-starwisp

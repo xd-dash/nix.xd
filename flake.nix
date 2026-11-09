@@ -32,6 +32,13 @@
           };
           storeProbeDynamic = pkgs.hello;
           storeProbeNix = pkgs.nix;
+          workload-control = pkgs.writeShellApplication {
+            name = "nix-xd-workload-control";
+            runtimeInputs = [ pkgs.python3 pkgs.nix ];
+            text = ''
+              exec python3 ${./lib/workloads.py} --executor ${./bin/nix-xd-guest-store-exec} "$@"
+            '';
+          };
           installer = pkgs.writeShellApplication {
             name = "nix-xd";
             runtimeInputs = [ pkgs.coreutils pkgs.gnused ];
@@ -43,9 +50,32 @@
           };
         in {
           default = installer;
-          inherit installer storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
+          inherit installer workload-control storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
+      workloads = eachSystem (system: {
+        starwisp-probe = {
+          version = 1;
+          name = "starwisp-probe";
+          inherit system;
+          outputs = {
+            rootfs = "storeProbeRootfs";
+            executable = "storeProbeDynamic";
+            nix = "storeProbeNix";
+            oci-archive = "storeProbeOciArchive";
+          };
+          rootfs = "rootfs";
+          command = { output = "executable"; path = "bin/hello"; args = [ ]; };
+          capabilities = [ "store-9p-ro" "user-systemd" "rootless-podman" ];
+          qualification = { mode = "exit-success"; stdoutContains = "Hello, world!"; };
+          runtimeMaxSec = 30;
+          network = "none";
+        };
+      });
       apps = eachSystem (system: {
+        workload-control = {
+          type = "app";
+          program = "${self.packages.${system}.workload-control}/bin/nix-xd-workload-control";
+        };
         default = {
           type = "app";
           program = "${self.packages.${system}.installer}/bin/nix-xd";

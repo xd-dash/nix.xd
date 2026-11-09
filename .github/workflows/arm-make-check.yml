@@ -3,6 +3,14 @@ on:
   push:
     paths:
       - Makefile
+      - flake.nix
+      - lib/workloads.py
+      - tests/workloads.py
+      - bin/nix-xd-workload
+      - bin/nix-xd-workload-qualify
+      - bin/nix-xd-guest-store-exec
+      - bin/nix-xd-store-root-guest
+      - bin/nix-xd-qualify-starwisp
       - arm/bootstrap-macos.sh
       - arm/bootstrap-podman.sh
       - arm/bootstrap-container.sh
@@ -19,6 +27,14 @@ on:
   pull_request:
     paths:
       - Makefile
+      - flake.nix
+      - lib/workloads.py
+      - tests/workloads.py
+      - bin/nix-xd-workload
+      - bin/nix-xd-workload-qualify
+      - bin/nix-xd-guest-store-exec
+      - bin/nix-xd-store-root-guest
+      - bin/nix-xd-qualify-starwisp
       - arm/bootstrap-macos.sh
       - arm/bootstrap-podman.sh
       - arm/bootstrap-container.sh

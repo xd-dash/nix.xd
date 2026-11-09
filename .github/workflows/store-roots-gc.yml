@@ -3,11 +3,25 @@ on:
   push:
     paths:
       - tests/store-roots-gc.sh
+      - tests/workloads.py
+      - tests/workloads-nix.py
+      - lib/workloads.py
+      - flake.nix
+      - bin/nix-xd-workload
+      - bin/nix-xd-workload-qualify
+      - bin/nix-xd-guest-store-exec
       - qualifiers/modules/store-gc-retention.sh
       - .github/workflows/store-roots-gc.yml
   pull_request:
     paths:
       - tests/store-roots-gc.sh
+      - tests/workloads.py
+      - tests/workloads-nix.py
+      - lib/workloads.py
+      - flake.nix
+      - bin/nix-xd-workload
+      - bin/nix-xd-workload-qualify
+      - bin/nix-xd-guest-store-exec
       - qualifiers/modules/store-gc-retention.sh
       - .github/workflows/store-roots-gc.yml
 permissions:
@@ -30,3 +44,7 @@ jobs:
           echo /nix/store/*-nix-2.34.9/bin >> "$GITHUB_PATH"
       - name: Verify roots protect transitive dependencies during GC
         run: bash tests/store-roots-gc.sh
+      - name: Check real Nix workload preparation and root release
+        run: sudo env GITHUB_ACTIONS=true PATH="$PATH" python3 tests/workloads-nix.py
+      - name: Validate flake syntax
+        run: nix-instantiate --parse flake.nix >/dev/null

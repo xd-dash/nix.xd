@@ -747,3 +747,85 @@ store. Expected completion markers are `STORE_ROOTS_GC_RESULT=passed` and
 The same module supports native AMD64 with `ARCH=amd64` and the matching scope.
 CI runs the standalone fixture with Nix 2.34.9 on an Ubuntu x86_64 runner;
 local module execution provides separate evidence for the installed runtime.
+
+### Shared workload manifests and retained generations
+
+`workloads.<system>.<name>` in the flake declares the rootfs, executable,
+argument array, retained outputs, required guest capabilities, network policy,
+timeout, and exit/output qualification. `starwisp-probe` is the first workload;
+its declaration and controller have the same interface on `aarch64-linux` and
+`x86_64-linux`. This does not claim native AMD64/CoreOS qualification.
+
+`make stage` now records the committed source revision. Preparation checks that
+revision, snapshots the staged flake to an immutable store path, and records its
+NAR hash. It builds with output links in the authoritative owner's root namespace,
+validates complete closures, and registers generation roots with Nix's native
+GC coordination. Roots are stored at:
+
+```
+/nix/var/nix/gcroots/nix-xd/workloads/<workload>/<generation>/<output>
+```
+
+The source snapshot is retained too. Generations are hashes of the resolved
+manifest and executor. A stopped generation gets a new identity if prepared
+again, so delayed requests cannot restart a generation whose roots were released.
+The controller uses Python's standard library, supplied by its Nix app; it
+requires no Python installation inside the bootstrap image.
+
+The common post-bootstrap interface is:
+
+```sh
+make workload-prepare ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm
+make workload-inspect ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm
+# The following target an already booted, qualified, shared-store guest:
+make workload-activate ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
+make workload-check ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
+make workload-stop ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
+```
+
+Use `WORKLOAD=...` to select a declaration. `WORKLOAD_REV` defaults to the host
+checkout's current commit and must match the staged source. `WORKLOAD_FLAKE`
+selects the staged controller/declaration flake. `WORKLOAD_GENERATION` can select
+a retained generation; by default activation selects the latest prepared one
+and stop selects the active one, even if a newer generation has been prepared.
+
+Preparation preserves earlier generations. Activation refuses to replace a
+running or uncertain generation: explicitly stop it before activation of its
+replacement. The guest launches the manifest's command in a transient systemd
+user unit with a named rootless Podman container and read-only 9P store. The
+activation acknowledgement means the unit was started; `workload-check` separately
+checks successful completion and the declared stdout text. Stop confirms both
+unit and container termination before releasing exactly that generation's roots.
+Prepared but unused generations remain retained; bulk pruning is not implemented.
+
+Guest operations serialize per workload and persist stop markers. Owner intents
+and roots survive lost SSH replies. If the guest boot identity changes or a stop
+cannot be confirmed, roots remain and the command fails. Automatic reconciliation
+after guest reboot is a later gate; do not manually delete uncertain roots.
+
+### One-command CoreOS workload qualification
+
+After updating and staging this checkout, use the existing isolated 9P artifact
+state (no disk, Ignition, store reset, or rebuild):
+
+```sh
+make workload-qualify ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 \
+  SCOPE=nix-xd-arm WORKLOAD=starwisp-probe \
+  COREOS_STATE_ROOT="$PWD/.state/coreos-9p-ordering-fixed" \
+  COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
+```
+
+This prepares the manifest, then uses the existing Starwisp lifecycle adapter to
+archive a stopped prior overlay, boot a fresh guest, qualify Wisp/9P, activate
+the prepared workload, check its exit status and `Hello, world!` output, stop it,
+release its roots, and stop the guest. A running guest is refused. This target's
+VM adapter currently supports ARM64 Podman Machine on macOS; the shared manifest
+and owner controller do not contain QEMU architecture-specific behavior.
+
+Evidence includes the resolved manifest, generated guest scripts, journal output,
+activation/stop acknowledgements and existing VM qualification records. Per-generation
+files are under `<state>/starwisp/workloads/`; they are also copied into the
+per-attempt qualification directory. Successful completion includes
+`WORKLOAD_QUALIFY_RESULT=passed` and `QUALIFY_STARWISP_RESULT status=passed`.
+Smoke integration, persistent application state, concurrent workload qualification,
+and remote/GCE transports remain separate work.

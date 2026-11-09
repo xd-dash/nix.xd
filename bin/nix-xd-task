@@ -62,6 +62,7 @@ stage() {
   trap 'rm -rf "$tmp"' EXIT
   # Stage only committed files; no .git, credentials or unrelated host directories.
   git -C "$src" archive HEAD | tar -xf - -C "$tmp"
+  git -C "$src" rev-parse HEAD > "$tmp/.nix-xd-source-revision"
   # Bootstrap images may predate the workspace mount point. Initialize only
   # the staging root as container root, then keep all staged content owned
   # by the ordinary Nix executor UID. No host ownership or store mutation.
