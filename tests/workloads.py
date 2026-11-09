@@ -41,6 +41,11 @@ class FakeController(m.Controller):
 
 
 class Lifecycle(unittest.TestCase):
+    def context(self, manager):
+        value = manager.__enter__()
+        self.addCleanup(manager.__exit__, None, None, None)
+        return value
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -50,17 +55,17 @@ class Lifecycle(unittest.TestCase):
         original_read = Path.read_text
         original_exists = Path.exists
         original_symlink = Path.is_symlink
-        self.enterContext(patch.object(Path, "read_text", lambda p, *a, **kw:
+        self.context(patch.object(Path, "read_text", lambda p, *a, **kw:
             REVISION if p.name == ".nix-xd-source-revision" else original_read(p, *a, **kw)))
-        self.enterContext(patch.object(Path, "exists", lambda p:
+        self.context(patch.object(Path, "exists", lambda p:
             True if str(p).startswith("/nix/store/") else original_exists(p)))
-        self.enterContext(patch.object(Path, "is_symlink", lambda p:
+        self.context(patch.object(Path, "is_symlink", lambda p:
             True if str(p).startswith("/nix/store/") and str(p).endswith("/bin/sh") else original_symlink(p)))
-        self.enterContext(patch.object(os, "access", return_value=True))
+        self.context(patch.object(os, "access", return_value=True))
         def register(argv, **kw):
             self.assertEqual(argv[:3], ["nix-store", "--realise", "--add-root"])
             Path(argv[3]).symlink_to(argv[4])
-        self.enterContext(patch.object(m.subprocess, "run", side_effect=register))
+        self.context(patch.object(m.subprocess, "run", side_effect=register))
 
     def prepare(self):
         with self.c.locked("starwisp-probe"):

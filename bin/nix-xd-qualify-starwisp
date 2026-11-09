@@ -12,6 +12,11 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 adapter="$repo/bin/nix-xd-coreos-podman"
 qualifier="$repo/bin/nix-xd-wisp-ssh"
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+if [[ "${NIX_XD_QUALIFY_WORKLOAD:-0}" == 1 ]]; then
+  # Manifest activation owns closure selection; inherited probe overrides are unrelated.
+  unset COREOS_GUEST_PROBE_ROOTFS COREOS_GUEST_NIX_EXECUTABLE
+  unset COREOS_GUEST_DYNAMIC_EXECUTABLE COREOS_GUEST_OCI_ARCHIVE
+fi
 [[ "$vmm" == podman ]] || fail 'qualify-starwisp currently requires VMM=podman'
 [[ "$container_name" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || fail "Invalid CoreOS container name"
 [[ "$profile" == starwisp ]] || fail 'qualify-starwisp requires PROFILE=starwisp'
