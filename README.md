@@ -687,3 +687,39 @@ logs for diagnosis; build a new 9P Ignition in
 `./.state/coreos-9p-ordering-fixed` and do not reset the authoritative
 `nix-xd-arm-store` volume. A runtime guest mount check is still required
 before treating the ordering change as qualified.
+
+### Authoritative Nix store GC roots
+
+The authoritative Nix-Alpine container mounts `<scope>-store` at `/nix`.
+The Starwisp shared-store qualifier can execute outputs through guest read-only
+9P, but merely realizing them does not create durable GC roots.
+
+`store-roots/starwisp.tsv` declares four outputs to retain, using names and
+flake output identifiers instead of machine-specific Nix store hashes. Run:
+
+```sh
+make store-roots-inspect ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm
+make store-roots-apply ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm
+make store-roots-inspect ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm
+```
+
+`store-roots-apply` requires the `nix.xd` flake staged at
+`/workspaces/nix.xd` (use `make stage CHECKOUT=nix.xd` if absent).
+The owner builds/validates each declared output; a narrowly scoped root helper
+creates or atomically replaces symlinks beneath
+`/nix/var/nix/gcroots/nix-xd/starwisp/`. It never deletes unrelated
+roots or the store; previously registered roots not present in the current
+declaration are deliberately retained until a separate prune policy is
+introduced. These commands use the existing per-scope timestamped logs.
+
+`make store-diagnose` now scans GC-root symlink metadata directly instead
+of invoking `nix-store --gc --print-roots`, which can remove stale temporary
+root files. This is a read-only snapshot of *links*, not an authoritative
+live/dead closure computation.
+
+Nix's experimental `local-overlay-store` is intentionally not enabled here.
+It requires a guest-managed writable OverlayFS upper layer and an immutable
+lower store while that overlay is mounted; our authoritative Nix-Alpine owner
+is expected to continue adding paths. Use a separately qualified, immutable
+lower-store snapshot only if guest-local Nix builds become a requirement.
+The current execution model needs only the qualified read-only 9P export.
