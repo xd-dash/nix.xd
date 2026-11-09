@@ -704,7 +704,8 @@ make store-roots-inspect ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 SCOPE=n
 ```
 
 `store-roots-apply` requires the `nix.xd` flake staged at
-`/workspaces/nix.xd` (from `~/workspace/nix.xd`, use\n`make stage CHECKOUT=nix.xd WORKSPACES="$HOME/workspace" PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm` if absent).
+`/workspaces/nix.xd` (from `~/workspace/nix.xd`, use
+`make stage CHECKOUT=nix.xd WORKSPACES="$HOME/workspace" PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm` if absent).
 The owner builds/validates each declared output; a narrowly scoped root helper
 creates or atomically replaces symlinks beneath
 `/nix/var/nix/gcroots/nix-xd/starwisp/`. It never deletes unrelated
