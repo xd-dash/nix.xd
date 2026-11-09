@@ -171,16 +171,8 @@ class Runtime:
     def roots(self, name):
         return self.control(name, 'assert-retained')
 
-    def placement_probe(self, place, names, bundle):
-        env = self.environment(names[0])
-        started = time.monotonic()
-        scripts = []
-        for name in names:
-            scripts.append("printf 'COMPOSITION_READER_BEGIN=%s\\n' " + shlex.quote(name))
-            # Each subshell closes its lifecycle lock before the next reader.
-            scripts.append('(\n' + bundle[name]['script'] + '\n)')
-            scripts.append("printf 'COMPOSITION_READER_END=%s\\n' " + shlex.quote(name))
-        payload = '\n'.join(scripts) + '\n'
+    def transport_command(self, place, name):
+        env = self.environment(name)
         placement = self.plan['placements'][place]
         if placement['kind'] == 'host':
             command = (['podman', 'machine', 'ssh', self.machine, 'bash -se']
@@ -196,6 +188,19 @@ class Runtime:
                        '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + str(state / 'known_hosts'),
                        '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4',
                        env.get('COREOS_GUEST_USER', 'wisp') + '@127.0.0.1', 'bash -se']
+        return command, env
+
+    def placement_probe(self, place, names, bundle):
+        env = self.environment(names[0])
+        started = time.monotonic()
+        scripts = []
+        for name in names:
+            scripts.append("printf 'COMPOSITION_READER_BEGIN=%s\\n' " + shlex.quote(name))
+            # Each subshell closes its lifecycle lock before the next reader.
+            scripts.append('(\n' + bundle[name]['script'] + '\n)')
+            scripts.append("printf 'COMPOSITION_READER_END=%s\\n' " + shlex.quote(name))
+        payload = '\n'.join(scripts) + '\n'
+        command, env = self.transport_command(place, names[0])
         output = run(command, env, True, payload, timeout=300)
         evidence = self.root / ('probe-%03d-%s.log' % (getattr(self, 'probe_round', 0), place))
         evidence.write_text(output)
@@ -305,6 +310,89 @@ class Runtime:
         write_json(self.root / 'qualification.json', {'result': 'passed', 'plan': self.plan, 'readers': final})
         print('COMPOSITION_QUALIFICATION=passed readers=6 placements=3')
 
+    def profile(self):
+        samples = int(self.env.get('NIX_XD_PROFILE_SAMPLES', '1'))
+        require(1 <= samples <= 3, 'PROFILE_SAMPLES must be 1..3')
+        names = sorted(self.plan['workloads'])
+        before = self.batch([{'name': name, 'action': 'roots'} for name in names])
+        report = {'sourceRevision': self.plan['sourceRevision'], 'samples': samples, 'placements': {}}
+        for place in sorted(self.plan['placements']):
+            name = next(name for name in names if self.plan['workloads'][name]['placement'] == place)
+            state = json.loads(self.control(name, 'inspect'))
+            require(state['active'] and state['generations'][state['active']]['status'] == 'active', 'Reader is not active: ' + name)
+            unit = self.control(name, 'container-name')
+            require(re.fullmatch(r'nix-xd-[a-z0-9-]+', unit), 'Invalid reader container name')
+            command, env = self.transport_command(place, name)
+            print('COMPOSITION_PROFILE_START placement=%s reader=%s samples=%s' % (place, name, samples), flush=True)
+            baseline_start = time.monotonic()
+            run(command, env, True, 'true\n', timeout=30)
+            baseline = time.monotonic() - baseline_start
+            print('PROFILE_TRANSPORT placement=%s real_sec=%.3f' % (place, baseline), flush=True)
+            script = self.profile_script(unit, state['target'], samples)
+            started = time.monotonic()
+            output = run(command, env, True, script, timeout=samples * 8 * 70 + 30)
+            print(output, end='', flush=True)
+            path = self.root / ('profile-' + place + '.log')
+            path.write_text(output)
+            records, timings = [], {}
+            for line in output.splitlines():
+                if line.startswith('PROFILE_TIME '):
+                    fields = dict(item.split('=', 1) for item in line.split()[1:])
+                    timings[(fields['stage'], fields['sample'])] = {key: float(fields[key])
+                        for key in ('real_sec', 'user_sec', 'sys_sec')}
+                if line.startswith('PROFILE_RESULT '):
+                    fields = dict(item.split('=', 1) for item in line.split()[1:])
+                    require((fields['stage'], fields['sample']) in timings, 'Missing command timing')
+                    fields.update(timings[(fields['stage'], fields['sample'])])
+                    records.append(fields)
+            require(len(records) == samples * 8, 'Incomplete profile measurements: ' + place)
+            require('PROFILE_READER_UNCHANGED=true' in output.splitlines(), 'Reader changed during profiling')
+            report['placements'][place] = {'reader': name, 'transport_sec': baseline,
+                'elapsed_sec': time.monotonic() - started, 'results': records, 'log': str(path)}
+        after = self.batch([{'name': name, 'action': 'roots'} for name in names])
+        require(before == after, 'Reader generations or roots changed during profiling')
+        report['result'] = 'measured'
+        write_json(self.root / 'profile.json', report)
+        failed = [(place, record) for place, data in report['placements'].items() for record in data['results']
+                  if record['exit'] != '0']
+        require(not failed, 'Profile includes failed or timed-out commands; inspect profile logs and profile.json')
+        print('COMPOSITION_PROFILE_RESULT=passed placements=3 readers=3 roots=unchanged')
+
+    @staticmethod
+    def profile_script(unit, boot, samples):
+        q = shlex.quote
+        header = ('set -Eeuo pipefail\nexport LC_ALL=C\nunit=' + q(unit) + '\n' +
+                  'test "$(cat /proc/sys/kernel/random/boot_id)" = ' + q(boot) + '\n')
+        return header + r'''test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+command -v timeout >/dev/null
+cid="$(podman inspect "$unit" --format '{{.Id}}')"
+test "$(podman inspect "$unit" --format '{{.State.Running}}')" = true
+printf 'PROFILE_CONTAINER_ID=%s\n' "$cid"
+measure() {
+  local stage="$1" sample="$2" rc
+  shift 2
+  printf 'PROFILE_BEGIN reader=%s stage=%s sample=%s\n' "$unit" "$stage" "$sample" >&2
+  TIMEFORMAT="PROFILE_TIME stage=$stage sample=$sample real_sec=%R user_sec=%U sys_sec=%S"
+  set +e
+  { time timeout --signal=TERM --kill-after=5s 60s "$@"; } 2>&1
+  rc=$?
+  set -e
+  printf 'PROFILE_RESULT stage=%s sample=%s exit=%s\n' "$stage" "$sample" "$rc"
+}
+''' + 'for sample in ' + ' '.join(str(n + 1) for n in range(samples)) + r'''; do
+  measure shell-baseline "$sample" /usr/bin/true
+  measure podman-inspect "$sample" podman inspect "$unit" --format '{{.State.Running}}'
+  measure alpine-exec "$sample" podman exec "$unit" /bin/true
+  measure alpine-shell "$sample" podman exec "$unit" /bin/sh -c ':'
+  measure shared-hello "$sample" podman exec "$unit" /usr/local/bin/hello
+  measure nix-version "$sample" podman exec "$unit" /usr/local/bin/nix --version
+  measure nix-query "$sample" podman exec "$unit" /bin/sh -ec 'hello=$(readlink /usr/local/bin/hello); nix path-info "${hello%/bin/hello}"'
+  measure nix-query-offline "$sample" podman exec "$unit" /bin/sh -ec 'hello=$(readlink /usr/local/bin/hello); nix --offline path-info "${hello%/bin/hello}"'
+done
+test "$(podman inspect "$unit" --format '{{.Id}}')" = "$cid"
+printf 'PROFILE_READER_UNCHANGED=true\n'
+'''
+
     def cancel(self):
         path = self.root / 'composition.lock'
         with path.open('a') as lock:
@@ -332,7 +420,7 @@ class Runtime:
                 except ValueError:
                     continue
                 if any(argument in ('lib/compose_runtime.py', str(REPO / 'lib/compose_runtime.py'))
-                       for argument in arguments) and arguments[-1] in ('plan', 'prepare', 'start', 'status', 'qualify', 'stop'):
+                       for argument in arguments) and arguments[-1] in ('plan', 'prepare', 'start', 'status', 'qualify', 'stop', 'profile'):
                     holders.append(pid)
             require(len(holders) == 1, 'Cannot uniquely identify the composition controller; no processes signalled')
             pid = holders[0]
@@ -370,11 +458,11 @@ class Runtime:
             raise ValueError('Controller termination requested but lock remains held; no roots released')
 
     def execute(self, phase):
-        self.resolve(phase == 'plan', stopping=phase == 'stop')
+        self.resolve(phase == 'plan', stopping=phase in ('stop', 'profile'))
         names = sorted(self.plan['workloads'])
         if phase in ('prepare', 'start', 'qualify', 'stop'):
             write_json(self.root / 'qualification.json', {'result': 'unqualified', 'phase': phase})
-        if phase in ('start', 'qualify'):
+        if phase in ('start', 'qualify', 'profile'):
             self.verify_bindings()
         if phase == 'plan':
             print(json.dumps(self.plan, indent=2, sort_keys=True))
@@ -408,12 +496,14 @@ class Runtime:
                 self.workload(name, 'check')
         elif phase == 'qualify':
             self.qualify()
+        elif phase == 'profile':
+            self.profile()
         print('COMPOSITION_PHASE_RESULT=passed phase=' + phase)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('phase', choices=('plan', 'prepare', 'start', 'status', 'qualify', 'stop', 'cancel'))
+    parser.add_argument('phase', choices=('plan', 'prepare', 'start', 'status', 'qualify', 'stop', 'cancel', 'profile'))
     args = parser.parse_args()
     require(sys.version_info >= (3, 9), 'Host qualification requires Python 3.9 or newer')
     runtime = Runtime(os.environ)

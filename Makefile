@@ -401,10 +401,12 @@ workload-recreate-abandon:
 
 # Flake-composed sandbox phases; each can be run independently.
 PYTHON ?= python3
+PROFILE_SAMPLES ?= 1
+export NIX_XD_PROFILE_SAMPLES = $(PROFILE_SAMPLES)
 COMPOSITION ?= shared-store-matrix
 export NIX_XD_COMPOSITION = $(COMPOSITION)
-.PHONY: composition-plan composition-prepare composition-start composition-status composition-qualify composition-stop composition-cancel
-composition-plan composition-prepare composition-start composition-status composition-qualify composition-stop composition-cancel:
+.PHONY: composition-plan composition-prepare composition-start composition-status composition-qualify composition-stop composition-cancel composition-profile
+composition-plan composition-prepare composition-start composition-status composition-qualify composition-stop composition-cancel composition-profile:
 	@command -v "$(PYTHON)" >/dev/null || { echo 'Composition qualification requires host Python 3.9+; select PYTHON=/path/to/python3. Bootstrap does not require Python.' >&2; exit 2; }
 	@"$(PYTHON)" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else "Composition qualification requires Python 3.9+")'
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/compose_runtime.py $(patsubst composition-%,%,$@)

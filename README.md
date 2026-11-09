@@ -1074,3 +1074,28 @@ only that controller and its local transport descendants. It does not release
 roots or stop guest services; the managed stop phase still acknowledges their
 termination. Never delete a busy lock file: removing its pathname does not
 terminate the holder and could permit overlapping controllers.
+
+### Profile existing shared-store readers
+
+`make composition-profile` measures the existing composition without staging a
+new source, preparing outputs, restarting readers, or invalidating its passed
+qualification. It uses the previous resolved plan and staged controller after a
+host checkout update. One reader per placement is sampled serially to avoid
+benchmark contention. `PROFILE_SAMPLES=1` is the default; select 2 or 3 for
+repeated warm measurements. No caches are dropped, so these are observations of
+the running environment rather than cold-start benchmarks.
+
+The logged layers are connection round-trip, native shell baseline, Podman
+inspection, Alpine exec/shell, shared-store Hello, Nix version, normal Nix path
+query, and offline Nix path query. Each command is bounded to 60 seconds (plus
+up to 5 seconds for forced termination); nonzero exits/timeouts are reported,
+not treated as successful timings. Comparisons include Podman exec overhead;
+they do not isolate raw filesystem latency. The offline comparison tests the
+network-detection hypothesis without changing Nix configuration. Profiling
+checks reader identity/boot and all six root fingerprints and leaves guest
+services running. Local Nix queries use each reader's existing private metadata.
+
+Send the printed `logs/<scope>-composition-profile-<UTC>-<pid>.log` file for
+review. Structured timings and placement output are also saved in
+`.state/compositions/<scope>/<composition>/profile.json` and `profile-*.log`.
+Do not run `composition-local` just to profile an already qualified topology.

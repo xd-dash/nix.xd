@@ -288,5 +288,51 @@ class Cancellation(unittest.TestCase):
         kill.assert_not_called()
 
 
+class Profiling(unittest.TestCase):
+    def test_profile_reports_each_layer_and_continues_after_a_failed_query(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tools = Path(directory)
+            podman = tools / 'podman'
+            podman.write_text("""#!/bin/sh
+case "$1" in
+  info) echo true ;;
+  inspect) case "$*" in *State.Running*) echo true ;; *) echo fixed-container-id ;; esac ;;
+  exec) case "$*" in *'nix --offline'*) exit 42 ;; esac ;;
+  *) exit 1 ;;
+esac
+""")
+            podman.chmod(0o755)
+            timeout = tools / 'timeout'
+            timeout.write_text('#!/bin/sh\nshift 3\nexec "$@"\n')
+            timeout.chmod(0o755)
+            # Use a mocked boot command so the shell test also runs on macOS.
+            cat = tools / 'cat'
+            cat.write_text('#!/bin/sh\necho test-boot\n')
+            cat.chmod(0o755)
+            script = Runtime.profile_script('nix-xd-test', 'test-boot', 1)
+            result = subprocess.run(['bash', '-se'], input=script, text=True, capture_output=True,
+                env=dict(os.environ, PATH=str(tools) + ':' + os.environ['PATH']))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.count('PROFILE_TIME '), 8)
+            self.assertEqual(result.stdout.count('PROFILE_RESULT '), 8)
+            self.assertIn('stage=nix-query-offline sample=1 exit=42', result.stdout)
+            self.assertIn('PROFILE_READER_UNCHANGED=true', result.stdout)
+
+    def test_profile_does_not_invalidate_qualification_or_require_new_staging(self):
+        runtime = Runtime.__new__(Runtime)
+        runtime.plan = plan()
+        resolved = []
+        runtime.resolve = lambda fresh=False, stopping=False: resolved.append((fresh, stopping))
+        runtime.verify_bindings = lambda: None
+        runtime.profile = lambda: None
+        with tempfile.TemporaryDirectory() as directory:
+            runtime.root = Path(directory)
+            write_json(runtime.root / 'qualification.json', {'result': 'passed'})
+            with contextlib.redirect_stdout(io.StringIO()):
+                runtime.execute('profile')
+            self.assertEqual(json.loads((runtime.root / 'qualification.json').read_text())['result'], 'passed')
+        self.assertEqual(resolved, [(False, True)])
+
+
 if __name__ == '__main__':
     unittest.main()
