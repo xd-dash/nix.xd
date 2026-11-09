@@ -1,0 +1,57 @@
+#!/bin/sh
+set -eu
+
+section() { printf '\n=== %s ===\n' "$1"; }
+optional() {
+  label="$1"
+  shift
+  section "$label"
+  if "$@"; then
+    printf 'SECTION_RESULT=passed section=%s\n' "$label"
+  else
+    rc=$?
+    printf 'SECTION_RESULT=unavailable section=%s exit=%s\n' "$label" "$rc"
+  fi
+}
+
+printf 'STORE_DIAG_FORMAT=v1\n'
+printf 'STORE_DIAG_TIMESTAMP_UTC='
+date -u '+%Y-%m-%dT%H:%M:%SZ'
+printf 'STORE_DIAG_USER=%s uid=%s\n' "$(id -un)" "$(id -u)"
+printf 'STORE_DIAG_ARCH=%s\n' "$(uname -m)"
+optional nix-version nix --version
+optional store-info nix store info
+
+section profile-links
+for link in "$HOME/.nix-profile" /nix/var/nix/profiles/default /nix/var/nix/profiles/per-user/"$(id -un)"/profile; do
+  if [ -L "$link" ]; then
+    printf 'PROFILE_LINK=%s target=%s\n' "$link" "$(readlink "$link")"
+  elif [ -e "$link" ]; then
+    printf 'PROFILE_PATH=%s exists\n' "$link"
+  else
+    printf 'PROFILE_PATH=%s absent\n' "$link"
+  fi
+done
+optional user-profile-list nix profile list
+optional system-profile-list nix profile list --profile /nix/var/nix/profiles/default
+optional gc-roots nix-store --gc --print-roots
+optional store-disk-usage du -sh /nix/store
+
+section registered-store-paths
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+if ! nix path-info --all > "$tmp"; then
+  printf 'STORE_DIAG_RESULT=failed reason=store-inventory\n' >&2
+  exit 1
+fi
+printf 'STORE_PATH_COUNT=%s\n' "$(wc -l < "$tmp" | tr -d ' ')"
+cat "$tmp"
+
+section starwisp-related-paths
+if grep -E 'nix-xd-store-probe|hello-|nix-2[.]3[14][.]|qemu-|fedora-coreos-' "$tmp"; then
+  :
+else
+  printf 'STORE_PROBE_MATCHES=none\n'
+fi
+
+printf '\nSTORE_DIAG_RESULT=passed\n'
