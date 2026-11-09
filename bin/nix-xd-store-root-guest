@@ -28,7 +28,7 @@ case "$operation" in
     case "${path#/nix/store/}" in
       *[!a-zA-Z0-9._+-]*|'') echo 'Invalid store path' >&2; exit 2 ;;
     esac
-    nix path-info "$path" >/dev/null || { echo "Unregistered store path: $path" >&2; exit 1; }
+    [ -e "$path" ] || { echo "Missing store path: $path" >&2; exit 1; }
     mkdir -p "$base"
     [ ! -L "$base" ] || { echo 'Root base is symlink' >&2; exit 1; }
     [ ! -L "$base/$group" ] || { echo 'Root group is symlink' >&2; exit 1; }
