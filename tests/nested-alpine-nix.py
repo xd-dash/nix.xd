@@ -122,8 +122,10 @@ try:
                 assert 'SHELL_OK' in shell
             finally:
                 c.lifecycle('begin-stop', 'nix-alpine-env', target='12345678-1234-1234-1234-123456789abc')
-                subprocess.run([*rootless_podman, 'stop', '--time', '10', 'nix-xd-ci-service'], check=True)
-                process.wait(timeout=60)
+                stopped = subprocess.run([*rootless_podman, 'stop', '--time', '10', 'nix-xd-ci-service'],
+                                         check=True, capture_output=True, text=True)
+                assert 'resorting to SIGKILL' not in stopped.stderr, stopped.stderr
+                assert process.wait(timeout=60) == 0
             assert subprocess.run([*rootless_podman, 'container', 'exists', 'nix-xd-ci-service']).returncode == 1
             c.lifecycle('confirm-stopped', 'nix-alpine-env', generation)
             assert not c.lifecycle('summary', 'nix-alpine-env')['rootsRetained']
