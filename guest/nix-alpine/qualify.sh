@@ -2,9 +2,13 @@ set -eu
 [ "$(id -u)" = 1000 ]
 [ "$(cat /etc/alpine-release)" = 3.23.0 ]
 [ "$HOME" = /home/nixuser ]
+[ "$(stat -c %u "$HOME")" = 1000 ]
+[ "$(stat -c %a "$HOME")" = 700 ]
+[ "$(stat -c %u "$XDG_RUNTIME_DIR")" = 1000 ]
+[ "$(stat -c %a "$XDG_RUNTIME_DIR")" = 700 ]
 grep -Eq ' /nix/store ro(,| )' /proc/self/mountinfo
 grep -Eq ' /nix/var rw(,| ).* - tmpfs ' /proc/self/mountinfo
-grep -Eq ' /home/nixuser rw(,| ).* - tmpfs ' /proc/self/mountinfo
+grep -Eq ' /home rw(,| ).* - tmpfs ' /proc/self/mountinfo
 [ -x /bin/busybox ]
 [ -L /usr/local/bin/nix ]
 printf 'NESTED_NIX_ALPINE_BASE=%s uid=%s\n' "$(cat /etc/alpine-release)" "$(id -u)"

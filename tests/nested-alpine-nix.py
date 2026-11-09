@@ -2,6 +2,7 @@
 """Build the real workload and exercise its read-only store in a CI chroot."""
 import importlib.util
 import os
+import pwd
 from pathlib import Path
 import shutil
 import subprocess
@@ -48,16 +49,45 @@ try:
         mount(scratch / 'dev', '--bind', '/dev')
         mount(scratch / 'nix/store', '--bind', '/nix/store')
         subprocess.run(['mount', '-o', 'remount,bind,ro', str(scratch / 'nix/store')], check=True)
-        for directory, options in [('tmp', 'mode=1777'), ('run', 'mode=0755,uid=1000,gid=1000'),
-                                   ('nix/var', 'mode=0755,uid=1000,gid=1000'),
-                                   ('home/nixuser', 'mode=0700,uid=1000,gid=1000')]:
+        for directory, options in [('tmp', 'mode=1777'), ('run', 'mode=1777'),
+                                   ('nix/var', 'mode=1777'),
+                                   ('home', 'mode=1777')]:
             mount(scratch / directory, '-t', 'tmpfs', '-o', 'nosuid,nodev,' + options, 'tmpfs')
         env = dict(os.environ, HOME='/home/nixuser', USER='nixuser', LOGNAME='nixuser',
-                   PATH='/usr/local/bin:/usr/bin:/bin', NIX_REMOTE='local')
+                   PATH='/usr/local/bin:/usr/bin:/bin', NIX_REMOTE='local', XDG_RUNTIME_DIR='/run/nixuser')
         env.pop('NIX_CONFIG', None)
-        subprocess.run(['/usr/sbin/chroot', '--userspec=1000:1000', str(scratch), manifest['executable']],
+        subprocess.run(['/usr/sbin/chroot', '--userspec=1000:1000', str(scratch), '/usr/local/bin/nix-alpine-init', manifest['executable']],
                        env=env, check=True)
         print('PASS: real Alpine base, UID 1000, shared read-only store, guest-local metadata, Nix and dynamic executable')
+        # Exercise the production executor and Podman options, substituting a
+        # local read-only bind for the unavailable QEMU 9P transport on CI.
+        uid, gid = int(os.environ['SUDO_UID']), int(os.environ['SUDO_GID'])
+        assert uid != 0
+        runner = pwd.getpwuid(uid).pw_name
+        tools = scratch.parent / (scratch.name + '-tools')
+        tools.mkdir(mode=0o755)
+        (tools / 'podman').write_text('#!/bin/sh\nexec /usr/bin/podman --cgroup-manager=cgroupfs --events-backend=file --storage-driver=vfs "$@"\n')
+        (tools / 'findmnt').write_text('#!/bin/sh\nif [ "$*" = "-rn -o FSTYPE --mountpoint /var/mnt/nixstore" ]; then echo 9p; else exec /usr/bin/findmnt "$@"; fi\n')
+        for tool in ('podman', 'findmnt'):
+            (tools / tool).chmod(0o755)
+        home = tools / 'home'
+        runtime = tools / 'runtime'
+        for directory in (home, runtime):
+            directory.mkdir(mode=0o700)
+            os.chown(directory, uid, gid)
+        share = Path('/var/mnt/nixstore')
+        assert not share.exists()
+        share.mkdir(parents=True)
+        mount(share, '--bind', '/nix/store')
+        subprocess.run(['mount', '-o', 'remount,bind,ro', str(share)], check=True)
+        subprocess.run(['setpriv', '--reuid=' + str(uid), '--regid=' + str(gid), '--init-groups',
+                        '/usr/bin/env', '-i', 'HOME=' + str(home), 'USER=' + runner, 'LOGNAME=' + runner,
+                        'XDG_RUNTIME_DIR=' + str(runtime), 'PATH=' + str(tools) + ':/usr/bin:/bin',
+                        'NIX_XD_WORKLOAD_CONTAINER=nix-xd-ci-alpine', '/bin/bash',
+                        str(repo / 'bin/nix-xd-guest-store-exec'), '--rootfs-archive',
+                        manifest['rootfsArchive'], manifest['executable']], check=True)
+        print('PASS: production executor with real rootless Podman, keep-id UID 1000 and guest-local tmpfs')
+
 finally:
     unmounted = True
     for path in reversed(mounts):
@@ -65,5 +95,7 @@ finally:
             unmounted = False
     if unmounted:
         shutil.rmtree(scratch)
+    # Rootless Podman storage may contain subordinate-owned files. The runner
+    # is disposable; leave that private tool directory to runner cleanup.
     shutil.rmtree(source)
     shutil.rmtree(roots, ignore_errors=True)

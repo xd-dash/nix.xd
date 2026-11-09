@@ -49,11 +49,13 @@ if [[ "$mode" == alpine-archive ]]; then
   container_options+=(--userns keep-id:uid=1000,gid=1000 --user 1000:1000
     --read-only --read-only-tmpfs=false
     --tmpfs /tmp:rw,nosuid,nodev,mode=1777
-    --tmpfs /run:rw,nosuid,nodev,mode=0755,uid=1000,gid=1000
-    --tmpfs /nix/var:rw,nosuid,nodev,mode=0755,uid=1000,gid=1000
-    --tmpfs /home/nixuser:rw,nosuid,nodev,mode=0700,uid=1000,gid=1000
+    --tmpfs /run:rw,nosuid,nodev,mode=1777
+    --tmpfs /nix/var:rw,nosuid,nodev,mode=1777
+    --tmpfs /home:rw,nosuid,nodev,mode=1777
     --env HOME=/home/nixuser --env USER=nixuser --env LOGNAME=nixuser
-    --env PATH=/usr/local/bin:/usr/bin:/bin --env NIX_REMOTE=local)
+    --env PATH=/usr/local/bin:/usr/bin:/bin --env NIX_REMOTE=local
+    --env XDG_RUNTIME_DIR=/run/nixuser)
+  set -- /usr/local/bin/nix-alpine-init "$@"
   echo "NIX_ALPINE_ROOTFS_MODE=guest-runtime-alpine archive=$archive uid=1000 store=read-only-9p"
 else
   shell_source="$mountpoint/${shell_path#/nix/store/}"

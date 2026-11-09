@@ -842,7 +842,8 @@ and links to shared store executables. It embeds no Nix store closures.
 The executor unpacks only the Alpine rootfs into guest runtime scratch and binds
 the existing read-only 9P export at `/nix/store`. It uses a rootless keep-id user
 namespace to run UID 1000, a read-only rootfs, no network, and separate writable
-tmpfs mounts for `/nix/var`, `/home/nixuser`, `/run`, and `/tmp`. It never mounts
+tmpfs mounts for `/nix/var`, `/home`, `/run`, and `/tmp`. The UID 1000
+entrypoint creates private mode-0700 home and runtime directories on those mounts. It never mounts
 the authoritative owner's database or runs the writable-store bootstrap installer.
 
 The qualification registers only runtime-closure metadata in the guest-local
@@ -865,6 +866,8 @@ This boots the existing CoreOS artifacts, starts and verifies the actual nested
 Nix-Alpine container, then stops it and the VM. It does not leave a persistent
 container running. Expected markers include `NESTED_NIX_ALPINE_RESULT=passed`,
 `WORKLOAD_QUALIFY_RESULT=passed`, and `QUALIFY_STARWISP_RESULT status=passed`.
-CI builds the native x86_64 package and tests its readonly-store execution in a
-throwaway chroot; that is packaging coverage, not AMD64 CoreOS VM qualification.
+CI builds the native x86_64 package, tests its readonly-store execution in a
+throwaway chroot, and runs the production executor with real rootless Podman.
+That executor test substitutes a read-only local bind for the 9P transport.
+These are packaging/runtime checks, not AMD64 CoreOS VM qualification.
 ARM64/CoreOS qualification still requires the local command above.

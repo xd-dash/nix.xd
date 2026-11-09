@@ -52,5 +52,9 @@ jobs:
         run: sudo env GITHUB_ACTIONS=true PATH="$PATH" python3 tests/workloads-nix.py
       - name: Validate flake syntax
         run: sudo env PATH="$PATH" nix-instantiate --parse flake.nix >/dev/null
+      - name: Prepare rootless Podman integration
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y podman uidmap
       - name: Build nested Alpine workload and verify read-only execution
         run: sudo env GITHUB_ACTIONS=true PATH="$PATH" python3 tests/nested-alpine-nix.py

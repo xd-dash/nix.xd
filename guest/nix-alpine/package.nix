@@ -28,6 +28,8 @@ let
     test -z "$(ls -A rootfs/nix/store)"
     printf 'nixuser:x:1000:1000:Nix runtime:/home/nixuser:/bin/sh\n' >> rootfs/etc/passwd
     printf 'nixuser:x:1000:\n' >> rootfs/etc/group
+    cp ${./entrypoint.sh} rootfs/usr/local/bin/nix-alpine-init
+    chmod +x rootfs/usr/local/bin/nix-alpine-init
     for tool in nix nix-store nix-instantiate; do
       ln -s ${pkgs.nix}/bin/$tool rootfs/usr/local/bin/$tool
     done
