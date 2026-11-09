@@ -11,7 +11,10 @@ done
 grep -Fq 'store-diagnose) runtime_cmd exec -i "$scope" sh -s <' bin/nix-xd-task
 grep -Fq 'STORE_DIAG_RESULT=passed' bin/nix-xd-store-diagnose
 grep -Fq 'nix path-info --all' bin/nix-xd-store-diagnose
-grep -Fq 'nix-store --gc --print-roots' bin/nix-xd-store-diagnose
+grep -Fq 'find /nix/var/nix/gcroots -type l -print' bin/nix-xd-store-diagnose
+if grep -Fq 'nix-store --gc' bin/nix-xd-store-diagnose; then
+  echo 'Read-only inventory must not invoke Nix GC routines' >&2; exit 1
+fi
 if grep -Eq 'nix (build|store gc|store delete)|podman (cp|load|save)|rm -rf /nix' bin/nix-xd-store-diagnose; then
   echo 'Inventory diagnostics may not mutate the store' >&2
   exit 1
