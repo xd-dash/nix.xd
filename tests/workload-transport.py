@@ -22,7 +22,13 @@ if kind == 'ssh':
     if args[-1] == 'cat /proc/sys/kernel/random/boot_id':
         print('12345678-1234-1234-1234-123456789abc')
         sys.exit(0)
-    payload = sys.stdin.read()
+    if args[-1].startswith('umask 077; cat >'):
+        Path(os.environ['SHELL_PAYLOAD']).write_text(sys.stdin.read()); sys.exit(0)
+    if args[-1].startswith('bash ') and args[-1] != 'bash -se':
+        assert '-tt' in args
+        payload = Path(os.environ['SHELL_PAYLOAD']).read_text()
+    else:
+        payload = sys.stdin.read()
     if os.environ.get('SSH_FAIL') == '1': sys.exit(42)
     if os.environ.get('SSH_NO_ACK') == '1': sys.exit(0)
     sys.exit(subprocess.run([os.environ['TEST_BASH'], '-se'], input=payload, text=True).returncode)
@@ -42,11 +48,12 @@ action = arguments[0]
 with open(os.environ['CALLS'], 'a') as record:
     record.write(json.dumps(arguments) + '\n')
 generation = 'a' * 64
-if action in ['begin-activate', 'active-generation', 'begin-stop', 'confirm-active', 'confirm-stopped']:
-    print(generation)
-elif action == 'inspect': print('{}')
+if action in ['status-selection', 'begin-activate', 'active-generation', 'begin-stop', 'confirm-active', 'confirm-stopped']:
+    print('none' if action == 'status-selection' and os.environ.get('ACTIVE_NONE') else generation)
+elif action in ['inspect', 'summary']: print('{}')
+elif action == 'guest-shell': print('echo WORKLOAD_SHELL_FIXTURE=passed')
 elif action.startswith('guest-'):
-    marker = {'guest-activate': 'WORKLOAD_ACTIVATED', 'guest-check': 'WORKLOAD_CHECKED', 'guest-stop': 'WORKLOAD_STOPPED'}[action]
+    marker = {'guest-activate': 'WORKLOAD_ACTIVATED', 'guest-check': 'WORKLOAD_CHECKED', 'guest-stop': 'WORKLOAD_STOPPED', 'guest-status': 'WORKLOAD_STATUS_OK'}[action]
     print('echo ' + marker + '=' + generation)
 else: raise AssertionError(arguments)
 '''
@@ -73,7 +80,7 @@ class Transport(unittest.TestCase):
         self.key.write_text('fixture\n')
         self.calls = self.root / 'calls'
         self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'],
-                        TEST_BASH=self.shell, CALLS=str(self.calls),
+                        TEST_BASH=self.shell, CALLS=str(self.calls), SHELL_PAYLOAD=str(self.root / "shell-payload"),
                         NIX_XD_PROVIDER='podman', NIX_XD_MACHINE='coreos-arm64',
                         NIX_XD_SCOPE='nix-xd-arm', NIX_XD_SYSTEM='aarch64-linux',
                         NIX_XD_WORKLOAD='starwisp-probe', NIX_XD_WORKLOAD_GENERATION='',
@@ -91,17 +98,33 @@ class Transport(unittest.TestCase):
         for selection in ['', GENERATION]:
             for action, intent, confirmation in [('activate', 'begin-activate', 'confirm-active'),
                                                   ('check', 'active-generation', None),
-                                                  ('stop', 'begin-stop', 'confirm-stopped')]:
+                                                  ('stop', 'begin-stop', 'confirm-stopped'),
+                                                  ('status', 'active-generation', None)]:
                 result = self.invoke(action, NIX_XD_WORKLOAD_GENERATION=selection)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 calls = self.recorded()
                 selected = [c for c in calls if c[0] == intent][-1]
-                self.assertEqual('--generation' in selected, bool(selection))
+                self.assertEqual('--generation' in selected, bool(selection) or action == 'status')
                 if selection:
                     self.assertEqual(selected[selected.index('--generation') + 1], selection)
                 if confirmation:
                     self.assertEqual(calls[-1][0], confirmation)
                 self.calls.unlink()
+
+    def test_shell_preserves_interactive_stdin_and_does_not_confirm_or_log_it(self):
+        result = self.invoke('shell')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('WORKLOAD_SHELL_FIXTURE=passed', result.stdout)
+        self.assertFalse(any(c[0].startswith('confirm-') for c in self.recorded()))
+        dry = subprocess.run(['make', '-sn', 'workload-shell', 'ARCH=arm64'], cwd=REPO,
+                             text=True, capture_output=True)
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        self.assertNotIn('nix-xd-log', dry.stdout)
+
+    def test_stopped_status_does_not_require_a_guest_connection(self):
+        result = self.invoke('status', ACTIVE_NONE='1', COREOS_SSH_KEY='/missing/key')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('WORKLOAD_STATUS=stopped', result.stdout)
 
     def test_lost_guest_reply_does_not_confirm_activation_or_release(self):
         for action in ['activate', 'stop']:

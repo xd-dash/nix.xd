@@ -9,6 +9,8 @@ on:
       - tests/workloads.py
       - tests/workload-transport.py
       - bin/nix-xd-workload
+      - bin/nix-xd-workload-start
+      - tests/coreos-managed-start.py
       - bin/nix-xd-workload-qualify
       - bin/nix-xd-guest-store-exec
       - bin/nix-xd-store-root-guest
@@ -35,6 +37,8 @@ on:
       - tests/workloads.py
       - tests/workload-transport.py
       - bin/nix-xd-workload
+      - bin/nix-xd-workload-start
+      - tests/coreos-managed-start.py
       - bin/nix-xd-workload-qualify
       - bin/nix-xd-guest-store-exec
       - bin/nix-xd-store-root-guest

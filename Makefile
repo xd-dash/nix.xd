@@ -245,9 +245,10 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
+	@python3 tests/coreos-managed-start.py
 	@python3 tests/workload-transport.py
 	@python3 tests/workloads.py
-	@bash -n bin/nix-xd-workload bin/nix-xd-workload-qualify
+	@bash -n bin/nix-xd-workload bin/nix-xd-workload-start bin/nix-xd-workload-qualify
 	@bash tests/store-roots-contract.sh
 	@bash tests/store-diagnose-contract.sh
 	@bash -n bin/nix-xd-qualify-starwisp-shared bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
@@ -368,8 +369,8 @@ export NIX_XD_WORKLOAD = $(WORKLOAD)
 export NIX_XD_WORKLOAD_FLAKE = $(WORKLOAD_FLAKE)
 export NIX_XD_WORKLOAD_REV = $(WORKLOAD_REV)
 export NIX_XD_WORKLOAD_GENERATION = $(WORKLOAD_GENERATION)
-.PHONY: workload-prepare workload-inspect workload-activate workload-check workload-stop
-workload-prepare workload-inspect workload-activate workload-check workload-stop:
+.PHONY: workload-prepare workload-inspect workload-activate workload-check workload-status workload-stop
+workload-prepare workload-inspect workload-activate workload-check workload-status workload-stop:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workload $(patsubst workload-%,%,$@)
 
 .PHONY: workload-qualify
@@ -377,3 +378,11 @@ workload-qualify:
 	@test "$(ARCH)" = arm64 && test "$(PROVIDER)" = podman && test "$(VMM)" = podman || { echo 'Current CoreOS VM adapter requires ARM64 Podman Machine' >&2; exit 2; }
 	@bash bin/nix-xd-log "$(SCOPE)" workload-prepare bash bin/nix-xd-workload prepare
 	@NIX_XD_QUALIFY_WORKLOAD=1 COREOS_NIX_STORE_VOLUME='$(SCOPE)-store' bash bin/nix-xd-log "$(SCOPE)" workload-qualify bash bin/nix-xd-qualify-starwisp
+
+.PHONY: workload-start workload-shell
+workload-start:
+	@bash bin/nix-xd-log "$(SCOPE)" workload-start bash bin/nix-xd-workload-start
+
+# Preserve the terminal and avoid logging interactive shell content.
+workload-shell:
+	@bash bin/nix-xd-workload shell

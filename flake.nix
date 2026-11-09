@@ -53,10 +53,34 @@
           default = installer;
           nixAlpineRootfs = nestedAlpine.rootfs;
           nixAlpineCheck = nestedAlpine.check;
+          nixAlpineRuntime = nestedAlpine.runtime;
           nixAlpineRegistration = nestedAlpine.registration;
           inherit installer workload-control storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
       workloads = eachSystem (system: {
+        nix-alpine-env = {
+          version = 1;
+          name = "nix-alpine-env";
+          inherit system;
+          outputs = {
+            rootfs = "nixAlpineRootfs";
+            executable = "nixAlpineRuntime";
+            nix = "storeProbeNix";
+            registration = "nixAlpineRegistration";
+          };
+          rootfs = "rootfs";
+          rootfsFormat = "alpine-archive";
+          command = { output = "executable"; path = "bin/nix-alpine-runtime"; args = [ ]; };
+          capabilities = [ "store-9p-ro" "user-systemd" "rootless-podman" ];
+          qualification = {
+            mode = "running";
+            stdoutContains = "NIX_ALPINE_READY=passed";
+            command = { output = "executable"; path = "bin/nix-alpine-ready"; args = [ ]; };
+            timeoutSec = 120;
+          };
+          runtimeMaxSec = 0;
+          network = "none";
+        };
         nix-alpine = {
           version = 1;
           name = "nix-alpine";

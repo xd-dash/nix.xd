@@ -139,6 +139,33 @@ class Lifecycle(unittest.TestCase):
         self.lifecycle("confirm-stopped", gen)
         self.assertFalse((self.c.roots / "starwisp-probe" / gen).exists())
 
+    def test_running_environment_retains_roots_and_exposes_service_operations(self):
+        self.c.declaration["rootfsFormat"] = "alpine-archive"
+        self.c.declaration["runtimeMaxSec"] = 0
+        self.c.declaration["qualification"] = {"mode": "running", "command":
+            {"output": "executable", "path": "bin/ready", "args": []},
+            "stdoutContains": "READY", "timeoutSec": 120}
+        gen = self.prepare()
+        self.lifecycle("begin-activate", target=BOOT)
+        activation = self.c.guest_script("activate", "starwisp-probe", gen)
+        self.assertIn("RuntimeMaxSec=infinity", activation)
+        self.lifecycle("confirm-active", gen)
+        for operation in ("status", "check", "shell"):
+            script = self.c.guest_script(operation, "starwisp-probe", gen)
+            process = subprocess.Popen(["bash", "-n"], stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            _, error = process.communicate(script)
+            self.assertEqual(process.returncode, 0, error)
+        shell = self.c.guest_script("shell", "starwisp-probe", gen)
+        self.assertLess(shell.index("flock -u 9"), shell.index("exec podman exec -it"))
+        summary = self.lifecycle("summary")
+        self.assertTrue(summary["rootsRetained"])
+        self.assertEqual(summary["status"], "active")
+        self.assertEqual(self.lifecycle("mode"), "running")
+        self.lifecycle("begin-stop", target=BOOT)
+        self.assertTrue((self.c.roots / "starwisp-probe" / gen).is_dir())
+        self.lifecycle("confirm-stopped", gen)
+        self.assertFalse(self.lifecycle("summary")["rootsRetained"])
+
     def test_same_contract_for_both_systems(self):
         for system in ("aarch64-linux", "x86_64-linux"):
             self.c.declaration["system"] = system

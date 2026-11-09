@@ -871,3 +871,55 @@ throwaway chroot, and runs the production executor with real rootless Podman.
 That executor test substitutes a read-only local bind for the 9P transport.
 These are packaging/runtime checks, not AMD64 CoreOS VM qualification.
 ARM64/CoreOS qualification still requires the local command above.
+
+
+### Managed nested Nix-Alpine environment
+
+`WORKLOAD=nix-alpine-env` is the long-running counterpart to the finite
+`nix-alpine` qualification workload. It initializes and checks its guest-local
+metadata, then stays alive without an automatic timeout. Its readiness check is
+a separate command inside the named container. The workload's rootfs, closure
+and source generation remain retained until an acknowledged stop.
+
+After staging the current checkout, use:
+
+```sh
+make workload-start ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 \
+  SCOPE=nix-xd-arm WORKLOAD=nix-alpine-env \
+  COREOS_STATE_ROOT="$PWD/.state/coreos-9p-ordering-fixed" \
+  COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
+```
+
+Start prepares and retains the generation, starts or reuses the CoreOS VM,
+checks Wisp/9P, activates the workload and waits for readiness. It leaves both
+the VM and container running. An existing managed VM must match its recorded
+container ID, runner digest and SSH port. A stopped legacy qualification VM is
+archived once and replaced using the existing disk/ Ignition artifacts. An
+unknown running VM or orphaned overlay is refused. Repeated start of the same
+generation reuses its running unit/container. A new source generation requires
+explicit stop of the previous one before replacement.
+
+Use the same variables with these common post-bootstrap commands:
+
+- `make workload-status`: show owner state/root retention and live guest unit/container state.
+- `make workload-check`: run the live readiness check again.
+- `make workload-shell`: enter `/bin/sh` as UID 1000; exiting leaves the environment running.
+- `make workload-stop`: stop the container and unit, then release its generation roots.
+
+Interactive shell content bypasses timestamped command logging. A shell does
+not hold the lifecycle lock, so another terminal can stop the environment.
+Home, Nix metadata and runtime files are private tmpfs state and disappear at
+container stop. This is a running execution environment, not a persistent-data
+or writable-store feature.
+
+`workload-stop` leaves CoreOS running, allowing other workloads to use it. After
+stopping all workloads, `make coreos-stop` with the same machine/state/profile
+variables stops the VM. Do not use VM stop as a substitute for acknowledged
+workload stop: uncertain workload roots intentionally remain retained.
+
+The declaration, service controller, status, readiness, shell and stop paths
+are shared by both Linux architectures. The composed `workload-start` VM adapter
+currently supports ARM64 macOS Podman Machine; native AMD64/CoreOS VM bootstrap
+and qualification remain deferred. CI additionally exercises the real running
+container, readiness, shell execution and stop with rootless Podman on its
+native runner; it substitutes a readonly bind for QEMU's 9P transport.

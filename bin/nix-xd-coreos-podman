@@ -109,7 +109,8 @@ boot() {
     mounts=(--mount "type=volume,src=$store_volume,dst=/host-nix,ro")
     qemu_mode=run-shared-nix
   fi
-  "${p[@]}" run --detach --pull=never --name "$name" --volume "$state:/state:rw" \
+  local cid
+  cid="$("${p[@]}" run --detach --pull=never --name "$name" --volume "$state:/state:rw" \
     "${mounts[@]}" \
     --publish "127.0.0.1:$port:2222" "$id" "$qemu_mode" \
     -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m "$ram" -smp "$cpus" \
@@ -117,7 +118,10 @@ boot() {
     -device virtio-blk-pci,drive=disk0 \
     -fw_cfg name=opt/com.coreos/config,file=/state/config.ign \
     -netdev user,id=n0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=n0 \
-    -display none -serial file:/state/serial.log -monitor none
+    -display none -serial file:/state/serial.log -monitor none)"
+  [[ "$cid" =~ ^[a-f0-9]{64}$ ]] || fail 'Unexpected QEMU container identity'
+  printf 'container_id=%s\n'  "$cid" >> "$state/manifest.txt"
+  printf '%s\n' "$cid"
   echo "BOOT_REQUESTED profile=$profile container=$name accel=tcg ram_mib=$ram cpus=$cpus"
 }
 reset_failed() {
@@ -156,6 +160,35 @@ reset_failed() {
   done
   echo "RESET_FAILED profile=$profile archived=$archive status=$status; base disk and Ignition preserved"
 }
+start() {
+  [[ ! -e "$state/.qualify-starwisp.lock" ]] || fail 'VM qualification is already running'
+  mkdir "$state/.managed-start.lock" || fail 'Managed VM start is already running'
+  trap 'rmdir "$state/.managed-start.lock"' EXIT
+  preflight
+  local status cid recorded
+  if status="$("${p[@]}" inspect "$name" --format '{{.State.Status}}' 2>/dev/null)"; then
+    cid="$("${p[@]}" inspect "$name" --format '{{.Id}}')"
+    recorded="$(sed -n 's/^container_id=//p' "$state/manifest.txt")"
+    if [[ "$status" == running || "$recorded" == "$cid" ]]; then
+      [[ "$recorded" == "$cid" ]] || fail 'Running VM lacks matching managed container identity'
+      grep -Fxq "port=$port" "$state/manifest.txt" || fail 'VM SSH port differs from recorded boot'
+      grep -Fxq "runner=$(runner_id)" "$state/manifest.txt" || fail 'VM runner differs from recorded boot'
+      [[ "$("${p[@]}" inspect "$name" --format '{{.Image}}')" == "$(runner_id)" ]] || fail 'VM image identity changed'
+      if [[ "$status" != running ]]; then
+        [[ "$status" == exited || "$status" == created ]] || fail 'VM is not restartable'
+        "${p[@]}" start "$name"
+      fi
+      echo "COREOS_MANAGED_RUNNING container=$name reused=true"
+    else
+      [[ "$status" == exited || "$status" == created ]] || fail 'Unknown VM state'
+      reset_failed
+      boot
+    fi
+  else
+    if [[ -e "$state/overlay.qcow2" ]]; then fail 'Orphaned overlay requires explicit reconciliation'; fi
+    boot
+  fi
+}
 stop() {
   "${p[@]}" stop "$name"
   echo "STOPPED profile=$profile; state retained: $state"
@@ -165,6 +198,7 @@ case "$action" in
   ignition) ignition ;;
   preflight) preflight ;;
   boot) boot ;;
+  start) start ;;
   reset-failed) reset_failed ;;
   stop) stop ;;
   *) fail 'Usage: coreos-podman build|ignition|preflight|boot|reset-failed|stop' ;;

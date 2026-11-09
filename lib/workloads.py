@@ -119,6 +119,11 @@ class Controller:
                         "declaration": declaration, "outputs": outputs,
                         "executable": executable, "shell": shell, "rootfsArchive": archive,
                         "executorSha256": hashlib.sha256(self.executor.read_bytes()).hexdigest()}
+            if declaration["qualification"]["mode"] == "running":
+                check_command = declaration["qualification"]["command"]
+                check_executable = outputs[check_command["output"]]["path"] + "/" + check_command["path"]
+                require(os.access(check_executable, os.X_OK), "Readiness executable missing")
+                resolved["readinessExecutable"] = check_executable
             generation = hashlib.sha256(canonical(resolved).encode()).hexdigest()
             state = self.load(name)
             if state["generations"].get(generation, {}).get("status") == "stopped":
@@ -165,22 +170,31 @@ class Controller:
                     for k, v in outputs.items()), "Unsafe output declaration")
         require(d.get("rootfs") in outputs, "Rootfs output is not retained")
         require(d.get("rootfsFormat", "busybox-probe") in ("busybox-probe", "alpine-archive"), "Unknown rootfs format")
-        command = d.get("command", {})
+        Controller.validate_command(d.get("command", {}), outputs)
+        require(d.get("capabilities") == CAPABILITIES, "Unsupported guest capabilities")
+        require(d.get("network") == "none", "Only isolated network=none is supported")
+        qualification = d.get("qualification", {})
+        mode = qualification.get("mode")
+        require(mode in ("exit-success", "running") and
+                isinstance(qualification.get("stdoutContains"), str) and qualification["stdoutContains"]
+                and "\x00" not in qualification["stdoutContains"], "Invalid workload qualification")
+        runtime = d.get("runtimeMaxSec")
+        require(type(runtime) is int and (1 <= runtime <= 86400 or (mode == "running" and runtime == 0)),
+                "Invalid workload timeout")
+        if mode == "running":
+            require(d.get("rootfsFormat") == "alpine-archive", "Managed shells currently require Alpine rootfs")
+            Controller.validate_command(qualification.get("command", {}), outputs)
+            timeout = qualification.get("timeoutSec")
+            require(type(timeout) is int and 1 <= timeout <= 600, "Invalid readiness timeout")
+
+    @staticmethod
+    def validate_command(command, outputs):
         require(command.get("output") in outputs, "Executable output is not retained")
         path = command.get("path", "")
         require(isinstance(path, str) and re.fullmatch(r"[A-Za-z0-9_+.-]+(?:/[A-Za-z0-9_+.-]+)*", path)
                 and all(part not in (".", "..") for part in path.split("/")), "Unsafe executable path")
         require(isinstance(command.get("args"), list) and all(isinstance(x, str) and "\x00" not in x
                 for x in command["args"]), "Arguments must be strings without NUL")
-        require(d.get("capabilities") == CAPABILITIES, "Unsupported guest capabilities")
-        require(d.get("network") == "none", "Only isolated network=none is supported")
-        qualification = d.get("qualification", {})
-        require(qualification.get("mode") == "exit-success" and
-                isinstance(qualification.get("stdoutContains"), str) and
-                qualification["stdoutContains"] and "\x00" not in qualification["stdoutContains"],
-                "Expected an exit-success qualification with literal stdoutContains")
-        require(type(d.get("runtimeMaxSec")) is int and 1 <= d["runtimeMaxSec"] <= 86400,
-                "Invalid workload timeout")
 
     def generation(self, state, generation):
         require(generation and re.fullmatch(r"[a-f0-9]{64}", generation), "Invalid or missing generation")
@@ -191,6 +205,17 @@ class Controller:
         state = self.load(name)
         if action == "inspect":
             return state
+        if action == "summary":
+            generation = state["active"]
+            entry = state["generations"].get(generation, {})
+            return {"name": name, "active": generation, "prepared": state["prepared"],
+                    "status": entry.get("status", "stopped"), "bootId": state.get("target"),
+                    "rootsRetained": bool(generation and (self.roots / name / generation).is_dir())}
+        if action == "status-selection":
+            return state["active"] or "none"
+        if action == "mode":
+            entry = self.generation(state, generation or state["prepared"])
+            return entry["manifest"]["declaration"]["qualification"]["mode"]
         if action in ("begin-activate", "begin-stop"):
             require(isinstance(target, str) and re.fullmatch(r"[a-f0-9-]{36}", target), "Missing guest boot identity")
             require(not state["active"] or state.get("target") == target, "Guest boot identity changed; roots retained")
@@ -245,7 +270,7 @@ class Controller:
         state = self.load(name)
         entry = self.generation(state, generation)
         require(state["active"] == generation, "Guest operation must match the active intent")
-        expected = {"activate": ("activating",), "stop": ("stopping",), "check": ("active",)}
+        expected = {"activate": ("activating",), "stop": ("stopping",), "check": ("active",), "status": ("activating", "active", "stopping"), "shell": ("active",)}
         require(action in expected and entry["status"] in expected[action], "Wrong guest operation state")
         m = entry["manifest"]
         require(hashlib.sha256(self.executor.read_bytes()).hexdigest() == m["executorSha256"],
@@ -268,6 +293,45 @@ class Controller:
             'tombstone="$control_dir/$generation.stopped"',
             'container_exists() { local rc; if podman container exists "$unit"; then return 0; else rc=$?; [[ "$rc" == 1 ]] || exit "$rc"; return 1; fi; }',
         ]) + "\n"
+        if action == "status":
+            return header + r'''load="$(systemctl --user show "$unit.service" -p LoadState --value)" || [[ "$load" == not-found ]]
+printf 'WORKLOAD_GENERATION=%s\nWORKLOAD_UNIT_LOAD=%s\n' "$generation" "$load"
+systemctl --user show "$unit.service" -p ActiveState -p SubState -p Result -p MainPID || [[ "$load" == not-found ]]
+if container_exists; then
+  podman inspect "$unit" --format 'WORKLOAD_CONTAINER_RUNNING={{.State.Running}} WORKLOAD_CONTAINER_ID={{.Id}}'
+else
+  printf 'WORKLOAD_CONTAINER_RUNNING=false\n'
+fi
+printf 'WORKLOAD_STATUS_OK=%s\n' "$generation"
+'''
+        if action == "shell":
+            require(m["declaration"]["qualification"]["mode"] == "running", "Shell requires a managed running workload")
+            return header + r'''test ! -e "$tombstone"
+test "$(systemctl --user show "$unit.service" -p ActiveState --value)" = active
+container_exists
+test "$(podman inspect "$unit" --format '{{.State.Running}}')" = true
+flock -u 9
+exec 9>&-
+exec podman exec -it --user 1000:1000 "$unit" /bin/sh
+'''
+        if action == "check" and m["declaration"]["qualification"]["mode"] == "running":
+            qualification = m["declaration"]["qualification"]
+            command = [m["readinessExecutable"], *qualification["command"]["args"]]
+            return header + 'deadline=$((SECONDS + ' + str(qualification["timeoutSec"]) + '))\n' + r'''while (( SECONDS < deadline )); do
+  test ! -e "$tombstone"
+  active="$(systemctl --user show "$unit.service" -p ActiveState --value)"
+  [[ "$active" == active ]] || break
+  if container_exists && [[ "$(podman inspect "$unit" --format '{{.State.Running}}')" == true ]]; then
+''' + '    if podman exec "$unit" ' + shlex.join(command) + ' > "$run_dir/readiness.log" 2>&1; then\n' + r'''      cat "$run_dir/readiness.log"
+''' + '      grep -F -- ' + q(qualification["stdoutContains"]) + ' "$run_dir/readiness.log"\n' + r'''      printf 'WORKLOAD_CHECKED=%s\n' "$generation"
+      exit 0
+    fi
+  fi
+  sleep 1
+done
+journalctl --user --no-pager -u "$unit.service" -o cat
+exit 1
+'''
         if action == "check":
             timeout = m["declaration"]["runtimeMaxSec"] + 5
             return header + 'deadline=$((SECONDS + ' + str(timeout) + '))\n' + r'''while (( SECONDS < deadline )); do
@@ -333,7 +397,7 @@ else
 '''
         script += "  printf '%s' " + q(self.executor.read_text()) + ' > "$run_dir/executor"\n'
         script += ('  systemd-run --user --unit="$unit" --property=Type=exec '
-                   '--property=RemainAfterExit=yes --property=Delegate=yes --property=RuntimeMaxSec=' + str(d["runtimeMaxSec"]) + 's '
+                   '--property=RemainAfterExit=yes --property=Delegate=yes --property=RuntimeMaxSec=' + ('infinity' if d["runtimeMaxSec"] == 0 else str(d["runtimeMaxSec"]) + 's') + ' '
                    '/usr/bin/env NIX_XD_WORKLOAD_CONTAINER="$unit" /usr/bin/bash "$run_dir/executor" '
                    + shlex.join(command) + '\nfi\n')
         script += '''active="$(systemctl --user show "$unit.service" -p ActiveState --value)"
@@ -351,7 +415,7 @@ def main():
     parser.add_argument("--executor", required=True)
     parser.add_argument("--state", default="/nix/home/nixuser/.local/state/nix-xd/workloads")
     parser.add_argument("--roots", default="/nix/var/nix/gcroots/nix-xd/workloads")
-    parser.add_argument("action", choices=["prepare", "inspect", "begin-activate", "confirm-active", "begin-stop", "confirm-stopped", "active-generation", "guest-activate", "guest-stop", "guest-check"])
+    parser.add_argument("action", choices=["prepare", "inspect", "begin-activate", "confirm-active", "begin-stop", "confirm-stopped", "active-generation", "guest-activate", "guest-stop", "guest-check", "guest-status", "guest-shell", "status-selection", "mode", "summary"])
     parser.add_argument("--name", required=True)
     parser.add_argument("--system")
     parser.add_argument("--flake")

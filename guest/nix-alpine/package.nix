@@ -19,6 +19,15 @@ let
     builtins.replaceStrings [ "@registration@" "@hello@" "@system@" ]
       [ "${registration}" "${pkgs.hello}" system ]
       (builtins.readFile ./qualify.sh));
+  runtime = pkgs.symlinkJoin {
+    name = "nix-alpine-runtime";
+    paths = [
+      (pkgs.writeScriptBin "nix-alpine-runtime" ("#!/bin/sh\n" +
+        builtins.replaceStrings [ "@check@" ] [ "${check}" ] (builtins.readFile ./runtime.sh)))
+      (pkgs.writeScriptBin "nix-alpine-ready" ("#!/bin/sh\n" +
+        builtins.replaceStrings [ "@hello@" ] [ "${pkgs.hello}" ] (builtins.readFile ./ready.sh)))
+    ];
+  };
   rootfs = pkgs.runCommand "nix-xd-guest-nix-alpine-${platform.arch}.tar.gz" {
     nativeBuildInputs = [ pkgs.gnutar pkgs.gzip pkgs.coreutils ];
   } ''
@@ -43,4 +52,4 @@ let
     CONFIG
     tar --sort=name --mtime=@1 --owner=0 --group=0 --numeric-owner -C rootfs -cf - . | gzip -n > "$out"
   '';
-in { inherit rootfs check registration; }
+in { inherit rootfs check registration runtime; }

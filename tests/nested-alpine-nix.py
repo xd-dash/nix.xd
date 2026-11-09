@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 
 assert os.environ.get('GITHUB_ACTIONS') == 'true' and os.getuid() == 0
 repo = Path(__file__).resolve().parents[1]
@@ -80,13 +81,53 @@ try:
         share.mkdir(parents=True)
         mount(share, '--bind', '/nix/store')
         subprocess.run(['mount', '-o', 'remount,bind,ro', str(share)], check=True)
-        subprocess.run(['setpriv', '--reuid=' + str(uid), '--regid=' + str(gid), '--init-groups',
-                        '/usr/bin/env', '-i', 'HOME=' + str(home), 'USER=' + runner, 'LOGNAME=' + runner,
-                        'XDG_RUNTIME_DIR=' + str(runtime), 'PATH=' + str(tools) + ':/usr/bin:/bin',
-                        'NIX_XD_WORKLOAD_CONTAINER=nix-xd-ci-alpine', '/bin/bash',
-                        str(repo / 'bin/nix-xd-guest-store-exec'), '--rootfs-archive',
-                        manifest['rootfsArchive'], manifest['executable']], check=True)
+        run_as_user = ['setpriv', '--reuid=' + str(uid), '--regid=' + str(gid), '--init-groups',
+                       '/usr/bin/env', '-i', 'HOME=' + str(home), 'USER=' + runner, 'LOGNAME=' + runner,
+                       'XDG_RUNTIME_DIR=' + str(runtime), 'PATH=' + str(tools) + ':/usr/bin:/bin']
+        executor = ['/bin/bash', str(repo / 'bin/nix-xd-guest-store-exec'), '--rootfs-archive']
+        subprocess.run([*run_as_user, 'NIX_XD_WORKLOAD_CONTAINER=nix-xd-ci-alpine',
+                        *executor, manifest['rootfsArchive'], manifest['executable']], check=True)
         print('PASS: production executor with real rootless Podman, keep-id UID 1000 and guest-local tmpfs')
+
+        with c.locked('nix-alpine-env'):
+            service = c.prepare('nix-alpine-env', 'x86_64-linux', str(source), revision)
+            generation = service['generation']
+            c.lifecycle('begin-activate', 'nix-alpine-env', target='12345678-1234-1234-1234-123456789abc')
+            c.lifecycle('confirm-active', 'nix-alpine-env', generation)
+        service_manifest = service['manifest']
+        rootless_podman = [*run_as_user, str(tools / 'podman')]
+        with (tools / 'service.log').open('w+') as log:
+            process = subprocess.Popen([*run_as_user, 'NIX_XD_WORKLOAD_CONTAINER=nix-xd-ci-service',
+                                        *executor, service_manifest['rootfsArchive'], service_manifest['executable']],
+                                       stdout=log, stderr=subprocess.STDOUT)
+            try:
+                deadline = time.monotonic() + 90
+                ready = False
+                while time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        log.seek(0)
+                        raise AssertionError(log.read())
+                    probe = subprocess.run([*rootless_podman, 'exec', 'nix-xd-ci-service',
+                                            service_manifest['readinessExecutable']], capture_output=True, text=True)
+                    if probe.returncode == 0:
+                        assert 'NIX_ALPINE_READY=passed' in probe.stdout
+                        ready = True
+                        break
+                    time.sleep(1)
+                assert ready, 'Managed environment did not become ready'
+                assert c.lifecycle('summary', 'nix-alpine-env')['rootsRetained']
+                shell = subprocess.check_output([*rootless_podman, 'exec', '-i', '--user', '1000:1000',
+                        'nix-xd-ci-service', '/bin/sh', '-ec',
+                        'test "$(id -u)" = 1000; nix --version; test -f "$XDG_RUNTIME_DIR/ready"; echo SHELL_OK'], text=True)
+                assert 'SHELL_OK' in shell
+            finally:
+                c.lifecycle('begin-stop', 'nix-alpine-env', target='12345678-1234-1234-1234-123456789abc')
+                subprocess.run([*rootless_podman, 'stop', '--time', '10', 'nix-xd-ci-service'], check=True)
+                process.wait(timeout=60)
+            assert subprocess.run([*rootless_podman, 'container', 'exists', 'nix-xd-ci-service']).returncode == 1
+            c.lifecycle('confirm-stopped', 'nix-alpine-env', generation)
+            assert not c.lifecycle('summary', 'nix-alpine-env')['rootsRetained']
+        print('PASS: managed service remains running, readiness and shell exec work, roots release after stop')
 
 finally:
     unmounted = True

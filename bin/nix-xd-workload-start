@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[[ "$(uname -s)" == Darwin && "${NIX_XD_SYSTEM:-}" == aarch64-linux && "${NIX_XD_PROVIDER:-}" == podman ]] || {
+  echo 'Managed CoreOS start currently requires the ARM64 macOS Podman adapter' >&2; exit 2;
+}
+export COREOS_NIX_STORE_VOLUME="${NIX_XD_SCOPE:?scope}-store"
+unset COREOS_GUEST_PROBE_ROOTFS COREOS_GUEST_NIX_EXECUTABLE
+unset COREOS_GUEST_DYNAMIC_EXECUTABLE COREOS_GUEST_OCI_ARCHIVE
+bash "$repo/bin/nix-xd-workload" prepare
+[[ "$(bash "$repo/bin/nix-xd-workload" mode)" == running ]] || {
+  echo 'Select a running workload such as WORKLOAD=nix-alpine-env' >&2; exit 2;
+}
+bash "$repo/bin/nix-xd-coreos-podman" start
+bash "$repo/bin/nix-xd-wisp-ssh"
+bash "$repo/bin/nix-xd-workload" activate
+bash "$repo/bin/nix-xd-workload" check
+printf 'WORKLOAD_START_RESULT=passed vm=running container=running\n'

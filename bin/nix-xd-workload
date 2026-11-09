@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 operation="${1:?expected prepare, inspect, activate or stop}"
-case "$operation" in prepare|inspect|activate|check|stop) ;; *) echo 'Unknown workload action' >&2; exit 2 ;; esac
+case "$operation" in prepare|inspect|activate|check|status|shell|mode|stop) ;; *) echo 'Unknown workload action' >&2; exit 2 ;; esac
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 provider="${NIX_XD_PROVIDER:-podman}"
 machine="${NIX_XD_MACHINE:-coreos-arm64}"
@@ -43,6 +43,15 @@ case "$operation" in
     echo 'WORKLOAD_PREPARE_RESULT=passed'
     exit 0 ;;
   inspect) control inspect; exit 0 ;;
+  mode) selected_control mode; exit 0 ;;
+  status)
+    control summary
+    generation="$(control status-selection)"
+    if [[ "$generation" == none ]]; then
+      echo 'WORKLOAD_STATUS=stopped'
+      exit 0
+    fi
+    ;;
 esac
 # Guest connection is an adapter. It does not rebuild or boot a VM.
 profile="${COREOS_PROFILE:-starwisp}"
@@ -67,6 +76,11 @@ if [[ "$operation" == activate ]]; then
   marker=WORKLOAD_ACTIVATED
   guest_action=guest-activate
   confirm_action=confirm-active
+elif [[ "$operation" == status || "$operation" == shell ]]; then
+  generation="$(selected_control active-generation)"
+  marker=WORKLOAD_STATUS_OK
+  guest_action="guest-$operation"
+  confirm_action=
 elif [[ "$operation" == check ]]; then
   generation="$(selected_control active-generation)"
   marker=WORKLOAD_CHECKED
@@ -84,6 +98,12 @@ mkdir -p "$evidence"
 # Generate fully before connecting: a partial producer failure must not run a partial script.
 control inspect > "$evidence/manifest.json"
 control "$guest_action" --generation "$generation" > "$evidence/$operation.sh"
+if [[ "$operation" == shell ]]; then
+  # Stage the script separately so the second SSH connection has interactive stdin.
+  remote_dir='"$XDG_RUNTIME_DIR"/nix-xd-workloads/'"$name/$generation"
+  ssh -T "${opts[@]}" "$user@127.0.0.1" "umask 077; cat > $remote_dir/shell.sh" < "$evidence/shell.sh"
+  exec ssh -tt "${opts[@]}" "$user@127.0.0.1" "bash $remote_dir/shell.sh"
+fi
 if ! ssh -T "${opts[@]}" "$user@127.0.0.1" 'bash -se' \
   < "$evidence/$operation.sh" > "$evidence/$operation.log" 2>&1; then
   cat "$evidence/$operation.log" >&2
