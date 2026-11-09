@@ -110,7 +110,7 @@ nix_task() {
 }
 
 case "$action" in
-  stage|show|check|build|path-info|run|qualify|develop|shell|exec|store-info) validate_runtime_arch ;;
+  stage|show|check|build|path-info|run|qualify|develop|shell|exec|store-info|store-diagnose) validate_runtime_arch ;;
 esac
 
 case "$action" in
@@ -119,6 +119,7 @@ case "$action" in
   shell) interactive bash -l ;;
   exec) inside bash -lc "$cmd" ;;
   store-info) inside nix store info ;;
+  store-diagnose) inside sh -s < "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/nix-xd-store-diagnose" ;;
   ps) runtime_cmd ps -a ;;
   inspect) runtime_cmd inspect "$scope" ;;
   *) fail "Unknown action $action" ;;
