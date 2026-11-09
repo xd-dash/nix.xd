@@ -4,6 +4,7 @@ on:
     paths:
       - Makefile
       - flake.nix
+      - guest/nix-alpine/**
       - lib/workloads.py
       - tests/workloads.py
       - tests/workload-transport.py
@@ -29,6 +30,7 @@ on:
     paths:
       - Makefile
       - flake.nix
+      - guest/nix-alpine/**
       - lib/workloads.py
       - tests/workloads.py
       - tests/workload-transport.py

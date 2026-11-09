@@ -2,31 +2,32 @@
 set -Eeuo pipefail
 
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
-(( $# >= 2 )) || fail 'Usage: guest-store-exec NIX_STORE_BUSYBOX_SHELL COMMAND [ARG...]'
-shell_path="$1"
-shift
-[[ "$shell_path" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/bin/sh$ ]] ||
-  fail 'Shell must be an absolute Nix store rootfs executable'
+(( $# >= 2 )) || fail 'Usage: guest-store-exec SHELL COMMAND... | --rootfs-archive ARCHIVE COMMAND...'
+mode=busybox-probe
+if [[ "$1" == --rootfs-archive ]]; then
+  (( $# >= 3 )) || fail 'Rootfs archive requires a command'
+  mode=alpine-archive
+  archive="$2"
+  shift 2
+  [[ "$archive" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+[.]tar[.]gz$ ]] || fail 'Invalid Alpine rootfs archive'
+else
+  shell_path="$1"
+  shift
+  [[ "$shell_path" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/bin/sh$ ]] ||
+    fail 'Shell must be an absolute Nix store rootfs executable'
+fi
 mountpoint=/var/mnt/nixstore
 findmnt -rn --mountpoint "$mountpoint" >/dev/null || fail '9P Nix store mount missing'
 [[ "$(findmnt -rn -o FSTYPE --mountpoint "$mountpoint")" == 9p ]] || fail 'Not a 9P mount'
 mount_opts="$(findmnt -rn -o OPTIONS --mountpoint "$mountpoint")"
 [[ ",$mount_opts," == *,ro,* ]] || fail 'Shared store is not read-only'
-shell_source="$mountpoint/${shell_path#/nix/store/}"
-[[ -L "$shell_source" ]] || fail 'Shared store shell link missing'
-store_shell="$(readlink "$shell_source")"
-[[ "$store_shell" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/bin/busybox$ ]] ||
-  fail 'Shell must link to a Nix store BusyBox executable'
-[[ -x "$mountpoint/${store_shell#/nix/store/}" ]] || fail 'BusyBox closure is not executable'
 [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]] || fail 'Missing user runtime directory'
 [[ "$(id -u)" -ne 0 ]] || fail 'Rootless execution required'
 [[ "$(podman info --format '{{.Host.Security.Rootless}}')" == true ]] || fail 'Podman is not rootless'
-
 case "$1" in
   /bin/sh) ;;
   /nix/store/*)
-    [[ "$1" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/.+ ]] ||
-      fail 'Invalid Nix store executable'
+    [[ "$1" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/.+ ]] || fail 'Invalid Nix store executable'
     [[ -x "$mountpoint/${1#/nix/store/}" ]] || fail 'Nix store executable unavailable'
     ;;
   *) fail 'Command must be /bin/sh or an absolute Nix store executable' ;;
@@ -34,22 +35,42 @@ esac
 
 scratch="$(mktemp -d "$XDG_RUNTIME_DIR/nix-xd-rootfs.XXXXXXXX")"
 trap 'rm -rf -- "$scratch"' EXIT
-mkdir -p "$scratch/bin" "$scratch/nix/store" "$scratch/etc" \
-  "$scratch/run" "$scratch/var" "$scratch/tmp" "$scratch/dev" \
-  "$scratch/proc" "$scratch/sys"
-ln -s "$store_shell" "$scratch/bin/sh"
-ln -s "$store_shell" "$scratch/bin/busybox"
-printf 'root:x:0:0:root:/root:/bin/sh\n' > "$scratch/etc/passwd"
-printf 'root:x:0:\n' > "$scratch/etc/group"
-ln -s /proc/self/mounts "$scratch/etc/mtab"
-echo "NIX_9P_ROOTFS_MODE=guest-runtime-scratch store_executable=$store_shell"
 container_options=(--network none)
 if [[ -n "${NIX_XD_WORKLOAD_CONTAINER:-}" ]]; then
   [[ "$NIX_XD_WORKLOAD_CONTAINER" =~ ^nix-xd-[a-z0-9-]+$ ]] || fail 'Invalid workload container name'
   container_options+=(--name "$NIX_XD_WORKLOAD_CONTAINER")
 fi
+if [[ "$mode" == alpine-archive ]]; then
+  source_archive="$mountpoint/${archive#/nix/store/}"
+  [[ -f "$source_archive" && -r "$source_archive" ]] || fail 'Shared Alpine archive unavailable'
+  tar --extract --gzip --file "$source_archive" --directory "$scratch" --no-same-owner --no-same-permissions
+  [[ -f "$scratch/etc/alpine-release" && -x "$scratch/bin/busybox" ]] || fail 'Not an Alpine rootfs'
+  [[ -d "$scratch/nix/store" && -z "$(ls -A "$scratch/nix/store")" ]] || fail 'Rootfs must not embed Nix store content'
+  container_options+=(--userns keep-id:uid=1000,gid=1000 --user 1000:1000
+    --read-only --read-only-tmpfs=false
+    --tmpfs /tmp:rw,nosuid,nodev,mode=1777
+    --tmpfs /run:rw,nosuid,nodev,mode=0755,uid=1000,gid=1000
+    --tmpfs /nix/var:rw,nosuid,nodev,mode=0755,uid=1000,gid=1000
+    --tmpfs /home/nixuser:rw,nosuid,nodev,mode=0700,uid=1000,gid=1000
+    --env HOME=/home/nixuser --env USER=nixuser --env LOGNAME=nixuser
+    --env PATH=/usr/local/bin:/usr/bin:/bin --env NIX_REMOTE=local)
+  echo "NIX_ALPINE_ROOTFS_MODE=guest-runtime-alpine archive=$archive uid=1000 store=read-only-9p"
+else
+  shell_source="$mountpoint/${shell_path#/nix/store/}"
+  [[ -L "$shell_source" ]] || fail 'Shared store shell link missing'
+  store_shell="$(readlink "$shell_source")"
+  [[ "$store_shell" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/bin/busybox$ ]] || fail 'Shell must link to a Nix store BusyBox executable'
+  [[ -x "$mountpoint/${store_shell#/nix/store/}" ]] || fail 'BusyBox closure is not executable'
+  mkdir -p "$scratch/bin" "$scratch/nix/store" "$scratch/etc" \
+    "$scratch/run" "$scratch/var" "$scratch/tmp" "$scratch/dev" "$scratch/proc" "$scratch/sys"
+  ln -s "$store_shell" "$scratch/bin/sh"
+  ln -s "$store_shell" "$scratch/bin/busybox"
+  printf 'root:x:0:0:root:/root:/bin/sh\n' > "$scratch/etc/passwd"
+  printf 'root:x:0:\n' > "$scratch/etc/group"
+  ln -s /proc/self/mounts "$scratch/etc/mtab"
+  echo "NIX_9P_ROOTFS_MODE=guest-runtime-scratch store_executable=$store_shell"
+fi
 podman run --rm "${container_options[@]}" \
   --security-opt label=disable \
   --mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro \
-  --rootfs "$scratch" \
-  "$@"
+  --rootfs "$scratch" "$@"

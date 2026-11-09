@@ -829,3 +829,42 @@ per-attempt qualification directory. Successful completion includes
 `WORKLOAD_QUALIFY_RESULT=passed` and `QUALIFY_STARWISP_RESULT status=passed`.
 Smoke integration, persistent application state, concurrent workload qualification,
 and remote/GCE transports remain separate work.
+
+### Nested Nix-Alpine inside CoreOS
+
+`WORKLOAD=nix-alpine` uses the same prepare/activate/check/stop interface as the
+probe. It runs a pinned Alpine 3.23.0 minirootfs in CoreOS rootless Podman.
+Both ARM64 and AMD64 upstream archives are SHA-256 pinned in
+`guest/nix-alpine/package.nix`; bootstrap/provider code does not own this workload.
+The rootfs archive contains the Alpine base, a `nixuser` account, Nix configuration,
+and links to shared store executables. It embeds no Nix store closures.
+
+The executor unpacks only the Alpine rootfs into guest runtime scratch and binds
+the existing read-only 9P export at `/nix/store`. It uses a rootless keep-id user
+namespace to run UID 1000, a read-only rootfs, no network, and separate writable
+tmpfs mounts for `/nix/var`, `/home/nixuser`, `/run`, and `/tmp`. It never mounts
+the authoritative owner's database or runs the writable-store bootstrap installer.
+
+The qualification registers only runtime-closure metadata in the guest-local
+database (using Nix's closure registration format), checks Nix version and native
+system evaluation, queries the shared hello closure and executes it, and checks
+runtime writes stay on the guest-local mounts. Guest metadata is ephemeral;
+builds, downloads, GC and persistent application state are not provided by this
+read-only-store workload. No local-overlay store is enabled.
+
+After updating and staging this repository, qualify it with:
+
+```sh
+make workload-qualify ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 \
+  SCOPE=nix-xd-arm WORKLOAD=nix-alpine \
+  COREOS_STATE_ROOT="$PWD/.state/coreos-9p-ordering-fixed" \
+  COREOS_SSH_KEY="$HOME/.ssh/starwisp-test"
+```
+
+This boots the existing CoreOS artifacts, starts and verifies the actual nested
+Nix-Alpine container, then stops it and the VM. It does not leave a persistent
+container running. Expected markers include `NESTED_NIX_ALPINE_RESULT=passed`,
+`WORKLOAD_QUALIFY_RESULT=passed`, and `QUALIFY_STARWISP_RESULT status=passed`.
+CI builds the native x86_64 package and tests its readonly-store execution in a
+throwaway chroot; that is packaging coverage, not AMD64 CoreOS VM qualification.
+ARM64/CoreOS qualification still requires the local command above.

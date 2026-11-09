@@ -7,6 +7,8 @@ on:
       - tests/workloads-nix.py
       - lib/workloads.py
       - flake.nix
+      - guest/nix-alpine/**
+      - tests/nested-alpine-nix.py
       - bin/nix-xd-workload
       - bin/nix-xd-workload-qualify
       - bin/nix-xd-guest-store-exec
@@ -19,6 +21,8 @@ on:
       - tests/workloads-nix.py
       - lib/workloads.py
       - flake.nix
+      - guest/nix-alpine/**
+      - tests/nested-alpine-nix.py
       - bin/nix-xd-workload
       - bin/nix-xd-workload-qualify
       - bin/nix-xd-guest-store-exec
@@ -29,7 +33,7 @@ permissions:
 jobs:
   gc-retention:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Validate module syntax
@@ -48,3 +52,5 @@ jobs:
         run: sudo env GITHUB_ACTIONS=true PATH="$PATH" python3 tests/workloads-nix.py
       - name: Validate flake syntax
         run: sudo env PATH="$PATH" nix-instantiate --parse flake.nix >/dev/null
+      - name: Build nested Alpine workload and verify read-only execution
+        run: sudo env GITHUB_ACTIONS=true PATH="$PATH" python3 tests/nested-alpine-nix.py

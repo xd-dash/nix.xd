@@ -33,6 +33,8 @@ class FakeController(m.Controller):
         if args[0] == "build":
             root = Path(args[args.index("--out-link") + 1])
             path = "/nix/store/" + ("b" if root.name == "rootfs" else "c") * 32 + "-" + root.name
+            if root.name == "rootfs" and self.declaration.get("rootfsFormat") == "alpine-archive":
+                path += ".tar.gz"
             root.symlink_to(path)
             return path
         if args[0] == "path-info":
@@ -55,6 +57,9 @@ class Lifecycle(unittest.TestCase):
         original_read = Path.read_text
         original_exists = Path.exists
         original_symlink = Path.is_symlink
+        original_file = Path.is_file
+        self.context(patch.object(Path, "is_file", lambda p:
+            True if str(p).startswith("/nix/store/") and str(p).endswith(".tar.gz") else original_file(p)))
         self.context(patch.object(Path, "read_text", lambda p, *a, **kw:
             REVISION if p.name == ".nix-xd-source-revision" else original_read(p, *a, **kw)))
         self.context(patch.object(Path, "exists", lambda p:
@@ -120,6 +125,19 @@ class Lifecycle(unittest.TestCase):
         retry = self.prepare()
         self.assertNotEqual(retry, gen)
         self.assertEqual(retry, self.prepare())
+
+    def test_alpine_archive_uses_same_generation_lifecycle(self):
+        self.c.declaration["rootfsFormat"] = "alpine-archive"
+        gen = self.prepare()
+        manifest = self.c.load("starwisp-probe")["generations"][gen]["manifest"]
+        self.assertIsNone(manifest["shell"])
+        self.assertTrue(manifest["rootfsArchive"].endswith(".tar.gz"))
+        self.lifecycle("begin-activate", target=BOOT)
+        script = self.c.guest_script("activate", "starwisp-probe", gen)
+        self.assertIn("--rootfs-archive " + manifest["rootfsArchive"], script)
+        self.lifecycle("begin-stop", target=BOOT)
+        self.lifecycle("confirm-stopped", gen)
+        self.assertFalse((self.c.roots / "starwisp-probe" / gen).exists())
 
     def test_same_contract_for_both_systems(self):
         for system in ("aarch64-linux", "x86_64-linux"):

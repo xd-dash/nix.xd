@@ -106,12 +106,18 @@ class Controller:
             command = declaration["command"]
             executable = outputs[command["output"]]["path"] + "/" + command["path"]
             require(os.access(executable, os.X_OK), "Workload executable missing")
-            shell = outputs[declaration["rootfs"]]["path"] + "/bin/sh"
-            require(Path(shell).is_symlink(), "Rootfs must provide the shared-store shell link")
+            rootfs = outputs[declaration["rootfs"]]["path"]
+            archive = rootfs if declaration.get("rootfsFormat") == "alpine-archive" else None
+            if archive:
+                require(archive.endswith(".tar.gz") and Path(archive).is_file(), "Expected an Alpine rootfs .tar.gz archive")
+                shell = None
+            else:
+                shell = rootfs + "/bin/sh"
+                require(Path(shell).is_symlink(), "Rootfs must provide the shared-store shell link")
             resolved = {"version": 1, "name": name, "system": system,
                         "source": {"revision": revision, "path": source, "narHash": nar_hash},
                         "declaration": declaration, "outputs": outputs,
-                        "executable": executable, "shell": shell,
+                        "executable": executable, "shell": shell, "rootfsArchive": archive,
                         "executorSha256": hashlib.sha256(self.executor.read_bytes()).hexdigest()}
             generation = hashlib.sha256(canonical(resolved).encode()).hexdigest()
             state = self.load(name)
@@ -158,6 +164,7 @@ class Controller:
         require(all(NAME.fullmatch(k) and isinstance(v, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", v)
                     for k, v in outputs.items()), "Unsafe output declaration")
         require(d.get("rootfs") in outputs, "Rootfs output is not retained")
+        require(d.get("rootfsFormat", "busybox-probe") in ("busybox-probe", "alpine-archive"), "Unknown rootfs format")
         command = d.get("command", {})
         require(command.get("output") in outputs, "Executable output is not retained")
         path = command.get("path", "")
@@ -297,7 +304,8 @@ printf 'WORKLOAD_STOPPED=%s\\n' "$generation"
 '''
         require(action == "activate", "Unknown guest action")
         d = m["declaration"]
-        command = [m["shell"], m["executable"], *d["command"]["args"]]
+        rootfs_arguments = ["--rootfs-archive", m["rootfsArchive"]] if m.get("rootfsArchive") else [m["shell"]]
+        command = [*rootfs_arguments, m["executable"], *d["command"]["args"]]
         script = header + '''test ! -e "$tombstone"
 case "$system:$(uname -m)" in
   aarch64-linux:aarch64|x86_64-linux:x86_64) ;;

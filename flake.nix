@@ -30,6 +30,7 @@
               Cmd = [ "/bin/sh" ];
             };
           };
+          nestedAlpine = import ./guest/nix-alpine/package.nix { inherit pkgs system; };
           storeProbeDynamic = pkgs.hello;
           storeProbeNix = pkgs.nix;
           workload-control = pkgs.writeShellApplication {
@@ -50,9 +51,30 @@
           };
         in {
           default = installer;
+          nixAlpineRootfs = nestedAlpine.rootfs;
+          nixAlpineCheck = nestedAlpine.check;
+          nixAlpineRegistration = nestedAlpine.registration;
           inherit installer workload-control storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
       workloads = eachSystem (system: {
+        nix-alpine = {
+          version = 1;
+          name = "nix-alpine";
+          inherit system;
+          outputs = {
+            rootfs = "nixAlpineRootfs";
+            executable = "nixAlpineCheck";
+            nix = "storeProbeNix";
+            registration = "nixAlpineRegistration";
+          };
+          rootfs = "rootfs";
+          rootfsFormat = "alpine-archive";
+          command = { output = "executable"; path = "bin/nix-alpine-qualify"; args = [ ]; };
+          capabilities = [ "store-9p-ro" "user-systemd" "rootless-podman" ];
+          qualification = { mode = "exit-success"; stdoutContains = "NESTED_NIX_ALPINE_RESULT=passed"; };
+          runtimeMaxSec = 120;
+          network = "none";
+        };
         starwisp-probe = {
           version = 1;
           name = "starwisp-probe";
