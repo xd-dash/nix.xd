@@ -40,10 +40,11 @@ NIX_XD_MACHINE="$machine" NIX_XD_SCOPE="$scope" NIX_XD_IMAGE=localhost/nix-xd:ar
 build_probe() {
   local name="$1" output
   printf 'STARWISP_SHARED_PREPARE_BUILD=%s\n' "$name" >&2
-  output="$("${p[@]}" exec "$scope" nix build --no-write-lock-file --no-link --print-out-paths "$flake#$name")" ||
+  # Select the executable output of multi-output packages (notably pkgs.nix).
+  output="$("${p[@]}" exec "$scope" nix build --no-write-lock-file --no-link --print-out-paths "$flake#$name^out")" ||
     fail "Cannot build probe $name in the current Nix store"
   [[ "$output" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+$ ]] ||
-    fail "Unexpected path for $name: $output"
+    fail "Expected exactly one store path for $name^out; received: $output"
   "${p[@]}" exec "$scope" test -e "$output" || fail "Probe missing from owner store: $name"
   printf '%s\n' "$output"
 }
