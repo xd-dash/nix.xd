@@ -166,6 +166,100 @@ class Lifecycle(unittest.TestCase):
         self.lifecycle("confirm-stopped", gen)
         self.assertFalse(self.lifecycle("summary")["rootsRetained"])
 
+    def running_generation(self):
+        self.c.declaration["rootfsFormat"] = "alpine-archive"
+        self.c.declaration["runtimeMaxSec"] = 0
+        self.c.declaration["qualification"] = {"mode": "running", "command":
+            {"output": "executable", "path": "bin/ready", "args": []},
+            "stdoutContains": "READY", "timeoutSec": 120}
+        gen = self.prepare()
+        self.lifecycle("begin-activate", target=BOOT)
+        self.lifecycle("confirm-active", gen)
+        return gen
+
+    def recreate(self, action, gen, transaction=None, evidence=None, target=None):
+        with self.c.locked("starwisp-probe"):
+            return self.c.recreation(action, "starwisp-probe", gen, target, transaction, evidence)
+
+    def snapshot(self, gen, transaction, after=False, **overrides):
+        entry = self.c.load("starwisp-probe")["generations"][gen]
+        values = {"GENERATION": gen, "BOOT_ID": BOOT, "TRANSACTION": transaction,
+            "INSTANCE": entry.get("instance") or "legacy", "CONTAINER_ID": ("b" if after else "a") * 64,
+            "NIX_PATH": "/nix/store/" + "n" * 32 + "-nix/bin/nix",
+            "HELLO_PATH": "/nix/store/" + "h" * 32 + "-hello", "NIX_VERSION": "nix 2.34.9",
+            "METADATA_QUERY": "passed", "WRITABLE_STATE": "fresh" if after else "marked"}
+        values.update(overrides)
+        return "\n".join("RECREATE_" + key + "=" + value for key, value in values.items())
+
+    def test_recreation_retains_generation_roots_through_all_phases(self):
+        gen = self.running_generation()
+        roots = self.c.roots / "starwisp-probe" / gen
+        links = {p.name: os.readlink(p) for p in roots.iterdir()}
+        tx = self.recreate("begin-recreate", gen, target=BOOT)
+        self.assertEqual(self.recreate("begin-recreate", gen, target=BOOT), tx)
+        self.assertEqual(self.recreate("recreate-phase", gen, tx), "snapshot")
+        before = self.snapshot(gen, tx)
+        self.recreate("recreate-record-before", gen, tx, before)
+        old_stop = self.c.guest_script("recreate-stop", "starwisp-probe", gen)
+        self.assertNotIn('rm -rf -- "$run_dir"', old_stop)
+        with self.assertRaises(ValueError):
+            self.lifecycle("begin-stop", target=BOOT)
+        for action in ("recreate-stopped", "recreate-activated", "recreate-checked"):
+            self.recreate(action, gen, tx)
+            self.assertEqual({p.name: os.readlink(p) for p in roots.iterdir()}, links)
+        self.recreate("recreate-record-after", gen, tx, self.snapshot(gen, tx, after=True))
+        self.recreate("confirm-recreated", gen, tx)
+        self.assertEqual(self.c.load("starwisp-probe")["active"], gen)
+        self.assertEqual(self.lifecycle("summary")["status"], "active")
+        self.assertEqual(self.lifecycle("summary")["recreation"]["result"], "passed")
+        instance = self.c.load("starwisp-probe")["generations"][gen]["instance"]
+        self.assertEqual(self.lifecycle("runtime-path", gen), "starwisp-probe/" + gen + "/" + instance)
+        self.assertIn(instance, self.c.guest_script("shell", "starwisp-probe", gen))
+        # A later recreation has a new instance identity but retains the same content generation.
+        tx2 = self.recreate("begin-recreate", gen, target=BOOT)
+        self.assertNotEqual(tx, tx2)
+        self.assertEqual({p.name: os.readlink(p) for p in roots.iterdir()}, links)
+
+    def test_recreation_errors_and_abandonment_do_not_release_roots_early(self):
+        gen = self.running_generation()
+        with self.assertRaisesRegex(ValueError, "boot identity"):
+            self.recreate("begin-recreate", gen, target="different")
+        tx = self.recreate("begin-recreate", gen, target=BOOT)
+        with self.assertRaises(ValueError):
+            self.recreate("recreate-record-before", gen, tx, self.snapshot(gen, tx, BOOT_ID="different"))
+        with self.assertRaises(ValueError):
+            self.recreate("recreate-stopped", gen, "f" * 32)
+        self.assertTrue(self.lifecycle("summary")["rootsRetained"])
+        self.recreate("abandon-recreate", gen, tx)
+        self.assertTrue(self.lifecycle("summary")["rootsRetained"])
+        self.c.guest_script("stop", "starwisp-probe", gen)
+        self.lifecycle("confirm-stopped", gen)
+        self.assertFalse(self.lifecycle("summary")["rootsRetained"])
+
+    def test_recreation_verifies_new_container_and_unchanged_store_paths(self):
+        gen = self.running_generation()
+        tx = self.recreate("begin-recreate", gen, target=BOOT)
+        self.recreate("recreate-record-before", gen, tx, self.snapshot(gen, tx))
+        self.recreate("recreate-stopped", gen, tx)
+        for operation in ("recreate-activate",):
+            script = self.c.guest_script(operation, "starwisp-probe", gen)
+            process = subprocess.Popen(["bash", "-n"], stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            _, error = process.communicate(script)
+            self.assertEqual(process.returncode, 0, error)
+        self.recreate("recreate-activated", gen, tx)
+        self.c.guest_script("recreate-check", "starwisp-probe", gen)
+        self.recreate("recreate-checked", gen, tx)
+        for operation in ("snapshot-after", "status"):
+            script = self.c.guest_script(operation, "starwisp-probe", gen)
+            process = subprocess.Popen(["bash", "-n"], stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            _, error = process.communicate(script)
+            self.assertEqual(process.returncode, 0, error)
+        self.recreate("recreate-record-after", gen, tx,
+                      self.snapshot(gen, tx, after=True, CONTAINER_ID="a" * 64))
+        with self.assertRaisesRegex(ValueError, "not replaced"):
+            self.recreate("confirm-recreated", gen, tx)
+        self.assertTrue(self.lifecycle("summary")["rootsRetained"])
+
     def test_executor_update_blocks_activation_but_allows_safe_stop(self):
         gen = self.prepare()
         self.lifecycle("begin-activate", target=BOOT)

@@ -30,6 +30,7 @@ if kind == 'ssh':
     else:
         payload = sys.stdin.read()
     if os.environ.get('SSH_FAIL') == '1': sys.exit(42)
+    if os.environ.get('SSH_FAIL_PHASE') and '# ACTION=' + os.environ['SSH_FAIL_PHASE'] in payload: sys.exit(42)
     if os.environ.get('SSH_NO_ACK') == '1': sys.exit(0)
     sys.exit(subprocess.run([os.environ['TEST_BASH'], '-se'], input=payload, text=True).returncode)
 assert kind == 'podman', kind
@@ -39,6 +40,7 @@ if args[:3] == ['exec', 'nix-xd-arm', 'uname']:
     print('aarch64'); sys.exit(0)
 if args[:2] == ['inspect', 'nix-xd-arm']:
     print('nix-xd-arm-store'); sys.exit(0)
+if args[:2] == ['exec', '-i']: args.pop(1)
 assert args[:2] == ['exec', 'nix-xd-arm'], args
 args = args[2:]
 if args[0] == 'sh': sys.exit(0)
@@ -48,9 +50,27 @@ action = arguments[0]
 with open(os.environ['CALLS'], 'a') as record:
     record.write(json.dumps(arguments) + '\n')
 generation = 'a' * 64
-if action in ['status-selection', 'begin-activate', 'active-generation', 'begin-stop', 'confirm-active', 'confirm-stopped']:
+phase_file = Path(os.environ['CONTROLLER_STATE'])
+phase = phase_file.read_text() if phase_file.exists() else 'snapshot'
+tx = 'f' * 32
+transitions = {'recreate-record-before': 'stop', 'recreate-stopped': 'start',
+               'recreate-activated': 'check', 'recreate-checked': 'verify', 'confirm-recreated': 'done',
+               'abandon-recreate': 'abandoned'}
+if action in ['begin-recreate', 'pending-recreation']: print(tx)
+elif action == 'recreate-phase': print(phase)
+elif action in transitions:
+    phase_file.write_text(transitions[action]); print(generation)
+elif action == 'recreate-record-after': sys.stdin.read(); print(generation)
+elif action in ['guest-snapshot-before', 'guest-snapshot-after']:
+    print('# ACTION=' + action + '\necho RECREATE_TRANSACTION=' + tx)
+elif action.startswith('guest-recreate-'):
+    marker = {'guest-recreate-stop': 'WORKLOAD_STOPPED', 'guest-recreate-activate': 'WORKLOAD_ACTIVATED',
+              'guest-recreate-check': 'WORKLOAD_CHECKED'}[action]
+    print('# ACTION=' + action + '\necho ' + marker + '=' + generation)
+elif action in ['status-selection', 'begin-activate', 'active-generation', 'begin-stop', 'confirm-active', 'confirm-stopped']:
     print('none' if action == 'status-selection' and os.environ.get('ACTIVE_NONE') else generation)
 elif action in ['inspect', 'summary']: print('{}')
+elif action == 'runtime-path': print('starwisp-probe/' + generation)
 elif action == 'guest-shell': print('echo WORKLOAD_SHELL_FIXTURE=passed')
 elif action.startswith('guest-'):
     marker = {'guest-activate': 'WORKLOAD_ACTIVATED', 'guest-check': 'WORKLOAD_CHECKED', 'guest-stop': 'WORKLOAD_STOPPED', 'guest-status': 'WORKLOAD_STATUS_OK'}[action]
@@ -80,7 +100,7 @@ class Transport(unittest.TestCase):
         self.key.write_text('fixture\n')
         self.calls = self.root / 'calls'
         self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'],
-                        TEST_BASH=self.shell, CALLS=str(self.calls), SHELL_PAYLOAD=str(self.root / "shell-payload"),
+                        TEST_BASH=self.shell, CALLS=str(self.calls), CONTROLLER_STATE=str(self.root / "phase"), SHELL_PAYLOAD=str(self.root / "shell-payload"),
                         NIX_XD_PROVIDER='podman', NIX_XD_MACHINE='coreos-arm64',
                         NIX_XD_SCOPE='nix-xd-arm', NIX_XD_SYSTEM='aarch64-linux',
                         NIX_XD_WORKLOAD='starwisp-probe', NIX_XD_WORKLOAD_GENERATION='',
@@ -120,6 +140,25 @@ class Transport(unittest.TestCase):
                              text=True, capture_output=True)
         self.assertEqual(dry.returncode, 0, dry.stderr)
         self.assertNotIn('nix-xd-log', dry.stdout)
+
+    def test_recreation_resumes_after_failed_replacement_without_releasing_roots(self):
+        failed = self.invoke('recreate', SSH_FAIL_PHASE='guest-recreate-activate')
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual((self.root / 'phase').read_text(), 'start')
+        self.assertFalse(any(c[0] == 'confirm-stopped' for c in self.recorded()))
+        resumed = self.invoke('recreate')
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertIn('WORKLOAD_RECREATE_RESULT=passed', resumed.stdout)
+        calls = self.recorded()
+        self.assertEqual(sum(c[0] == 'guest-recreate-stop' for c in calls), 1)
+        self.assertFalse(any(c[0] == 'confirm-stopped' for c in calls))
+
+    def test_explicit_abandon_uses_acknowledged_stop(self):
+        result = self.invoke('recreate-abandon')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = [c[0] for c in self.recorded()]
+        self.assertLess(calls.index('abandon-recreate'), calls.index('guest-stop'))
+        self.assertLess(calls.index('guest-stop'), calls.index('confirm-stopped'))
 
     def test_stopped_status_does_not_require_a_guest_connection(self):
         result = self.invoke('status', ACTIVE_NONE='1', COREOS_SSH_KEY='/missing/key')

@@ -387,3 +387,9 @@ workload-start:
 # Preserve the terminal and avoid logging interactive shell content.
 workload-shell:
 	@bash bin/nix-xd-workload shell
+
+.PHONY: workload-recreate workload-qualify-recreation workload-recreate-abandon
+workload-recreate workload-qualify-recreation:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workload recreate
+workload-recreate-abandon:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workload recreate-abandon

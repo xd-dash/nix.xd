@@ -930,3 +930,45 @@ against CoreOS's `/var/mnt/nixstore` export. Readiness is the execution check;
 store-path executability is not probed from the wrong host namespace. An updated
 controller can still stop a previously prepared generation safely; only activation
 requires matching executor content. Roots remain until the guest acknowledges stop.
+
+
+### Recreate a running nested Nix-Alpine container
+
+With the managed environment running, `make workload-qualify-recreation` (or
+`make workload-recreate`) uses the same architecture/provider/machine/scope,
+`WORKLOAD=nix-alpine-env`, CoreOS state root and SSH key as start/status/shell.
+It does not boot, stop or replace the CoreOS VM and does not rebuild the workload.
+
+The owner records a recreation transaction against the **active** content
+generation, regardless of the most recently prepared generation. It retains
+that generation's roots throughout old-instance stop, replacement activation,
+readiness and verification. The replacement has a fresh instance ID, unit,
+container, runtime directory, home tmpfs and Nix metadata tmpfs. The content
+generation, rootfs archive, executable and retained store paths are unchanged.
+Per-instance stop markers prevent delayed requests from restarting a retired
+instance; delayed cleanup of a legacy instance cannot remove replacement state.
+
+The gate records old/new container IDs and the CoreOS boot ID, marks private
+home and metadata state before stop, verifies both markers are absent afterward,
+and checks guest-local metadata queries, Nix version and shared executable paths.
+It fails unless the container ID changes and the boot/content/store identities
+remain unchanged. The replacement is left ready and running, with roots retained.
+
+Expected completion: `WORKLOAD_RECREATE_RESULT=passed`. Evidence is saved under
+`<COREOS_STATE_ROOT>/starwisp/workloads/<name>/<generation>/recreations/<transaction>/`
+and the usual timestamped host log. Owner state includes both snapshots and the
+root fingerprint. Successful shell/status/stop operations select the new instance.
+
+If a guest or owner call is interrupted, retry `make workload-recreate` with the
+same configuration to resume the pending transaction. A changed guest boot ID,
+missing root or mismatched snapshot fails closed. To abandon a pending recreation,
+use `make workload-recreate-abandon`: it acknowledges termination of the current
+instance before releasing roots. Ordinary stop/activation is refused while a
+recreation is pending. No implicit rollback, bulk root pruning, or cross-boot
+reconciliation is performed. Home/database contents are intentionally discarded;
+this is not a persistent application-state migration mechanism.
+
+Native CI exercises actual Podman stop/replacement, fresh writable state, metadata
+queries and continuous root retention. Local ARM64/CoreOS execution remains the
+separate VM qualification gate. Multi-instance concurrency and Smoke integration
+follow after that gate passes.

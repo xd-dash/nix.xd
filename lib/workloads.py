@@ -211,9 +211,20 @@ class Controller:
             return {"name": name, "active": generation, "prepared": state["prepared"],
                     "status": entry.get("status", "stopped"), "bootId": state.get("target"),
                     "rootsRetained": bool(generation and (self.roots / name / generation).is_dir()),
-                    "stateType": "owner-intent"}
+                    "stateType": "owner-intent", "instance": entry.get("instance"),
+                    "recreation": entry.get("recreation")}
         if action == "status-selection":
             return state["active"] or "none"
+        if action == "pending-recreation":
+            generation = generation or state["active"]
+            entry = self.generation(state, generation)
+            require(entry["status"].startswith("recreating-"), "No pending recreation")
+            return entry["recreation"]["id"]
+        if action == "runtime-path":
+            generation = generation or state["active"]
+            entry = self.generation(state, generation)
+            suffix = "/" + entry["instance"] if entry.get("instance") else ""
+            return name + "/" + generation + suffix
         if action == "mode":
             entry = self.generation(state, generation or state["prepared"])
             return entry["manifest"]["declaration"]["qualification"]["mode"]
@@ -267,17 +278,148 @@ class Controller:
         save(self.path(name), state)
         return generation
 
+    def assert_retained(self, state, name, generation):
+        entry = self.generation(state, generation)
+        roots = self.roots / name / generation
+        require(roots.is_dir() and not roots.is_symlink(), "Generation roots missing")
+        links = {}
+        for label, output in entry["manifest"]["outputs"].items():
+            link = roots / label
+            require(link.is_symlink() and os.readlink(link) == output["path"] and Path(output["path"]).exists(),
+                    "Generation root missing or changed")
+            links[label] = output["path"]
+        return hashlib.sha256(canonical(links).encode()).hexdigest()
+
+    def recreation(self, action, name, generation=None, target=None, transaction=None, evidence=None):
+        state = self.load(name)
+        generation = generation or state["active"]
+        entry = self.generation(state, generation)
+        require(state["active"] == generation, "Recreation requires the active generation")
+        require(entry["manifest"]["declaration"]["qualification"]["mode"] == "running" and
+                entry["manifest"]["declaration"].get("rootfsFormat") == "alpine-archive",
+                "Recreation requires a running Alpine environment")
+        fingerprint = self.assert_retained(state, name, generation)
+        if action == "begin-recreate":
+            require(target == state.get("target"), "Guest boot identity changed; roots retained")
+            require(hashlib.sha256(self.executor.read_bytes()).hexdigest() == entry["manifest"]["executorSha256"],
+                    "Executor differs from the active generation; stop and prepare a new generation instead")
+            if entry["status"] == "active":
+                entry["recreation"] = {"id": uuid.uuid4().hex, "oldInstance": entry.get("instance"),
+                    "newInstance": uuid.uuid4().hex, "rootsFingerprint": fingerprint}
+                entry["status"] = "recreating-stop"
+            else:
+                require(entry["status"].startswith("recreating-"), "Another lifecycle operation is in progress")
+            save(self.path(name), state)
+            return entry["recreation"]["id"]
+        recreation = entry.get("recreation", {})
+        require(transaction == recreation.get("id") and transaction, "Recreation transaction mismatch")
+        require(fingerprint == recreation["rootsFingerprint"], "Recreation roots changed")
+        if action == "recreate-phase":
+            if entry["status"] == "recreating-stop":
+                return "stop" if "before" in recreation else "snapshot"
+            return {"recreating-start": "start", "recreating-check": "check",
+                    "recreating-verify": "verify", "active": "done"}.get(entry["status"], "blocked")
+        if action in ("recreate-record-before", "recreate-record-after"):
+            stage = "before" if action.endswith("before") else "after"
+            expected_status = "recreating-stop" if stage == "before" else "recreating-verify"
+            require(entry["status"] == expected_status, "Wrong recreation snapshot phase")
+            values = self.parse_recreation_evidence(evidence)
+            require(values["GENERATION"] == generation and values["BOOT_ID"] == state["target"] and
+                    values["TRANSACTION"] == transaction, "Snapshot identity mismatch")
+            expected_instance = recreation["oldInstance"] if stage == "before" else recreation["newInstance"]
+            require(values["INSTANCE"] == (expected_instance or "legacy"), "Snapshot instance mismatch")
+            require(values["WRITABLE_STATE"] == ("marked" if stage == "before" else "fresh"), "Writable state was not recreated")
+            require(stage not in recreation or recreation[stage] == values, "Recorded snapshot changed")
+            recreation[stage] = values
+        elif action == "recreate-stopped":
+            require(entry["status"] == "recreating-stop" and "before" in recreation, "Missing old-instance snapshot")
+            entry["instance"] = recreation["newInstance"]
+            entry["status"] = "recreating-start"
+        elif action == "recreate-activated":
+            require(entry["status"] == "recreating-start", "No replacement activation intent")
+            entry["status"] = "recreating-check"
+        elif action == "recreate-checked":
+            require(entry["status"] == "recreating-check", "Replacement readiness not pending")
+            entry["status"] = "recreating-verify"
+        elif action == "confirm-recreated":
+            require(entry["status"] == "recreating-verify" and "after" in recreation, "Replacement snapshot missing")
+            before, after = recreation["before"], recreation["after"]
+            require(before["CONTAINER_ID"] != after["CONTAINER_ID"], "Container was not replaced")
+            for key in ("GENERATION", "BOOT_ID", "NIX_PATH", "HELLO_PATH", "NIX_VERSION"):
+                require(before[key] == after[key], "Recreation changed " + key)
+            entry["status"] = "active"
+            recreation["result"] = "passed"
+        elif action == "abandon-recreate":
+            require(entry["status"].startswith("recreating-"), "No pending recreation")
+            entry["status"] = "stopping"
+            recreation["result"] = "abandoning"
+        else:
+            raise ValueError("Unknown recreation action")
+        save(self.path(name), state)
+        return generation
+
+    @staticmethod
+    def parse_recreation_evidence(text):
+        expected = {"GENERATION", "BOOT_ID", "TRANSACTION", "INSTANCE", "CONTAINER_ID", "NIX_PATH",
+                    "HELLO_PATH", "NIX_VERSION", "METADATA_QUERY", "WRITABLE_STATE"}
+        values = {}
+        for line in text.splitlines():
+            if not line.startswith("RECREATE_"):
+                continue
+            key, value = line.removeprefix("RECREATE_").split("=", 1)
+            require(key in expected and key not in values and value, "Invalid recreation snapshot field")
+            values[key] = value
+        require(set(values) == expected and values["METADATA_QUERY"] == "passed", "Incomplete recreation snapshot")
+        require(re.fullmatch(r"[a-f0-9]{64}", values["CONTAINER_ID"]), "Invalid container identity")
+        require(STORE.fullmatch(values["HELLO_PATH"]) and
+                re.fullmatch(r"/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+/bin/nix", values["NIX_PATH"]),
+                "Invalid snapshot store paths")
+        return values
+
+    @staticmethod
+    def container_recreation_probe(stage, transaction):
+        require(stage in ("before", "after") and re.fullmatch(r"[a-f0-9]{32}", transaction), "Invalid recreation probe")
+        return "set -eu\ntransaction=" + shlex.quote(transaction) + "\n" + r'''test "$(id -u)" = 1000
+home_probe="$HOME/.nix-xd-recreate-$transaction"
+db_probe="/nix/var/nix/.nix-xd-recreate-$transaction"
+''' + (r'''umask 077
+for probe in "$home_probe" "$db_probe"; do
+  test ! -e "$probe" || test "$(cat "$probe")" = "$transaction"
+  printf '%s\n' "$transaction" > "$probe"
+done
+printf 'RECREATE_WRITABLE_STATE=marked\n'
+''' if stage == "before" else r'''test ! -e "$home_probe"
+test ! -e "$db_probe"
+printf 'RECREATE_WRITABLE_STATE=fresh\n'
+''') + r'''grep -Eq ' /nix/store ro(,| )' /proc/self/mountinfo
+nix_path="$(readlink /usr/local/bin/nix)"
+hello_path="$(readlink /usr/local/bin/hello)"
+hello_path="${hello_path%/bin/hello}"
+nix path-info "$hello_path" >/dev/null
+nix-store --query --requisites "$hello_path" >/dev/null
+printf 'RECREATE_NIX_PATH=%s\nRECREATE_HELLO_PATH=%s\n' "$nix_path" "$hello_path"
+printf 'RECREATE_NIX_VERSION=%s\n' "$(nix --version)"
+printf 'RECREATE_METADATA_QUERY=passed\n'
+'''
+
     def guest_script(self, action, name, generation):
         state = self.load(name)
         entry = self.generation(state, generation)
         require(state["active"] == generation, "Guest operation must match the active intent")
-        expected = {"activate": ("activating",), "stop": ("stopping",), "check": ("active",), "status": ("activating", "active", "stopping"), "shell": ("active",)}
+        expected = {"activate": ("activating",), "stop": ("stopping",), "check": ("active",), "status": ("activating", "active", "stopping", "recreating-stop", "recreating-start", "recreating-check", "recreating-verify"), "shell": ("active",),
+                    "recreate-stop": ("recreating-stop",), "recreate-activate": ("recreating-start",),
+                    "recreate-check": ("recreating-check",), "snapshot-before": ("recreating-stop",),
+                    "snapshot-after": ("recreating-verify",)}
         require(action in expected and entry["status"] in expected[action], "Wrong guest operation state")
         m = entry["manifest"]
-        if action == "activate":
+        if action in ("activate", "recreate-activate"):
             require(hashlib.sha256(self.executor.read_bytes()).hexdigest() == m["executorSha256"],
                     "Executor changed; prepare with the current executor before activation")
-        unit = "nix-xd-" + name + "-" + generation[:32]
+        instance = entry.get("instance")
+        identity = generation[:16] + "-" + instance[:16] if instance else generation[:32]
+        unit = "nix-xd-" + name + "-" + identity
+        runtime_suffix = name + "/" + generation + ("/" + instance if instance else "")
+        tombstone = generation + ("." + instance if instance else "") + ".stopped"
         q = shlex.quote
         header = "set -Eeuo pipefail\n" + "\n".join([
             "generation=" + q(generation), "unit=" + q(unit), "name=" + q(name),
@@ -285,16 +427,26 @@ class Controller:
             'test "$(cat /proc/sys/kernel/random/boot_id)" = ' + q(state["target"]),
             'test "$(id -u)" -ne 0',
             'test -n "${XDG_RUNTIME_DIR:-}" && test -d "$XDG_RUNTIME_DIR"',
-            'run_dir="$XDG_RUNTIME_DIR/nix-xd-workloads/$name/$generation"',
+            'run_dir="$XDG_RUNTIME_DIR/nix-xd-workloads/"' + q(runtime_suffix),
             'test "$(podman info --format \'{{.Host.Security.Rootless}}\')" = true',
             'systemctl --user show-environment >/dev/null',
             'control_dir="$HOME/.local/state/nix-xd/workloads/$name"',
             'mkdir -p "$control_dir"',
             'exec 9>"$control_dir/lifecycle.lock"',
             'flock -x 9',
-            'tombstone="$control_dir/$generation.stopped"',
+            'tombstone="$control_dir/"' + q(tombstone),
             'container_exists() { local rc; if podman container exists "$unit"; then return 0; else rc=$?; [[ "$rc" == 1 ]] || exit "$rc"; return 1; fi; }',
         ]) + "\n"
+        if action.startswith("snapshot-"):
+            stage = "before" if action == "snapshot-before" else "after"
+            transaction = entry["recreation"]["id"]
+            probe = self.container_recreation_probe(stage, transaction)
+            return header + 'test ! -e "$tombstone"\ncontainer_exists\n' + r'''test "$(podman inspect "$unit" --format '{{.State.Running}}')" = true
+printf 'RECREATE_BOOT_ID=%s\n' "$(cat /proc/sys/kernel/random/boot_id)"
+printf 'RECREATE_CONTAINER_ID=%s\n' "$(podman inspect "$unit" --format '{{.Id}}')"
+printf 'RECREATE_GENERATION=%s\n' "$generation"
+''' + "printf 'RECREATE_TRANSACTION=%s\n' " + q(transaction) + "\n" + "printf 'RECREATE_INSTANCE=%s\n' " + q(instance or "legacy") + "\n" + "printf '%s' " + q(probe) + ' > "$run_dir/recreate-probe.sh"\n' + 'podman exec -i "$unit" /bin/sh -s < "$run_dir/recreate-probe.sh"\n'
+        action = {"recreate-stop": "stop", "recreate-activate": "activate", "recreate-check": "check"}.get(action, action)
         if action == "status":
             return header + r'''load="$(systemctl --user show "$unit.service" -p LoadState --value)" || [[ "$load" == not-found ]]
 printf 'WORKLOAD_GENERATION=%s\nWORKLOAD_UNIT_LOAD=%s\n' "$generation" "$load"
@@ -372,7 +524,8 @@ if container_exists; then
   fi
 fi
 if container_exists; then exit 1; fi
-rm -rf -- "$run_dir"
+rm -f -- "$run_dir/executor" "$run_dir/generation" "$run_dir/readiness.log" "$run_dir/shell.sh" "$run_dir/recreate-probe.sh"
+rmdir "$run_dir" 2>/dev/null || true
 printf 'WORKLOAD_STOPPED=%s\\n' "$generation"
 '''
         require(action == "activate", "Unknown guest action")
@@ -424,18 +577,26 @@ def main():
     parser.add_argument("--executor", required=True)
     parser.add_argument("--state", default="/nix/home/nixuser/.local/state/nix-xd/workloads")
     parser.add_argument("--roots", default="/nix/var/nix/gcroots/nix-xd/workloads")
-    parser.add_argument("action", choices=["prepare", "inspect", "begin-activate", "confirm-active", "begin-stop", "confirm-stopped", "active-generation", "guest-activate", "guest-stop", "guest-check", "guest-status", "guest-shell", "status-selection", "mode", "summary"])
+    parser.add_argument("action", choices=["prepare", "inspect", "begin-activate", "confirm-active", "begin-stop", "confirm-stopped", "active-generation", "guest-activate", "guest-stop", "guest-check", "guest-status", "guest-shell", "status-selection", "mode", "summary", "runtime-path", "pending-recreation",
+        "begin-recreate", "recreate-phase", "recreate-record-before", "recreate-record-after", "recreate-stopped",
+        "recreate-activated", "recreate-checked", "confirm-recreated", "abandon-recreate",
+        "guest-recreate-stop", "guest-recreate-activate", "guest-recreate-check", "guest-snapshot-before", "guest-snapshot-after"])
     parser.add_argument("--name", required=True)
     parser.add_argument("--system")
     parser.add_argument("--flake")
     parser.add_argument("--revision")
     parser.add_argument("--generation")
     parser.add_argument("--target")
+    parser.add_argument("--transaction")
     args = parser.parse_args()
     controller = Controller(args.state, args.roots, args.executor)
     with controller.locked(args.name):
         if args.action == "prepare":
             result = controller.prepare(args.name, args.system, args.flake, args.revision)
+        elif args.action in ("begin-recreate", "recreate-phase", "recreate-record-before", "recreate-record-after",
+                             "recreate-stopped", "recreate-activated", "recreate-checked", "confirm-recreated", "abandon-recreate"):
+            evidence = sys.stdin.read() if args.action.startswith("recreate-record-") else None
+            result = controller.recreation(args.action, args.name, args.generation, args.target, args.transaction, evidence)
         elif args.action.startswith("guest-"):
             print(controller.guest_script(args.action.removeprefix("guest-"), args.name, args.generation), end="")
             return

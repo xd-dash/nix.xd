@@ -89,47 +89,93 @@ try:
                         *executor, manifest['rootfsArchive'], manifest['executable']], check=True)
         print('PASS: production executor with real rootless Podman, keep-id UID 1000 and guest-local tmpfs')
 
+        boot_id = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         with c.locked('nix-alpine-env'):
             service = c.prepare('nix-alpine-env', 'x86_64-linux', str(source), revision)
             generation = service['generation']
-            c.lifecycle('begin-activate', 'nix-alpine-env', target='12345678-1234-1234-1234-123456789abc')
+            c.lifecycle('begin-activate', 'nix-alpine-env', target=boot_id)
             c.lifecycle('confirm-active', 'nix-alpine-env', generation)
         service_manifest = service['manifest']
         rootless_podman = [*run_as_user, str(tools / 'podman')]
-        with (tools / 'service.log').open('w+') as log:
-            process = subprocess.Popen([*run_as_user, 'NIX_XD_WORKLOAD_CONTAINER=nix-xd-ci-service',
-                                        *executor, service_manifest['rootfsArchive'], service_manifest['executable']],
-                                       stdout=log, stderr=subprocess.STDOUT)
-            try:
-                deadline = time.monotonic() + 90
-                ready = False
-                while time.monotonic() < deadline:
-                    if process.poll() is not None:
-                        log.seek(0)
-                        raise AssertionError(log.read())
-                    probe = subprocess.run([*rootless_podman, 'exec', 'nix-xd-ci-service',
-                                            service_manifest['readinessExecutable']], capture_output=True, text=True)
-                    if probe.returncode == 0:
-                        assert 'NIX_ALPINE_READY=passed' in probe.stdout
-                        ready = True
-                        break
-                    time.sleep(1)
-                assert ready, 'Managed environment did not become ready'
-                assert c.lifecycle('summary', 'nix-alpine-env')['rootsRetained']
-                shell = subprocess.check_output([*rootless_podman, 'exec', '-i', '--user', '1000:1000',
-                        'nix-xd-ci-service', '/bin/sh', '-ec',
-                        'test "$(id -u)" = 1000; nix --version; test -f "$XDG_RUNTIME_DIR/ready"; echo SHELL_OK'], text=True)
-                assert 'SHELL_OK' in shell
-            finally:
-                c.lifecycle('begin-stop', 'nix-alpine-env', target='12345678-1234-1234-1234-123456789abc')
-                stopped = subprocess.run([*rootless_podman, 'stop', '--time', '10', 'nix-xd-ci-service'],
-                                         check=True, capture_output=True, text=True)
-                assert 'resorting to SIGKILL' not in stopped.stderr, stopped.stderr
-                assert process.wait(timeout=60) == 0
-            assert subprocess.run([*rootless_podman, 'container', 'exists', 'nix-xd-ci-service']).returncode == 1
+        service_name = 'nix-xd-nix-alpine-env-' + generation[:32]
+        logs = []
+
+        def launch(container):
+            log = (tools / (container + '.log')).open('w+')
+            logs.append(log)
+            return subprocess.Popen([*run_as_user, 'NIX_XD_WORKLOAD_CONTAINER=' + container,
+                                     *executor, service_manifest['rootfsArchive'], service_manifest['executable']],
+                                    stdout=log, stderr=subprocess.STDOUT), log
+
+        def wait_ready(process, log, container):
+            deadline = time.monotonic() + 90
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    log.seek(0)
+                    raise AssertionError(log.read())
+                probe = subprocess.run([*rootless_podman, 'exec', container,
+                                        service_manifest['readinessExecutable']], capture_output=True, text=True)
+                if probe.returncode == 0:
+                    assert 'NIX_ALPINE_READY=passed' in probe.stdout
+                    return
+                time.sleep(1)
+            raise AssertionError('Managed environment did not become ready')
+
+        def stop_instance(process, container):
+            stopped = subprocess.run([*rootless_podman, 'stop', '--time', '10', container],
+                                     check=True, capture_output=True, text=True)
+            assert 'resorting to SIGKILL' not in stopped.stderr, stopped.stderr
+            assert process.wait(timeout=60) == 0
+            assert subprocess.run([*rootless_podman, 'container', 'exists', container]).returncode == 1
+
+        def snapshot(stage, container, transaction, instance):
+            cid = subprocess.check_output([*rootless_podman, 'inspect', container, '--format', '{{.Id}}'], text=True).strip()
+            evidence = subprocess.check_output([*rootless_podman, 'exec', '-i', container, '/bin/sh', '-s'],
+                input=c.container_recreation_probe(stage, transaction), text=True)
+            identities = {'BOOT_ID': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                'GENERATION': generation, 'TRANSACTION': transaction, 'INSTANCE': instance or 'legacy', 'CONTAINER_ID': cid}
+            return evidence + ''.join('RECREATE_' + key + '=' + value + '\n' for key, value in identities.items())
+
+        process, log = launch(service_name)
+        try:
+            wait_ready(process, log, service_name)
+            assert c.lifecycle('summary', 'nix-alpine-env')['rootsRetained']
+            shell = subprocess.check_output([*rootless_podman, 'exec', '-i', '--user', '1000:1000',
+                    service_name, '/bin/sh', '-ec',
+                    'test "$(id -u)" = 1000; nix --version; test -f "$XDG_RUNTIME_DIR/ready"; echo SHELL_OK'], text=True)
+            assert 'SHELL_OK' in shell
+            transaction = c.recreation('begin-recreate', 'nix-alpine-env', generation, target=boot_id)
+            before = snapshot('before', service_name, transaction, None)
+            c.recreation('recreate-record-before', 'nix-alpine-env', generation, transaction=transaction, evidence=before)
+            fingerprint = c.assert_retained(c.load('nix-alpine-env'), 'nix-alpine-env', generation)
+            stop_instance(process, service_name)
+            assert fingerprint == c.assert_retained(c.load('nix-alpine-env'), 'nix-alpine-env', generation)
+            c.recreation('recreate-stopped', 'nix-alpine-env', generation, transaction=transaction)
+            instance = c.load('nix-alpine-env')['generations'][generation]['instance']
+            service_name = 'nix-xd-nix-alpine-env-' + generation[:16] + '-' + instance[:16]
+            process, log = launch(service_name)
+            c.recreation('recreate-activated', 'nix-alpine-env', generation, transaction=transaction)
+            wait_ready(process, log, service_name)
+            c.recreation('recreate-checked', 'nix-alpine-env', generation, transaction=transaction)
+            after = snapshot('after', service_name, transaction, instance)
+            c.recreation('recreate-record-after', 'nix-alpine-env', generation, transaction=transaction, evidence=after)
+            c.recreation('confirm-recreated', 'nix-alpine-env', generation, transaction=transaction)
+            assert fingerprint == c.assert_retained(c.load('nix-alpine-env'), 'nix-alpine-env', generation)
+            print('PASS: new container ID, same boot/generation/store paths, fresh writable state and continuously retained roots')
+        finally:
+            entry = c.load('nix-alpine-env')['generations'][generation]
+            if entry['status'].startswith('recreating-'):
+                c.recreation('abandon-recreate', 'nix-alpine-env', generation, transaction=entry['recreation']['id'])
+            c.lifecycle('begin-stop', 'nix-alpine-env', target=boot_id)
+            if process.poll() is None:
+                stop_instance(process, service_name)
+            assert subprocess.run([*rootless_podman, 'container', 'exists', service_name]).returncode == 1
             c.lifecycle('confirm-stopped', 'nix-alpine-env', generation)
-            assert not c.lifecycle('summary', 'nix-alpine-env')['rootsRetained']
+            for log in logs:
+                log.close()
+        assert not c.lifecycle('summary', 'nix-alpine-env')['rootsRetained']
         print('PASS: managed service remains running, readiness and shell exec work, roots release after stop')
+
 
 finally:
     unmounted = True

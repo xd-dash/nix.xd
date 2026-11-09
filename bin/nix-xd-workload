@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 operation="${1:?expected prepare, inspect, activate or stop}"
-case "$operation" in prepare|inspect|activate|check|status|shell|mode|stop) ;; *) echo 'Unknown workload action' >&2; exit 2 ;; esac
+case "$operation" in prepare|inspect|activate|check|status|shell|mode|stop|recreate|recreate-abandon) ;; *) echo 'Unknown workload action' >&2; exit 2 ;; esac
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 provider="${NIX_XD_PROVIDER:-podman}"
 machine="${NIX_XD_MACHINE:-coreos-arm64}"
@@ -27,6 +27,9 @@ case "$system:$actual" in aarch64-linux:aarch64|aarch64-linux:arm64|x86_64-linux
 inside sh -ec 'test "$(id -u)" = 1000; test -f /nix/.nix-xd-direct-volume-v2'
 control() {
   inside nix run --no-write-lock-file "$flake#workload-control" -- "$@" --name "$name"
+}
+control_input() {
+  "${runtime[@]}" exec -i "$scope" nix run --no-write-lock-file "$flake#workload-control" -- "$@" --name "$name"
 }
 selected_control() {
   if [[ -n "$generation" ]]; then
@@ -71,6 +74,65 @@ opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTime
   -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 boot_id="$(ssh -T "${opts[@]}" "$user@127.0.0.1" 'cat /proc/sys/kernel/random/boot_id')"
 [[ "$boot_id" =~ ^[a-f0-9-]{36}$ ]] || fail 'Invalid guest boot identity'
+if [[ "$operation" == recreate || "$operation" == recreate-abandon ]]; then
+  generation="$(selected_control active-generation)"
+  if [[ "$operation" == recreate-abandon ]]; then
+    transaction="$(control pending-recreation --generation "$generation")"
+    control abandon-recreate --generation "$generation" --transaction "$transaction"
+    exec bash "$repo/bin/nix-xd-workload" stop
+  fi
+  transaction="$(control begin-recreate --generation "$generation" --target "$boot_id")"
+  [[ "$transaction" =~ ^[a-f0-9]{32}$ ]] || fail 'Invalid recreation transaction'
+  evidence="$state/workloads/$name/$generation/recreations/$transaction"
+  mkdir -p "$evidence"
+  control inspect > "$evidence/owner-before.json"
+  recreate_guest() {
+    local action="$1" marker="$2"
+    control "$action" --generation "$generation" > "$evidence/$action.sh"
+    if ! ssh -T "${opts[@]}" "$user@127.0.0.1" 'bash -se' \
+       < "$evidence/$action.sh" > "$evidence/$action.log" 2>&1; then
+      cat "$evidence/$action.log" >&2
+      fail 'Recreation interrupted; roots retained. Retry workload-recreate or use workload-recreate-abandon.'
+    fi
+    cat "$evidence/$action.log"
+    grep -Fxq "$marker" "$evidence/$action.log" || fail 'Recreation acknowledgement missing; roots retained'
+  }
+  for attempt in 1 2 3 4 5 6; do
+    phase="$(control recreate-phase --generation "$generation" --transaction "$transaction")"
+    printf 'WORKLOAD_RECREATE_PHASE=%s transaction=%s\n' "$phase" "$transaction"
+    case "$phase" in
+      snapshot)
+        recreate_guest guest-snapshot-before "RECREATE_TRANSACTION=$transaction"
+        control_input recreate-record-before --generation "$generation" --transaction "$transaction" < "$evidence/guest-snapshot-before.log"
+        ;;
+      stop)
+        recreate_guest guest-recreate-stop "WORKLOAD_STOPPED=$generation"
+        control recreate-stopped --generation "$generation" --transaction "$transaction"
+        ;;
+      start)
+        recreate_guest guest-recreate-activate "WORKLOAD_ACTIVATED=$generation"
+        control recreate-activated --generation "$generation" --transaction "$transaction"
+        ;;
+      check)
+        recreate_guest guest-recreate-check "WORKLOAD_CHECKED=$generation"
+        control recreate-checked --generation "$generation" --transaction "$transaction"
+        ;;
+      verify)
+        recreate_guest guest-snapshot-after "RECREATE_TRANSACTION=$transaction"
+        control_input recreate-record-after --generation "$generation" --transaction "$transaction" < "$evidence/guest-snapshot-after.log"
+        control confirm-recreated --generation "$generation" --transaction "$transaction"
+        ;;
+      done)
+        control inspect > "$evidence/owner-after.json"
+        control summary
+        printf 'WORKLOAD_RECREATE_RESULT=passed generation=%s transaction=%s evidence=%s\n' "$generation" "$transaction" "$evidence"
+        exit 0
+        ;;
+      *) fail 'Recreation phase is blocked; roots retained' ;;
+    esac
+  done
+  fail 'Recreation did not complete; roots retained'
+fi
 if [[ "$operation" == activate ]]; then
   generation="$(selected_control begin-activate --target "$boot_id")"
   marker=WORKLOAD_ACTIVATED
@@ -100,7 +162,10 @@ control inspect > "$evidence/manifest.json"
 control "$guest_action" --generation "$generation" > "$evidence/$operation.sh"
 if [[ "$operation" == shell ]]; then
   # Stage the script separately so the second SSH connection has interactive stdin.
-  remote_dir='"$XDG_RUNTIME_DIR"/nix-xd-workloads/'"$name/$generation"
+  runtime_path="$(control runtime-path --generation "$generation")"
+  runtime_pattern='^[a-z][a-z0-9-]{0,39}/[a-f0-9]{64}(/[a-f0-9]{32})?$'
+  [[ "$runtime_path" =~ $runtime_pattern ]] || fail 'Invalid runtime instance path'
+  remote_dir='"$XDG_RUNTIME_DIR"/nix-xd-workloads/'"$runtime_path"
   ssh -T "${opts[@]}" "$user@127.0.0.1" "umask 077; cat > $remote_dir/shell.sh" < "$evidence/shell.sh"
   exec ssh -tt "${opts[@]}" "$user@127.0.0.1" "bash $remote_dir/shell.sh"
 fi
