@@ -633,12 +633,12 @@ untouched by using a dedicated checkout:
 ```sh
 cd ~/workspace/nix.xd
 make sync REPO=dash-xd/agni BRANCH=codex/coreos-arm64-qemu-container \\
-  REV=c9673ca5601f71eea02df3fe70c2d10f76b2e600 \\
+  REV=a49af1aa7a0f1d8dd792310391e9ed99ce865106 \\
   SYNC_NAME=agni-starwisp-9p WORKSPACES="$PWD"
 make stage ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 \\
   SCOPE=nix-xd-arm WORKSPACES="$PWD" CHECKOUT=agni-starwisp-9p
 
-state="$PWD/.state/coreos-9p"
+state="$PWD/.state/coreos-9p-ordering-fixed"
 agni_flake=/workspaces/agni-starwisp-9p/qemu/coreos-live/local
 
 make coreos-container-build ARCH=arm64 MACHINE=coreos-arm64 \\
@@ -658,7 +658,7 @@ make qualify-starwisp-shared ARCH=arm64 PROVIDER=podman \\
 ```
 
 The new `COREOS_STATE_ROOT` produces artifacts in
-`./.state/coreos-9p/starwisp`. The old `./.state/coreos/starwisp`
+`./.state/coreos-9p-ordering-fixed/starwisp`. The old `./.state/coreos/starwisp`
 remains untouched. The first command is pinned to an observed Agni
 revision and will fail closed if that branch advances; update the
 revision deliberately rather than silently building from an unknown
@@ -672,3 +672,18 @@ run requires `NIX_9P_GUEST_MOUNT`, `NIX_9P_OCI_ARCHIVE_READONLY`,
 `NIX_9P_NESTED_EXECUTABLE`, `NIX_9P_DYNAMIC_CLOSURE_EXECUTABLE`,
 `NIX_9P_NIX_CLI_READONLY`, and `NIX_9P_NESTED_PODMAN_READONLY`
 from the guest, followed by `QUALIFY_STARWISP_RESULT status=passed`.
+
+### Starwisp 9P systemd ordering correction (November 2026)
+
+The earlier 9P Ignition was generated with `After=local-fs.target` in
+`var-mnt-nixstore.mount`. Systemd also generated
+`Before=local-fs.target` for the local mount, creating a contradictory
+ordering constraint. The ARM64 Agni profile was corrected at revision
+`a49af1aa7a0f1d8dd792310391e9ed99ce865106`; the mount now keeps
+`Before=multi-user.target` but does not explicitly order itself after
+`local-fs.target`. The old `config.ign` cannot be repaired by changing
+its build manifest. Keep the previous `./.state/coreos-9p` run and its
+logs for diagnosis; build a new 9P Ignition in
+`./.state/coreos-9p-ordering-fixed` and do not reset the authoritative
+`nix-xd-arm-store` volume. A runtime guest mount check is still required
+before treating the ordering change as qualified.
