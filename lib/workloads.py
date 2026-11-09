@@ -325,7 +325,7 @@ else
 '''
         script += "  printf '%s' " + q(self.executor.read_text()) + ' > "$run_dir/executor"\n'
         script += ('  systemd-run --user --unit="$unit" --property=Type=exec '
-                   '--property=RemainAfterExit=yes --property=RuntimeMaxSec=' + str(d["runtimeMaxSec"]) + 's '
+                   '--property=RemainAfterExit=yes --property=Delegate=yes --property=RuntimeMaxSec=' + str(d["runtimeMaxSec"]) + 's '
                    '/usr/bin/env NIX_XD_WORKLOAD_CONTAINER="$unit" /usr/bin/bash "$run_dir/executor" '
                    + shlex.join(command) + '\nfi\n')
         script += '''active="$(systemctl --user show "$unit.service" -p ActiveState --value)"

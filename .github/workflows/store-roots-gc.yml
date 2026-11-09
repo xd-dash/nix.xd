@@ -47,4 +47,4 @@ jobs:
       - name: Check real Nix workload preparation and root release
         run: sudo env GITHUB_ACTIONS=true PATH="$PATH" python3 tests/workloads-nix.py
       - name: Validate flake syntax
-        run: nix-instantiate --parse flake.nix >/dev/null
+        run: sudo env PATH="$PATH" nix-instantiate --parse flake.nix >/dev/null
