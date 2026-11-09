@@ -34,7 +34,15 @@ for link in "$HOME/.nix-profile" /nix/var/nix/profiles/default /nix/var/nix/prof
 done
 optional user-profile-list nix profile list
 optional system-profile-list nix profile list --profile /nix/var/nix/profiles/default
-optional gc-roots nix-store --gc --print-roots
+section gc-root-links-snapshot
+if [ -d /nix/var/nix/gcroots ]; then
+  find /nix/var/nix/gcroots -type l -print | sort | while IFS= read -r root; do
+    printf 'GC_ROOT_LINK=%s target=%s\\n' "$root" "$(readlink "$root")"
+  done
+else
+  printf 'GC_ROOTS_DIRECTORY=absent\\n'
+fi
+printf 'GC_ROOTS_SNAPSHOT_NOTE=symlink-inventory-not-transitive-liveness\\n'
 optional store-disk-usage du -sh /nix/store
 
 section registered-store-paths
