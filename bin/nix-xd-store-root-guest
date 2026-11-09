@@ -1,0 +1,58 @@
+#!/bin/sh
+set -eu
+operation="${1:?operation}"
+base=/nix/var/nix/gcroots/nix-xd
+group="${2:?group}"
+case "$group" in
+  starwisp|workloads) ;;
+  *) echo 'Invalid root group' >&2; exit 2 ;;
+esac
+case "$operation" in
+  inspect)
+    if [ ! -d "$base/$group" ]; then
+      printf 'ROOT_GROUP_ABSENT=%s\n' "$group"
+      exit 0
+    fi
+    find "$base/$group" -type l -print | sort | while IFS= read -r link; do
+      printf 'ROOT=%s TARGET=%s\n' "$link" "$(readlink "$link")"
+    done
+    ;;
+  register)
+    name="${3:?name}"
+    path="${4:?path}"
+    case "$name" in *[!a-zA-Z0-9_-]*|'') echo 'Invalid root name' >&2; exit 2 ;; esac
+    case "$path" in
+      /nix/store/*) ;;
+      *) echo 'Store root must target /nix/store' >&2; exit 2 ;;
+    esac
+    case "${path#/nix/store/}" in
+      *[!a-zA-Z0-9._+-]*|'') echo 'Invalid store path' >&2; exit 2 ;;
+    esac
+    nix path-info "$path" >/dev/null || { echo "Unregistered store path: $path" >&2; exit 1; }
+    mkdir -p "$base"
+    [ ! -L "$base" ] || { echo 'Root base is symlink' >&2; exit 1; }
+    [ ! -L "$base/$group" ] || { echo 'Root group is symlink' >&2; exit 1; }
+    mkdir -p "$base/$group"
+    dest="$base/$group/$name"
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+      echo "Refusing non-symlink root destination: $dest" >&2
+      exit 1
+    fi
+    if [ -L "$dest" ] && [ "$(readlink "$dest")" = "$path" ]; then
+      printf 'ROOT_UNCHANGED=%s TARGET=%s\n' "$dest" "$path"
+      exit 0
+    fi
+    lock="$base/.register-lock"
+    mkdir "$lock" || { echo 'Root registration locked; retry later' >&2; exit 1; }
+    tmp="$base/$group/.pending-$$"
+    trap 'rm -f "$tmp"; rmdir "$lock"' EXIT HUP INT TERM
+    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || { echo 'Pending root exists' >&2; exit 1; }
+    ln -s "$path" "$tmp"
+    mv -fT "$tmp" "$dest"
+    printf 'ROOT_REGISTERED=%s TARGET=%s\n' "$dest" "$path"
+    ;;
+  *)
+    echo 'Expected inspect or register' >&2
+    exit 2
+    ;;
+esac
