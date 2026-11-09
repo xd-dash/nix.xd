@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Exercise domain boundaries and the sandbox composition sequencer."""
 import contextlib
+import fcntl
+import signal
+import subprocess
 import io
 import json
 import os
@@ -241,6 +244,48 @@ class BatchedProbes(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'acknowledgement missing'):
                     runtime.placement_probe('host', ['shared-host-a'],
                         {'shared-host-a': {'script': ':', 'generation': 'generation', 'fingerprint': 'roots'}})
+
+
+class Cancellation(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.runtime = Runtime.__new__(Runtime)
+        self.runtime.root = Path(self.temporary.name)
+
+    def test_idle_cancel_does_not_signal_anything(self):
+        with patch('compose_runtime.os.kill') as kill, contextlib.redirect_stdout(io.StringIO()):
+            self.runtime.cancel()
+        kill.assert_not_called()
+
+    def test_cancel_only_signals_verified_controller_and_descendants(self):
+        listing = subprocess.CompletedProcess([], 0, stdout='234567\n234599\n')
+        tables = ['234567 1 python3 lib/compose_runtime.py qualify\n234568 234567 ssh guest bash -se\n234599 1 unrelated-program\n',
+                  '234567 1\n234568 234567\n234569 234568\n234599 1\n']
+        with patch('compose_runtime.fcntl.flock', side_effect=[BlockingIOError(), None]), \
+             patch('compose_runtime.shutil.which', return_value='/usr/sbin/lsof'), \
+             patch('compose_runtime.subprocess.run', return_value=listing), \
+             patch('compose_runtime.subprocess.check_output', side_effect=tables), \
+             patch('compose_runtime.os.kill') as kill, contextlib.redirect_stdout(io.StringIO()):
+            self.runtime.cancel()
+        self.assertEqual(kill.call_args_list[0].args, (234567, signal.SIGSTOP))
+        signalled = [call.args for call in kill.call_args_list]
+        self.assertIn((234568, signal.SIGTERM), signalled)
+        self.assertIn((234569, signal.SIGTERM), signalled)
+        self.assertIn((234567, signal.SIGTERM), signalled)
+        self.assertEqual(signalled[-1], (234567, signal.SIGCONT))
+        self.assertNotIn(234599, [pid for pid, _ in signalled])
+
+    def test_unknown_lock_holder_is_not_signalled(self):
+        listing = subprocess.CompletedProcess([], 0, stdout='234599\n')
+        with patch('compose_runtime.fcntl.flock', side_effect=BlockingIOError()), \
+             patch('compose_runtime.shutil.which', return_value='/usr/sbin/lsof'), \
+             patch('compose_runtime.subprocess.run', return_value=listing), \
+             patch('compose_runtime.subprocess.check_output', return_value='234599 1 unrelated-program\n'), \
+             patch('compose_runtime.os.kill') as kill:
+            with self.assertRaisesRegex(ValueError, 'no processes signalled'):
+                self.runtime.cancel()
+        kill.assert_not_called()
 
 
 if __name__ == '__main__':

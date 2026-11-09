@@ -1065,3 +1065,12 @@ new revision**, then `composition-local`. Stop accepts the previous plan and
 staged revision for cleanup, retains roots until termination is acknowledged,
 and leaves both VMs, the store owner, and unrelated workloads running. Other
 phases continue requiring the selected committed and staged revision to match.
+
+If the old terminal is still running and `composition-stop` reports a busy lock,
+use `make composition-cancel`, followed by `composition-stop` and
+`composition-local`. Cancellation uses host `lsof` and `ps` to identify the
+controller with this composition lock open, verifies its command, and terminates
+only that controller and its local transport descendants. It does not release
+roots or stop guest services; the managed stop phase still acknowledges their
+termination. Never delete a busy lock file: removing its pathname does not
+terminate the holder and could permit overlapping controllers.

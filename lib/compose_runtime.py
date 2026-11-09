@@ -6,6 +6,8 @@ import fcntl
 import json
 import re
 import shlex
+import shutil
+import signal
 import os
 from pathlib import Path
 import platform
@@ -303,6 +305,70 @@ class Runtime:
         write_json(self.root / 'qualification.json', {'result': 'passed', 'plan': self.plan, 'readers': final})
         print('COMPOSITION_QUALIFICATION=passed readers=6 placements=3')
 
+    def cancel(self):
+        path = self.root / 'composition.lock'
+        with path.open('a') as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                print('COMPOSITION_CANCEL_RESULT=idle')
+                return
+            require(shutil.which('lsof'), 'Cancellation requires lsof to identify the existing lock holder')
+            found = subprocess.run(['lsof', '-t', '--', str(path)], text=True, capture_output=True)
+            require(found.returncode == 0, 'Cannot identify the locked composition; interrupt its original terminal')
+            candidates = {int(pid) for pid in found.stdout.split() if pid.isdigit()} - {os.getpid()}
+            processes = {}
+            for line in subprocess.check_output(['ps', '-axo', 'pid=,ppid=,command='], text=True).splitlines():
+                columns = line.strip().split(None, 2)
+                if len(columns) == 3:
+                    processes[int(columns[0])] = (int(columns[1]), columns[2])
+            holders = []
+            for pid in candidates:
+                command = processes.get(pid, (None, ''))[1]
+                try:
+                    arguments = shlex.split(command)
+                except ValueError:
+                    continue
+                if any(argument in ('lib/compose_runtime.py', str(REPO / 'lib/compose_runtime.py'))
+                       for argument in arguments) and arguments[-1] in ('plan', 'prepare', 'start', 'status', 'qualify', 'stop'):
+                    holders.append(pid)
+            require(len(holders) == 1, 'Cannot uniquely identify the composition controller; no processes signalled')
+            pid = holders[0]
+            # Freeze only the lock-owning controller so it cannot schedule more work.
+            os.kill(pid, signal.SIGSTOP)
+            try:
+                table = subprocess.check_output(['ps', '-axo', 'pid=,ppid='], text=True)
+                children = {}
+                for line in table.splitlines():
+                    child, parent = map(int, line.split())
+                    children.setdefault(parent, []).append(child)
+                def descendants(parent):
+                    for child in children.get(parent, []):
+                        yield from descendants(child)
+                        yield child
+                for child in descendants(pid):
+                    try:
+                        os.kill(child, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                os.kill(pid, signal.SIGTERM)
+            finally:
+                try:
+                    os.kill(pid, signal.SIGCONT)
+                except ProcessLookupError:
+                    pass
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    print('COMPOSITION_CANCEL_RESULT=passed controller_pid=%s roots=retained' % pid)
+                    return
+                except BlockingIOError:
+                    time.sleep(0.2)
+            raise ValueError('Controller termination requested but lock remains held; no roots released')
+
     def execute(self, phase):
         self.resolve(phase == 'plan', stopping=phase == 'stop')
         names = sorted(self.plan['workloads'])
@@ -347,12 +413,18 @@ class Runtime:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('phase', choices=('plan', 'prepare', 'start', 'status', 'qualify', 'stop'))
+    parser.add_argument('phase', choices=('plan', 'prepare', 'start', 'status', 'qualify', 'stop', 'cancel'))
     args = parser.parse_args()
     require(sys.version_info >= (3, 9), 'Host qualification requires Python 3.9 or newer')
     runtime = Runtime(os.environ)
+    if args.phase == 'cancel':
+        runtime.cancel()
+        return
     with (runtime.root / 'composition.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError('Another composition phase is still running. Interrupt its original terminal or run make composition-cancel, then composition-stop. Do not delete the lock file.') from None
         runtime.execute(args.phase)
 
 
