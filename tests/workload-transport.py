@@ -34,8 +34,14 @@ if kind == 'ssh':
     if os.environ.get('SSH_NO_ACK') == '1': sys.exit(0)
     sys.exit(subprocess.run([os.environ['TEST_BASH'], '-se'], input=payload, text=True).returncode)
 assert kind == 'podman', kind
+if args[:3] == ['machine', 'ssh', 'coreos-arm64']:
+    if args[-1] == 'cat /proc/sys/kernel/random/boot_id':
+        print('12345678-1234-1234-1234-123456789abc'); sys.exit(0)
+    sys.exit(subprocess.run([os.environ['TEST_BASH'], '-se'], input=sys.stdin.read(), text=True).returncode)
 assert args[:2] == ['--connection', 'coreos-arm64'], args
 args = args[2:]
+if args[:2] == ['volume', 'inspect']:
+    print('/volumes/nix-xd-arm-store'); sys.exit(0)
 if args[:3] == ['exec', 'nix-xd-arm', 'uname']:
     print('aarch64'); sys.exit(0)
 if args[:2] == ['inspect', 'nix-xd-arm']:
@@ -70,6 +76,7 @@ elif action.startswith('guest-recreate-'):
 elif action in ['status-selection', 'begin-activate', 'active-generation', 'begin-stop', 'confirm-active', 'confirm-stopped']:
     print('none' if action == 'status-selection' and os.environ.get('ACTIVE_NONE') else generation)
 elif action in ['inspect', 'summary']: print('{}')
+elif action == 'placement': print(os.environ.get('NIX_XD_WORKLOAD_PLACEMENT', 'guest'))
 elif action == 'runtime-path': print('starwisp-probe/' + generation)
 elif action == 'guest-shell': print('echo WORKLOAD_SHELL_FIXTURE=passed')
 elif action.startswith('guest-'):
@@ -159,6 +166,21 @@ class Transport(unittest.TestCase):
         calls = [c[0] for c in self.recorded()]
         self.assertLess(calls.index('abandon-recreate'), calls.index('guest-stop'))
         self.assertLess(calls.index('guest-stop'), calls.index('confirm-stopped'))
+
+    def test_host_reader_uses_machine_transport_and_explicit_export(self):
+        result = self.invoke('activate', NIX_XD_WORKLOAD_PLACEMENT='host', COREOS_SSH_KEY='/missing')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        activation = next(c for c in self.recorded() if c[0] == 'begin-activate')
+        self.assertEqual(activation[activation.index('--store-export') + 1], '/volumes/nix-xd-arm-store/store')
+
+    def test_recreation_pause_keeps_roots_and_defers_replacement(self):
+        result = self.invoke('recreate', NIX_XD_RECREATE_PAUSE='after-stop')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        actions = [c[0] for c in self.recorded()]
+        self.assertIn('recreate-stopped', actions)
+        self.assertNotIn('guest-recreate-activate', actions)
+        self.assertNotIn('confirm-stopped', actions)
+        self.assertIn('WORKLOAD_RECREATE_PAUSED=after-stop', result.stdout)
 
     def test_stopped_status_does_not_require_a_guest_connection(self):
         result = self.invoke('status', ACTIVE_NONE='1', COREOS_SSH_KEY='/missing/key')

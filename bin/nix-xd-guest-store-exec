@@ -16,11 +16,19 @@ else
   [[ "$shell_path" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/bin/sh$ ]] ||
     fail 'Shell must be an absolute Nix store rootfs executable'
 fi
-mountpoint=/var/mnt/nixstore
-findmnt -rn --mountpoint "$mountpoint" >/dev/null || fail '9P Nix store mount missing'
-[[ "$(findmnt -rn -o FSTYPE --mountpoint "$mountpoint")" == 9p ]] || fail 'Not a 9P mount'
-mount_opts="$(findmnt -rn -o OPTIONS --mountpoint "$mountpoint")"
-[[ ",$mount_opts," == *,ro,* ]] || fail 'Shared store is not read-only'
+mountpoint="${NIX_XD_STORE_EXPORT:-/var/mnt/nixstore}"
+transport="${NIX_XD_STORE_TRANSPORT:-9p}"
+[[ "$mountpoint" == /* && "$mountpoint" != *..* ]] || fail 'Invalid store export'
+case "$transport" in
+  9p)
+    findmnt -rn --mountpoint "$mountpoint" >/dev/null || fail '9P Nix store mount missing'
+    [[ "$(findmnt -rn -o FSTYPE --mountpoint "$mountpoint")" == 9p ]] || fail 'Not a 9P mount'
+    mount_opts="$(findmnt -rn -o OPTIONS --mountpoint "$mountpoint")"
+    [[ ",$mount_opts," == *,ro,* ]] || fail 'Shared store is not read-only'
+    ;;
+  bind) [[ -d "$mountpoint" && -r "$mountpoint" && -x "$mountpoint" ]] || fail 'Host store export unavailable' ;;
+  *) fail 'Unsupported store transport' ;;
+esac
 [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]] || fail 'Missing user runtime directory'
 [[ "$(id -u)" -ne 0 ]] || fail 'Rootless execution required'
 [[ "$(podman info --format '{{.Host.Security.Rootless}}')" == true ]] || fail 'Podman is not rootless'
@@ -56,7 +64,7 @@ if [[ "$mode" == alpine-archive ]]; then
     --env PATH=/usr/local/bin:/usr/bin:/bin --env NIX_REMOTE=local
     --env XDG_RUNTIME_DIR=/run/nixuser)
   set -- /usr/local/bin/nix-alpine-init "$@"
-  echo "NIX_ALPINE_ROOTFS_MODE=guest-runtime-alpine archive=$archive uid=1000 store=read-only-9p"
+  echo "NIX_ALPINE_ROOTFS_MODE=guest-runtime-alpine archive=$archive uid=1000 store=read-only-$transport"
 else
   shell_source="$mountpoint/${shell_path#/nix/store/}"
   [[ -L "$shell_source" ]] || fail 'Shared store shell link missing'
@@ -74,5 +82,5 @@ else
 fi
 podman run --rm "${container_options[@]}" \
   --security-opt label=disable \
-  --mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro \
+  --mount "type=bind,src=$mountpoint,dst=/nix/store,ro" \
   --rootfs "$scratch" "$@"

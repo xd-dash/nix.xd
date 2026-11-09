@@ -245,6 +245,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
+	@python3 tests/compositions.py
 	@python3 tests/guest-executor.py
 	@python3 tests/coreos-managed-start.py
 	@python3 tests/workload-transport.py
@@ -393,3 +394,10 @@ workload-recreate workload-qualify-recreation:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workload recreate
 workload-recreate-abandon:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workload recreate-abandon
+
+# Flake-composed sandbox phases; each can be run independently.
+COMPOSITION ?= shared-store-matrix
+export NIX_XD_COMPOSITION = $(COMPOSITION)
+.PHONY: composition-plan composition-prepare composition-start composition-status composition-qualify composition-stop
+composition-plan composition-prepare composition-start composition-status composition-qualify composition-stop:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" python3 lib/compose_runtime.py $(patsubst composition-%,%,$@)

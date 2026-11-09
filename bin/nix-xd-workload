@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 operation="${1:?expected prepare, inspect, activate or stop}"
-case "$operation" in prepare|inspect|activate|check|status|shell|mode|stop|recreate|recreate-abandon) ;; *) echo 'Unknown workload action' >&2; exit 2 ;; esac
+case "$operation" in prepare|inspect|activate|check|status|shell|mode|stop|recreate|recreate-abandon|isolate-write|isolate-check) ;; *) echo 'Unknown workload action' >&2; exit 2 ;; esac
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 provider="${NIX_XD_PROVIDER:-podman}"
 machine="${NIX_XD_MACHINE:-coreos-arm64}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 system="${NIX_XD_SYSTEM:-aarch64-linux}"
 name="${NIX_XD_WORKLOAD:-starwisp-probe}"
+placement="${NIX_XD_WORKLOAD_PLACEMENT:-guest}"
+[[ "$placement" == host || "$placement" == guest ]] || { echo 'Invalid placement' >&2; exit 2; }
 flake="${NIX_XD_WORKLOAD_FLAKE:-/workspaces/nix.xd}"
 revision="${NIX_XD_WORKLOAD_REV:-}"
 generation="${NIX_XD_WORKLOAD_GENERATION:-}"
@@ -62,6 +64,12 @@ root="${COREOS_STATE_ROOT:-$repo/.state/coreos}"
 user="${COREOS_GUEST_USER:-wisp}"
 port="${COREOS_SSH_PORT:-2222}"
 key="${COREOS_SSH_KEY:-}"
+if [[ "$placement" == host ]]; then
+  [[ "$(selected_control placement)" == host ]] || fail 'Workload is not declared for host placement'
+  state="$root/host"
+  mkdir -p "$state"
+  store_export="$("${runtime[@]}" volume inspect "$scope-store" --format '{{.Mountpoint}}')/store"
+else
 [[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ && "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail 'Invalid guest profile or user'
 [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Invalid guest SSH port'
 [[ -r "$key" ]] || fail 'Provide COREOS_SSH_KEY'
@@ -72,8 +80,23 @@ grep -Fxq "shared_nix_volume=$scope-store" "$state/build.txt" || fail 'Guest exp
 opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10
   -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$state/known_hosts"
   -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-boot_id="$(ssh -T "${opts[@]}" "$user@127.0.0.1" 'cat /proc/sys/kernel/random/boot_id')"
-[[ "$boot_id" =~ ^[a-f0-9-]{36}$ ]] || fail 'Invalid guest boot identity'
+fi
+remote_script() {
+  if [[ "$placement" == host ]]; then
+    if [[ "$(uname -s)" == Darwin ]]; then podman machine ssh "$machine" 'bash -se'; else bash -se; fi
+  else
+    ssh -T "${opts[@]}" "$user@127.0.0.1" 'bash -se'
+  fi
+}
+remote_command() {
+  if [[ "$placement" == host ]]; then
+    if [[ "$(uname -s)" == Darwin ]]; then podman machine ssh "$machine" "$1"; else bash -c "$1"; fi
+  else
+    ssh -T "${opts[@]}" "$user@127.0.0.1" "$1"
+  fi
+}
+boot_id="$(remote_command 'cat /proc/sys/kernel/random/boot_id')"
+[[ "$boot_id" =~ ^[a-f0-9-]{36}$ ]] || fail 'Invalid runtime boot identity'
 if [[ "$operation" == recreate || "$operation" == recreate-abandon ]]; then
   generation="$(selected_control active-generation)"
   if [[ "$operation" == recreate-abandon ]]; then
@@ -89,7 +112,7 @@ if [[ "$operation" == recreate || "$operation" == recreate-abandon ]]; then
   recreate_guest() {
     local action="$1" marker="$2"
     control "$action" --generation "$generation" > "$evidence/$action.sh"
-    if ! ssh -T "${opts[@]}" "$user@127.0.0.1" 'bash -se' \
+    if ! remote_script \
        < "$evidence/$action.sh" > "$evidence/$action.log" 2>&1; then
       cat "$evidence/$action.log" >&2
       fail 'Recreation interrupted; roots retained. Retry workload-recreate or use workload-recreate-abandon.'
@@ -108,6 +131,10 @@ if [[ "$operation" == recreate || "$operation" == recreate-abandon ]]; then
       stop)
         recreate_guest guest-recreate-stop "WORKLOAD_STOPPED=$generation"
         control recreate-stopped --generation "$generation" --transaction "$transaction"
+        if [[ "${NIX_XD_RECREATE_PAUSE:-}" == after-stop ]]; then
+          printf 'WORKLOAD_RECREATE_PAUSED=after-stop generation=%s transaction=%s\n' "$generation" "$transaction"
+          exit 0
+        fi
         ;;
       start)
         recreate_guest guest-recreate-activate "WORKLOAD_ACTIVATED=$generation"
@@ -134,7 +161,11 @@ if [[ "$operation" == recreate || "$operation" == recreate-abandon ]]; then
   fail 'Recreation did not complete; roots retained'
 fi
 if [[ "$operation" == activate ]]; then
-  generation="$(selected_control begin-activate --target "$boot_id")"
+  if [[ "$placement" == host ]]; then
+    generation="$(selected_control begin-activate --target "$boot_id" --store-export "$store_export")"
+  else
+    generation="$(selected_control begin-activate --target "$boot_id")"
+  fi
   marker=WORKLOAD_ACTIVATED
   guest_action=guest-activate
   confirm_action=confirm-active
@@ -142,6 +173,11 @@ elif [[ "$operation" == status || "$operation" == shell ]]; then
   generation="$(selected_control active-generation)"
   marker=WORKLOAD_STATUS_OK
   guest_action="guest-$operation"
+  confirm_action=
+elif [[ "$operation" == isolate-write || "$operation" == isolate-check ]]; then
+  generation="$(selected_control active-generation)"
+  marker=WORKLOAD_ISOLATION_OK
+  guest_action=guest-isolation
   confirm_action=
 elif [[ "$operation" == check ]]; then
   generation="$(selected_control active-generation)"
@@ -159,7 +195,17 @@ evidence="$state/workloads/$name/$generation"
 mkdir -p "$evidence"
 # Generate fully before connecting: a partial producer failure must not run a partial script.
 control inspect > "$evidence/manifest.json"
-control "$guest_action" --generation "$generation" > "$evidence/$operation.sh"
+if [[ "$guest_action" == guest-isolation ]]; then
+  control "$guest_action" --generation "$generation" --isolation-token "${NIX_XD_ISOLATION_TOKEN:?isolation token}" \
+    --isolation-mode "${operation#isolate-}" > "$evidence/$operation.sh"
+else
+  control "$guest_action" --generation "$generation" > "$evidence/$operation.sh"
+fi
+if [[ "$operation" == shell && "$placement" == host ]]; then
+  control assert-target --target "$boot_id" >/dev/null
+  container_name="$(control container-name --generation "$generation")"
+  exec "${runtime[@]}" exec -it --user 1000:1000 "$container_name" /bin/sh
+fi
 if [[ "$operation" == shell ]]; then
   # Stage the script separately so the second SSH connection has interactive stdin.
   runtime_path="$(control runtime-path --generation "$generation")"
@@ -169,7 +215,7 @@ if [[ "$operation" == shell ]]; then
   ssh -T "${opts[@]}" "$user@127.0.0.1" "umask 077; cat > $remote_dir/shell.sh" < "$evidence/shell.sh"
   exec ssh -tt "${opts[@]}" "$user@127.0.0.1" "bash $remote_dir/shell.sh"
 fi
-if ! ssh -T "${opts[@]}" "$user@127.0.0.1" 'bash -se' \
+if ! remote_script \
   < "$evidence/$operation.sh" > "$evidence/$operation.log" 2>&1; then
   cat "$evidence/$operation.log" >&2
   fail 'Guest operation failed or uncertain; roots retained. Inspect, then retry stop for recovery.'

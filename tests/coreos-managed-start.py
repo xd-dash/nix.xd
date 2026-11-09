@@ -24,6 +24,7 @@ if args[0] == 'inspect':
     if status == 'missing': sys.exit(1)
     if args[-1] == '{{.State.Status}}': print(status)
     elif args[-1] == '{{.Id}}': print('b'*64)
+    elif '/host-nix' in args[-1]: print('nix-xd-arm-store:false')
     elif args[-1] == '{{.Image}}': print(('sha256:' if os.environ.get('IMAGE_PREFIX') else '')+'a'*64)
     else: raise AssertionError(args)
 elif args[0] == 'start': print('coreos-starwisp')
@@ -89,6 +90,18 @@ class ManagedStart(unittest.TestCase):
         self.assertNotEqual(self.run_start('running').returncode, 0)
         self.assertNotEqual(self.run_start('missing').returncode, 0)
         self.assertTrue((self.state / 'overlay.qcow2').exists())
+
+    def test_second_vm_shares_artifacts_without_copying_disk(self):
+        primary = self.state
+        second = primary.parent / "second" / "starwisp"
+        self.env["COREOS_ARTIFACT_STATE"] = str(primary)
+        self.env["COREOS_STATE_ROOT"] = str(second.parent)
+        result = self.run_start('missing')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((second / "base.qcow2").exists())
+        self.assertTrue((second / "build.txt").exists())
+        self.assertIn("/artifacts/base.qcow2", self.record.read_text())
+        self.assertIn('artifact_state=' + str(primary), (second / "manifest.txt").read_text())
 
     def test_fresh_boot_records_container_identity(self):
         result = self.run_start('missing')

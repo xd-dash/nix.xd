@@ -275,6 +275,44 @@ class Lifecycle(unittest.TestCase):
         self.lifecycle("confirm-stopped", gen)
         self.assertFalse((self.c.roots / "starwisp-probe" / gen).exists())
 
+    def test_host_binding_is_explicit_and_read_only(self):
+        self.c.declaration["placement"] = "host"
+        self.c.declaration["capabilities"] = ["store-bind-ro", "user-systemd", "rootless-podman"]
+        gen = self.prepare()
+        with self.assertRaisesRegex(ValueError, "host store export"):
+            self.lifecycle("begin-activate", target=BOOT)
+        self.c.lifecycle("begin-activate", "starwisp-probe", target=BOOT, store_export="/host-volume/store")
+        script = self.c.guest_script("activate", "starwisp-probe", gen)
+        self.assertIn("NIX_XD_STORE_TRANSPORT=bind", script)
+        self.assertIn("/host-volume/store", script)
+        self.assertNotIn("findmnt -rn --mountpoint /var/mnt/nixstore", script)
+
+    def test_isolation_script_is_quoted_and_retains_roots(self):
+        gen = self.prepare()
+        self.lifecycle("begin-activate", target=BOOT)
+        self.lifecycle("confirm-active", gen)
+        for mode in ("write", "check"):
+            script = self.c.guest_script("isolation", "starwisp-probe", gen, "f" * 32, mode)
+            # setUp intercepts subprocess.run for native root registration.
+            result = subprocess.Popen(["bash", "-n"], stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            _, error = result.communicate(script)
+            self.assertEqual(result.returncode, 0, error)
+            self.assertIn("ISOLATION_PID_NAMESPACE", script)
+            self.assertIn("/nix/var/nix", script)
+        with self.assertRaisesRegex(ValueError, "Invalid isolation"):
+            self.c.guest_script("isolation", "starwisp-probe", gen, "unsafe", "write")
+        self.assertTrue((self.c.roots / "starwisp-probe" / gen).is_dir())
+
+    def test_reprepare_active_generation_preserves_instance(self):
+        gen = self.prepare()
+        self.lifecycle("begin-activate", target=BOOT)
+        self.lifecycle("confirm-active", gen)
+        state = self.c.load("starwisp-probe")
+        state["generations"][gen]["instance"] = "f" * 32
+        m.save(self.c.path("starwisp-probe"), state)
+        self.assertEqual(self.prepare(), gen)
+        self.assertEqual(self.c.load("starwisp-probe")["generations"][gen]["instance"], "f" * 32)
+
     def test_same_contract_for_both_systems(self):
         for system in ("aarch64-linux", "x86_64-linux"):
             self.c.declaration["system"] = system

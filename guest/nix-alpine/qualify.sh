@@ -24,5 +24,5 @@ printf 'guest-local\n' > "$HOME/runtime-probe"
 printf 'guest-local\n' > /nix/var/runtime-probe
 [ "$(cat "$HOME/runtime-probe")" = guest-local ]
 [ "$(cat /nix/var/runtime-probe)" = guest-local ]
-printf 'NESTED_NIX_ALPINE_STORE=read-only-9p metadata=guest-local\n'
+printf 'NESTED_NIX_ALPINE_STORE=read-only metadata=guest-local\n'
 printf 'NESTED_NIX_ALPINE_RESULT=passed\n'

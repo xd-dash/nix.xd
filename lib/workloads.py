@@ -151,8 +151,8 @@ class Controller:
             shutil.rmtree(pending)
             state = self.load(name)
             previous = state["generations"].get(generation, {})
-            state["generations"][generation] = {"manifest": resolved,
-                "status": previous.get("status", "prepared") if state["active"] == generation else "prepared"}
+            state["generations"][generation] = (dict(previous, manifest=resolved) if state["active"] == generation
+                else {"manifest": resolved, "status": "prepared"})
             state["prepared"] = generation
             save(self.path(name), state)
             return {"generation": generation, "manifest": resolved}
@@ -171,7 +171,11 @@ class Controller:
         require(d.get("rootfs") in outputs, "Rootfs output is not retained")
         require(d.get("rootfsFormat", "busybox-probe") in ("busybox-probe", "alpine-archive"), "Unknown rootfs format")
         Controller.validate_command(d.get("command", {}), outputs)
-        require(d.get("capabilities") == CAPABILITIES, "Unsupported guest capabilities")
+        placement = d.get("placement", "guest")
+        require(placement in ("host", "guest"), "Invalid workload placement")
+        expected_caps = ["store-bind-ro", "user-systemd", "rootless-podman"] if placement == "host" else CAPABILITIES
+        require(d.get("capabilities") == expected_caps, "Unsupported placement capabilities")
+        require(d.get("storeDomain", "common") == "common", "This runtime currently provisions only the common store domain")
         require(d.get("network") == "none", "Only isolated network=none is supported")
         qualification = d.get("qualification", {})
         mode = qualification.get("mode")
@@ -201,7 +205,7 @@ class Controller:
         require(generation in state["generations"], "Unknown generation")
         return state["generations"][generation]
 
-    def lifecycle(self, action, name, generation=None, target=None):
+    def lifecycle(self, action, name, generation=None, target=None, store_export=None):
         state = self.load(name)
         if action == "inspect":
             return state
@@ -225,6 +229,21 @@ class Controller:
             entry = self.generation(state, generation)
             suffix = "/" + entry["instance"] if entry.get("instance") else ""
             return name + "/" + generation + suffix
+        if action in ("placement", "container-name"):
+            generation = generation or state["active"] or state["prepared"]
+            entry = self.generation(state, generation)
+            if action == "placement":
+                return entry["manifest"]["declaration"].get("placement", "guest")
+            instance = entry.get("instance")
+            identity = generation[:16] + "-" + instance[:16] if instance else generation[:32]
+            return "nix-xd-" + name + "-" + identity
+        if action == "assert-target":
+            require(state.get("target") == target and state["active"], "Runtime boot identity differs from active workload")
+            return state["active"]
+        if action == "assert-retained":
+            generation = generation or state["active"]
+            require(state["active"] == generation, "No active rooted workload")
+            return self.assert_retained(state, name, generation)
         if action == "mode":
             entry = self.generation(state, generation or state["prepared"])
             return entry["manifest"]["declaration"]["qualification"]["mode"]
@@ -239,6 +258,11 @@ class Controller:
             for label, output in entry["manifest"]["outputs"].items():
                 link = self.roots / name / generation / label
                 require(link.is_symlink() and os.readlink(link) == output["path"], "Generation root missing or changed")
+            if entry["manifest"]["declaration"].get("placement", "guest") == "host":
+                require(isinstance(store_export, str) and store_export.startswith("/") and ".." not in store_export and "\n" not in store_export,
+                        "Missing validated host store export")
+                require(not state["active"] or state.get("storeExport") == store_export, "Active store export changed")
+                state["storeExport"] = store_export
             state["active"] = generation
             state["target"] = target
             entry["status"] = "activating"
@@ -402,16 +426,18 @@ printf 'RECREATE_NIX_VERSION=%s\n' "$(nix --version)"
 printf 'RECREATE_METADATA_QUERY=passed\n'
 '''
 
-    def guest_script(self, action, name, generation):
+    def guest_script(self, action, name, generation, isolation_token=None, isolation_mode=None):
         state = self.load(name)
         entry = self.generation(state, generation)
         require(state["active"] == generation, "Guest operation must match the active intent")
         expected = {"activate": ("activating",), "stop": ("stopping",), "check": ("active",), "status": ("activating", "active", "stopping", "recreating-stop", "recreating-start", "recreating-check", "recreating-verify"), "shell": ("active",),
                     "recreate-stop": ("recreating-stop",), "recreate-activate": ("recreating-start",),
                     "recreate-check": ("recreating-check",), "snapshot-before": ("recreating-stop",),
-                    "snapshot-after": ("recreating-verify",)}
+                    "snapshot-after": ("recreating-verify",), "isolation": ("active",)}
         require(action in expected and entry["status"] in expected[action], "Wrong guest operation state")
         m = entry["manifest"]
+        host = m["declaration"].get("placement", "guest") == "host"
+        export_root = state["storeExport"] if host else "/var/mnt/nixstore"
         if action in ("activate", "recreate-activate"):
             require(hashlib.sha256(self.executor.read_bytes()).hexdigest() == m["executorSha256"],
                     "Executor changed; prepare with the current executor before activation")
@@ -437,6 +463,26 @@ printf 'RECREATE_METADATA_QUERY=passed\n'
             'tombstone="$control_dir/"' + q(tombstone),
             'container_exists() { local rc; if podman container exists "$unit"; then return 0; else rc=$?; [[ "$rc" == 1 ]] || exit "$rc"; return 1; fi; }',
         ]) + "\n"
+        if action == "isolation":
+            require(isolation_mode in ("write", "check") and re.fullmatch(r"[a-f0-9]{32}", isolation_token or ""), "Invalid isolation probe")
+            probe = "set -eu\nlabel=" + q(name) + "\ntoken=" + q(isolation_token) + "\n" + r'''test "$(id -u)" = 1000
+for directory in "$HOME" /nix/var/nix "$XDG_RUNTIME_DIR"; do
+  file="$directory/.nix-xd-isolation-$token"
+''' + ("  umask 077; printf '%s\\n' \"$label\" > \"$file\"\n" if isolation_mode == "write" else '') + r'''  test "$(cat "$file")" = "$label"
+done
+grep -Eq ' /nix/store ro(,| )' /proc/self/mountinfo
+hello="$(readlink /usr/local/bin/hello)"
+hello="${hello%/bin/hello}"
+nix path-info "$hello" >/dev/null
+printf 'ISOLATION_NIX_PATH=%s\nISOLATION_HELLO_PATH=%s\n' "$(readlink /usr/local/bin/nix)" "$hello"
+printf 'ISOLATION_PID_NAMESPACE=%s\n' "$(readlink /proc/1/ns/pid)"
+printf 'ISOLATION_STATE=private\nISOLATION_STORE=read-only\n'
+'''
+            return header + r'''container_exists
+test "$(podman inspect "$unit" --format '{{.State.Running}}')" = true
+printf 'ISOLATION_BOOT_ID=%s\n' "$(cat /proc/sys/kernel/random/boot_id)"
+printf 'ISOLATION_CONTAINER_ID=%s\n' "$(podman inspect "$unit" --format '{{.Id}}')"
+''' + "printf '%s' " + q(probe) + ' > "$run_dir/isolation.sh"\n' + 'podman exec -i "$unit" /bin/sh -s < "$run_dir/isolation.sh"\n' + "printf 'WORKLOAD_ISOLATION_OK=%s\\n' \"$generation\"\n"
         if action.startswith("snapshot-"):
             stage = "before" if action == "snapshot-before" else "after"
             transaction = entry["recreation"]["id"]
@@ -524,7 +570,7 @@ if container_exists; then
   fi
 fi
 if container_exists; then exit 1; fi
-rm -f -- "$run_dir/executor" "$run_dir/generation" "$run_dir/readiness.log" "$run_dir/shell.sh" "$run_dir/recreate-probe.sh"
+rm -f -- "$run_dir/executor" "$run_dir/generation" "$run_dir/readiness.log" "$run_dir/shell.sh" "$run_dir/recreate-probe.sh" "$run_dir/isolation.sh"
 rmdir "$run_dir" 2>/dev/null || true
 printf 'WORKLOAD_STOPPED=%s\\n' "$generation"
 '''
@@ -537,14 +583,18 @@ case "$system:$(uname -m)" in
   aarch64-linux:aarch64|x86_64-linux:x86_64) ;;
   *) echo 'Guest architecture mismatch' >&2; exit 1 ;;
 esac
-findmnt -rn --mountpoint /var/mnt/nixstore >/dev/null
+'''
+        if host:
+            script += "test -d " + q(export_root) + "\n"
+        else:
+            script += '''findmnt -rn --mountpoint /var/mnt/nixstore >/dev/null
 test "$(findmnt -rn -o FSTYPE --mountpoint /var/mnt/nixstore)" = 9p
 options="$(findmnt -rn -o OPTIONS --mountpoint /var/mnt/nixstore)"
 [[ ",$options," == *,ro,* ]]
 '''
         for output in m["outputs"].values():
             for path in output["closure"]:
-                script += "test -e " + q("/var/mnt/nixstore/" + path.removeprefix("/nix/store/")) + "\n"
+                script += "test -e " + q(export_root + "/" + path.removeprefix("/nix/store/")) + "\n"
         script += '''if [[ -f "$run_dir/generation" ]]; then
   test "$(cat "$run_dir/generation")" = "$generation"
   active="$(systemctl --user show "$unit.service" -p ActiveState --value)"
@@ -560,7 +610,9 @@ else
         script += "  printf '%s' " + q(self.executor.read_text()) + ' > "$run_dir/executor"\n'
         script += ('  systemd-run --user --unit="$unit" --property=Type=exec '
                    '--property=RemainAfterExit=yes --property=Delegate=yes --property=RuntimeMaxSec=' + ('infinity' if d["runtimeMaxSec"] == 0 else str(d["runtimeMaxSec"]) + 's') + ' '
-                   '/usr/bin/env NIX_XD_WORKLOAD_CONTAINER="$unit" /usr/bin/bash "$run_dir/executor" '
+                   '/usr/bin/env NIX_XD_WORKLOAD_CONTAINER="$unit" ' +
+                   ('NIX_XD_STORE_TRANSPORT=bind NIX_XD_STORE_EXPORT=' + q(export_root) + ' ' if host else '') +
+                   '/usr/bin/bash "$run_dir/executor" '
                    + shlex.join(command) + '\nfi\n')
         script += '''active="$(systemctl --user show "$unit.service" -p ActiveState --value)"
 result="$(systemctl --user show "$unit.service" -p Result --value)"
@@ -577,7 +629,7 @@ def main():
     parser.add_argument("--executor", required=True)
     parser.add_argument("--state", default="/nix/home/nixuser/.local/state/nix-xd/workloads")
     parser.add_argument("--roots", default="/nix/var/nix/gcroots/nix-xd/workloads")
-    parser.add_argument("action", choices=["prepare", "inspect", "begin-activate", "confirm-active", "begin-stop", "confirm-stopped", "active-generation", "guest-activate", "guest-stop", "guest-check", "guest-status", "guest-shell", "status-selection", "mode", "summary", "runtime-path", "pending-recreation",
+    parser.add_argument("action", choices=["prepare", "inspect", "begin-activate", "confirm-active", "begin-stop", "confirm-stopped", "active-generation", "guest-activate", "guest-stop", "guest-check", "guest-status", "guest-shell", "status-selection", "mode", "summary", "runtime-path", "pending-recreation", "placement", "container-name", "assert-target", "assert-retained", "guest-isolation",
         "begin-recreate", "recreate-phase", "recreate-record-before", "recreate-record-after", "recreate-stopped",
         "recreate-activated", "recreate-checked", "confirm-recreated", "abandon-recreate",
         "guest-recreate-stop", "guest-recreate-activate", "guest-recreate-check", "guest-snapshot-before", "guest-snapshot-after"])
@@ -587,6 +639,9 @@ def main():
     parser.add_argument("--revision")
     parser.add_argument("--generation")
     parser.add_argument("--target")
+    parser.add_argument("--store-export")
+    parser.add_argument("--isolation-token")
+    parser.add_argument("--isolation-mode")
     parser.add_argument("--transaction")
     args = parser.parse_args()
     controller = Controller(args.state, args.roots, args.executor)
@@ -598,10 +653,10 @@ def main():
             evidence = sys.stdin.read() if args.action.startswith("recreate-record-") else None
             result = controller.recreation(args.action, args.name, args.generation, args.target, args.transaction, evidence)
         elif args.action.startswith("guest-"):
-            print(controller.guest_script(args.action.removeprefix("guest-"), args.name, args.generation), end="")
+            print(controller.guest_script(args.action.removeprefix("guest-"), args.name, args.generation, args.isolation_token, args.isolation_mode), end="")
             return
         else:
-            result = controller.lifecycle(args.action, args.name, args.generation, args.target)
+            result = controller.lifecycle(args.action, args.name, args.generation, args.target, args.store_export)
         print(canonical(result).strip() if isinstance(result, dict) else result)
 
 

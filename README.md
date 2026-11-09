@@ -972,3 +972,61 @@ Native CI exercises actual Podman stop/replacement, fresh writable state, metada
 queries and continuous root retention. Local ARM64/CoreOS execution remains the
 separate VM qualification gate. Multi-instance concurrency and Smoke integration
 follow after that gate passes.
+
+### Six-reader shared-store composition (local qualification)
+
+`compositions.<system>.shared-store-matrix` declares two host readers, two readers
+in the existing Starwisp VM, and two readers in a second CoreOS VM. Here “host”
+means the Linux Podman Machine on macOS. The existing Nix-Alpine owner remains
+the sole writer; these six additional Nix-Alpine containers consume its
+`/nix/store` through read-only mounts and have separate tmpfs home, Nix database,
+runtime directories, and process namespaces. The owner is infrastructure and is
+not counted among the two host readers.
+
+The domain contract also describes VM-local ownership and an independent,
+host-owned domain whose allowed readers are only the two VMs. Those domains are
+**declarative and not provisioned or qualified yet**. A workload selects one
+canonical store domain; changing a domain's reader allowlist does not itself
+configure mounts or access controls. Additional domain provisioning must supply
+its own backing store, single writer, roots, and export adapter. No experimental
+overlay store is needed for the common read-only domain.
+
+Run each phase from the same committed and staged revision:
+
+```sh
+make composition-plan
+make composition-prepare
+make composition-start
+make composition-qualify
+make composition-status
+# Later, stop only these six readers; leave both VMs and the owner running:
+make composition-stop
+```
+
+Use the same `ARCH`, `PROVIDER`, `MACHINE`, `SCOPE`, `COREOS_STATE_ROOT`, and
+`COREOS_SSH_KEY` settings as the qualified ARM environment. The primary state
+must already contain the qualified Starwisp base image and Ignition. VM2 gets a
+separate writable QCOW overlay, SSH port 2223, and container
+`coreos-store-matrix-vm2`; it shares immutable boot artifacts without copying the
+Nix store. Existing `nix-alpine-env` sessions are outside this composition.
+The current VM launcher is macOS ARM64; both architecture outputs expose the
+same declarations, while native x86 VM qualification remains deferred.
+
+The gate writes identical marker filenames with different reader values in each
+private state directory, verifies all six after every reader has written them,
+and checks common Nix/package paths, distinct container/process namespaces, and
+three distinct kernel boot identities. For one reader on each placement it
+pauses recreation after confirmed stop, checks the other five remain healthy
+and rooted, resumes replacement, then checks normal stop/start isolation.
+Generation roots remain retained while replacement is pending. The gate leaves
+all six readers running and records evidence below `.state/compositions/`.
+
+Phases are intentionally independent for sandbox CI/CD. On interruption, finish
+or abandon a pending recreation with the existing lifecycle before changing the
+pinned plan. `composition-stop` abandons pending recreation and stops active
+composition readers; it does not destroy VMs or store volumes. Prepared-only
+roots remain retained. A guest reboot or changed owner boot identity fails
+closed rather than silently releasing roots; fresh sandbox provisioning is an
+acceptable recovery path. GCE/spot restart reconciliation and Smoke runtime
+credentials remain separate subsequent gates. Run this topology locally;
+contract tests do not establish CoreOS runtime qualification.

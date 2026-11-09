@@ -33,6 +33,14 @@
           nestedAlpine = import ./guest/nix-alpine/package.nix { inherit pkgs system; };
           storeProbeDynamic = pkgs.hello;
           storeProbeNix = pkgs.nix;
+          composition-plan = pkgs.writeShellApplication {
+            name = "nix-xd-composition-plan";
+            runtimeInputs = [ pkgs.python3 ];
+            text = ''
+              exec python3 ${./lib/compositions.py} --input ${pkgs.writeText "shared-store-matrix.json"
+                (builtins.toJSON (import ./compositions/shared-store-matrix.nix { inherit system; }))} "$@"
+            '';
+          };
           workload-control = pkgs.writeShellApplication {
             name = "nix-xd-workload-control";
             runtimeInputs = [ pkgs.python3 pkgs.nix ];
@@ -55,9 +63,18 @@
           nixAlpineCheck = nestedAlpine.check;
           nixAlpineRuntime = nestedAlpine.runtime;
           nixAlpineRegistration = nestedAlpine.registration;
-          inherit installer workload-control storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
+          inherit installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
+      compositions = eachSystem (system: {
+        shared-store-matrix = import ./compositions/shared-store-matrix.nix { inherit system; };
+      });
       workloads = eachSystem (system: {
+        shared-host-a = self.workloads.${system}.nix-alpine-env // { name = "shared-host-a"; storeDomain = "common"; placement = "host"; capabilities = [ "store-bind-ro" "user-systemd" "rootless-podman" ]; };
+        shared-host-b = self.workloads.${system}.nix-alpine-env // { name = "shared-host-b"; storeDomain = "common"; placement = "host"; capabilities = [ "store-bind-ro" "user-systemd" "rootless-podman" ]; };
+        shared-vm1-a = self.workloads.${system}.nix-alpine-env // { name = "shared-vm1-a"; storeDomain = "common"; placement = "guest"; };
+        shared-vm1-b = self.workloads.${system}.nix-alpine-env // { name = "shared-vm1-b"; storeDomain = "common"; placement = "guest"; };
+        shared-vm2-a = self.workloads.${system}.nix-alpine-env // { name = "shared-vm2-a"; storeDomain = "common"; placement = "guest"; };
+        shared-vm2-b = self.workloads.${system}.nix-alpine-env // { name = "shared-vm2-b"; storeDomain = "common"; placement = "guest"; };
         nix-alpine-env = {
           version = 1;
           name = "nix-alpine-env";
@@ -118,6 +135,10 @@
         };
       });
       apps = eachSystem (system: {
+        composition-plan = {
+          type = "app";
+          program = "${self.packages.${system}.composition-plan}/bin/nix-xd-composition-plan";
+        };
         workload-control = {
           type = "app";
           program = "${self.packages.${system}.workload-control}/bin/nix-xd-workload-control";

@@ -55,18 +55,17 @@ else:
                 path.chmod(0o755)
             helper = root / 'executor'
             # Relocate only the export mount for this filesystem fixture.
-            helper.write_text((REPO / 'bin/nix-xd-guest-store-exec').read_text().replace(
-                'mountpoint=/var/mnt/nixstore', 'mountpoint=' + str(export)))
+            helper.write_text((REPO / 'bin/nix-xd-guest-store-exec').read_text())
             runtime = root / 'runtime'
             runtime.mkdir()
             env = dict(os.environ, PATH=str(tools) + ':' + os.environ['PATH'],
-                       RECORD=str(root / 'calls'), XDG_RUNTIME_DIR=str(runtime))
+                       RECORD=str(root / 'calls'), XDG_RUNTIME_DIR=str(runtime), NIX_XD_STORE_EXPORT=str(export))
             result = subprocess.run(['bash', str(helper), '--rootfs-archive',
                                      '/nix/store/' + archive_name, command], env=env, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             arguments = json.loads((root / 'calls').read_text())
             self.assertEqual(arguments[-1], command)
-            self.assertIn('type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro', arguments)
+            self.assertIn('type=bind,src=' + str(export) + ',dst=/nix/store,ro', arguments)
 
 
 if __name__ == '__main__':
