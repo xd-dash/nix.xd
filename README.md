@@ -1109,3 +1109,35 @@ repeat/order variation; no runtime configuration is changed. Execution results
 are saved separately in `profile-execution.json` and
 `profile-execution-<placement>.log`. The previous store profile is retained as
 `profile.json` (older runs) or `profile-store.json` (new runs).
+
+### Representative direct application execution
+
+Make remains the public interface. `make composition-application` runs a small
+credential-free Redis Unix-socket fixture on one existing reader per placement.
+Alpine remains the reader base. A single Bash transport script coordinates each
+placement, while Redis server, readiness client, benchmark, and shutdown are
+invoked as direct Podman executable/argument lists. There is no `/bin/sh -c`
+between Podman and those executables. The benchmark sends 100 PING_MBULK requests
+using one client connection and one container exec, rather than an exec per
+request. TCP is disabled, persistence is disabled, and its socket, PID, and log
+files live in a unique private runtime directory.
+
+After pulling, stage the current checkout, then run the application target using
+the same composition settings. The existing plan, reader generations, VMs, and
+qualification record remain intact; the new application source revision is
+recorded separately. Do not run `composition-local` to add this application.
+The owner builds `#applicationRedis` and retains a unique per-run out-link before
+any execution. The root is released only after all placements acknowledge Redis
+shutdown and reader roots are verified unchanged. On an uncertain failure the
+application root remains retained; its path is recorded in `application.json`
+and the main log. The fixture's runtime files remain private to the reader.
+
+The report separates server-start/readiness control time (including Podman exec
+and executable loading) from the benchmark's own in-process request latency and
+throughput CSV. `request-batch` wall time also includes client exec startup; it
+must not be interpreted as pure request latency. This is a bounded functional
+and performance observation, not production Redis/Fatline, Smoke, auth, or
+secrets qualification. Each placement is measured serially to avoid benchmark
+contention. Application commands are bounded, shutdown runs on ordinary failure,
+and the normal Make logger captures the whole phase in
+`logs/<scope>-composition-application-<UTC>-<pid>.log`.

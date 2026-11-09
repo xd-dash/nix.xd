@@ -33,6 +33,7 @@
           nestedAlpine = import ./guest/nix-alpine/package.nix { inherit pkgs system; };
           storeProbeDynamic = pkgs.hello;
           storeProbeNix = pkgs.nix;
+          applicationRedis = pkgs.redis;
           composition-plan = pkgs.writeShellApplication {
             name = "nix-xd-composition-plan";
             runtimeInputs = [ pkgs.python3 ];
@@ -63,7 +64,7 @@
           nixAlpineCheck = nestedAlpine.check;
           nixAlpineRuntime = nestedAlpine.runtime;
           nixAlpineRegistration = nestedAlpine.registration;
-          inherit installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
+          inherit applicationRedis installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
       compositions = eachSystem (system: {
         shared-store-matrix = import ./compositions/shared-store-matrix.nix { inherit system; };

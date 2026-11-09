@@ -407,6 +407,55 @@ test "$(podman inspect "$unit" --format '{{.Id}}')" = "$cid"
 printf 'PROFILE_READER_UNCHANGED=true\n'
 '''
 
+    def application(self):
+        revision = self.owner('cat', self.flake + '/.nix-xd-source-revision')
+        require(revision == self.env.get('NIX_XD_WORKLOAD_REV'), 'Stage the current committed application source first')
+        run_id = uuid.uuid4().hex[:12]
+        root = '/nix/home/nixuser/.local/state/nix-xd/application-redis-' + revision + '-' + run_id
+        write_json(self.root / 'application.json', {'result': 'building', 'applicationRoot': root})
+        print('APPLICATION_BUILD_START package=applicationRedis root=' + root, flush=True)
+        app = self.owner('nix', 'build', '--no-write-lock-file', '--print-out-paths', '--out-link', root,
+                         self.flake + '#applicationRedis')
+        require(re.fullmatch(r'/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+', app), 'Invalid application closure')
+        names = sorted(self.plan['workloads'])
+        before = self.batch([{'name': name, 'action': 'roots'} for name in names])
+        report = {'application': app, 'applicationRoot': root, 'sourceRevision': revision,
+                  'compositionRevision': self.plan['sourceRevision'], 'placements': {}}
+        write_json(self.root / 'application.json', dict(report, result='running'))
+        for place in sorted(self.plan['placements']):
+            name = next(name for name in names if self.plan['workloads'][name]['placement'] == place)
+            state = json.loads(self.control(name, 'inspect'))
+            require(state['active'] and state['generations'][state['active']]['status'] == 'active', 'Reader not active')
+            unit = self.control(name, 'container-name')
+            require(re.fullmatch(r'nix-xd-[a-z0-9-]+', unit), 'Invalid reader identity')
+            variables = {'unit': unit, 'expected_boot': state['target'], 'app': app, 'requests': '100',
+                         'directory': '/run/nixuser/redis-app-' + run_id}
+            payload = 'set -Eeuo pipefail\n' + '\n'.join(key + '=' + shlex.quote(value) for key, value in variables.items()) + '\n'
+            payload += (REPO / 'qualifiers/redis-application.sh').read_text()
+            command, env = self.transport_command(place, name)
+            print('APPLICATION_PLACEMENT_START placement=%s reader=%s' % (place, name), flush=True)
+            started = time.monotonic()
+            output = run(command, env, True, payload, timeout=1000)
+            elapsed = time.monotonic() - started
+            print(output, end='', flush=True)
+            (self.root / ('application-' + place + '.log')).write_text(output)
+            require('APPLICATION_RESULT=passed' in output.splitlines() and
+                    'APPLICATION_CLEANUP=passed' in output.splitlines(), 'Application acknowledgement missing')
+            timings = [dict(item.split('=', 1) for item in line.split()[1:])
+                       for line in output.splitlines() if line.startswith('APPLICATION_TIME ')]
+            startup = sum(float(item['real_sec']) for item in timings if item['stage'] in ('server-start', 'readiness'))
+            report['placements'][place] = {'reader': name, 'elapsed_sec': elapsed, 'output': output,
+                'startup_control_sec': startup, 'timings': timings}
+            write_json(self.root / 'application.json', dict(report, result='running'))
+            print('APPLICATION_PLACEMENT_DONE placement=%s elapsed_sec=%.2f' % (place, elapsed), flush=True)
+        after = self.batch([{'name': name, 'action': 'roots'} for name in names])
+        require(before == after, 'Reader roots or generations changed during application test')
+        self.owner('rm', '--', root)
+        report['result'] = 'passed'
+        report['applicationRootRetained'] = False
+        write_json(self.root / 'application.json', report)
+        print('COMPOSITION_APPLICATION_RESULT=passed placements=3 roots=unchanged')
+
     def cancel(self):
         path = self.root / 'composition.lock'
         with path.open('a') as lock:
@@ -434,7 +483,7 @@ printf 'PROFILE_READER_UNCHANGED=true\n'
                 except ValueError:
                     continue
                 if any(argument in ('lib/compose_runtime.py', str(REPO / 'lib/compose_runtime.py'))
-                       for argument in arguments) and arguments[-1] in ('plan', 'prepare', 'start', 'status', 'qualify', 'stop', 'profile'):
+                       for argument in arguments) and arguments[-1] in ('plan', 'prepare', 'start', 'status', 'qualify', 'stop', 'profile', 'application'):
                     holders.append(pid)
             require(len(holders) == 1, 'Cannot uniquely identify the composition controller; no processes signalled')
             pid = holders[0]
@@ -472,11 +521,11 @@ printf 'PROFILE_READER_UNCHANGED=true\n'
             raise ValueError('Controller termination requested but lock remains held; no roots released')
 
     def execute(self, phase):
-        self.resolve(phase == 'plan', stopping=phase in ('stop', 'profile'))
+        self.resolve(phase == 'plan', stopping=phase in ('stop', 'profile', 'application'))
         names = sorted(self.plan['workloads'])
         if phase in ('prepare', 'start', 'qualify', 'stop'):
             write_json(self.root / 'qualification.json', {'result': 'unqualified', 'phase': phase})
-        if phase in ('start', 'qualify', 'profile'):
+        if phase in ('start', 'qualify', 'profile', 'application'):
             self.verify_bindings()
         if phase == 'plan':
             print(json.dumps(self.plan, indent=2, sort_keys=True))
@@ -512,12 +561,14 @@ printf 'PROFILE_READER_UNCHANGED=true\n'
             self.qualify()
         elif phase == 'profile':
             self.profile()
+        elif phase == 'application':
+            self.application()
         print('COMPOSITION_PHASE_RESULT=passed phase=' + phase)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('phase', choices=('plan', 'prepare', 'start', 'status', 'qualify', 'stop', 'cancel', 'profile'))
+    parser.add_argument('phase', choices=('plan', 'prepare', 'start', 'status', 'qualify', 'stop', 'cancel', 'profile', 'application'))
     args = parser.parse_args()
     require(sys.version_info >= (3, 9), 'Host qualification requires Python 3.9 or newer')
     runtime = Runtime(os.environ)
