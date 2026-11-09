@@ -10,6 +10,10 @@ for output in storeProbeRootfs storeProbeDynamic storeProbeNix storeProbeOciArch
   grep -Fq "build_probe $output" bin/nix-xd-qualify-starwisp-shared ||
     { echo "Missing current-store probe $output" >&2; exit 1; }
 done
+grep -Fq '"$flake#$name^out"' bin/nix-xd-qualify-starwisp-shared || {
+  echo 'Multi-output Nix packages must select the executable out output' >&2
+  exit 1
+}
 grep -Fq 'shared_nix_volume=' bin/nix-xd-qualify-starwisp-shared
 grep -Fq 'COREOS_NIX_STORE_VOLUME="$store_volume"' bin/nix-xd-qualify-starwisp-shared
 grep -Fq 'NIX_XD_MACHINE="$machine"' bin/nix-xd-qualify-starwisp-shared
