@@ -43,13 +43,13 @@ printf 'root:x:0:0:root:/root:/bin/sh\n' > "$scratch/etc/passwd"
 printf 'root:x:0:\n' > "$scratch/etc/group"
 ln -s /proc/self/mounts "$scratch/etc/mtab"
 echo "NIX_9P_ROOTFS_MODE=guest-runtime-scratch store_executable=$store_shell"
-container_options=()
+container_options=(--network none)
 if [[ -n "${NIX_XD_WORKLOAD_CONTAINER:-}" ]]; then
   [[ "$NIX_XD_WORKLOAD_CONTAINER" =~ ^nix-xd-[a-z0-9-]+$ ]] || fail 'Invalid workload container name'
-  container_options=(--name "$NIX_XD_WORKLOAD_CONTAINER")
+  container_options+=(--name "$NIX_XD_WORKLOAD_CONTAINER")
 fi
 podman run --rm "${container_options[@]}" \
-  --network none --security-opt label=disable \
+  --security-opt label=disable \
   --mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro \
   --rootfs "$scratch" \
   "$@"

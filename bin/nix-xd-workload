@@ -15,7 +15,8 @@ fail() { echo "error: $*" >&2; exit 1; }
 [[ "$provider" == podman ]] || fail 'Current workload transport requires Podman'
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ && "$name" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid scope or workload'
 [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Invalid machine'
-[[ "$flake" =~ ^/workspaces/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$flake" != *..* ]] || fail 'Invalid staged controller flake'
+workspace_pattern='^/workspaces/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$'
+[[ "$flake" =~ $workspace_pattern && "$flake" != *..* ]] || fail 'Invalid staged controller flake'
 [[ -z "$generation" || "$generation" =~ ^[a-f0-9]{64}$ ]] || fail 'Invalid generation'
 runtime=(podman)
 if [[ "$(uname -s)" == Darwin ]]; then runtime+=(--connection "$machine"); fi
@@ -27,8 +28,13 @@ inside sh -ec 'test "$(id -u)" = 1000; test -f /nix/.nix-xd-direct-volume-v2'
 control() {
   inside nix run --no-write-lock-file "$flake#workload-control" -- "$@" --name "$name"
 }
-selection=()
-[[ -z "$generation" ]] || selection=(--generation "$generation")
+selected_control() {
+  if [[ -n "$generation" ]]; then
+    control "$@" --generation "$generation"
+  else
+    control "$@"
+  fi
+}
 case "$operation" in
   prepare)
     [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || fail 'WORKLOAD_REV must pin the staged Git revision'
@@ -57,17 +63,17 @@ opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTime
 boot_id="$(ssh -T "${opts[@]}" "$user@127.0.0.1" 'cat /proc/sys/kernel/random/boot_id')"
 [[ "$boot_id" =~ ^[a-f0-9-]{36}$ ]] || fail 'Invalid guest boot identity'
 if [[ "$operation" == activate ]]; then
-  generation="$(control begin-activate "${selection[@]}" --target "$boot_id")"
+  generation="$(selected_control begin-activate --target "$boot_id")"
   marker=WORKLOAD_ACTIVATED
   guest_action=guest-activate
   confirm_action=confirm-active
 elif [[ "$operation" == check ]]; then
-  generation="$(control active-generation "${selection[@]}")"
+  generation="$(selected_control active-generation)"
   marker=WORKLOAD_CHECKED
   guest_action=guest-check
   confirm_action=
 else
-  generation="$(control begin-stop "${selection[@]}" --target "$boot_id")"
+  generation="$(selected_control begin-stop --target "$boot_id")"
   marker=WORKLOAD_STOPPED
   guest_action=guest-stop
   confirm_action=confirm-stopped

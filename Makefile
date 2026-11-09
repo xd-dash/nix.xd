@@ -245,6 +245,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
+	@python3 tests/workload-transport.py
 	@python3 tests/workloads.py
 	@bash -n bin/nix-xd-workload bin/nix-xd-workload-qualify
 	@bash tests/store-roots-contract.sh
