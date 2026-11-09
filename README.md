@@ -1041,3 +1041,11 @@ closed rather than silently releasing roots; fresh sandbox provisioning is an
 acceptable recovery path. GCE/spot restart reconciliation and Smoke runtime
 credentials remain separate subsequent gates. Run this topology locally;
 contract tests do not establish CoreOS runtime qualification.
+
+For one shareable log of the entire local sequence, use
+`make composition-local` with the same architecture, provider, machine, scope,
+CoreOS state, and SSH-key settings. It runs static checks, stages the committed
+checkout, and runs plan, prepare, start, qualify, and status serially, stopping
+at the first failure. The complete stdout/stderr is saved to
+`logs/<scope>-composition-local-<UTC>-<pid>.log`; individual phase logs remain
+available too. Static checks also have their own log when run independently.

@@ -244,7 +244,11 @@ else
 $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
+.PHONY: check-static-internal
 check-static:
+	@bash bin/nix-xd-log "$(SCOPE)" check-static $(MAKE) --no-print-directory check-static-internal
+
+check-static-internal:
 	@python3 tests/compositions.py
 	@python3 tests/guest-executor.py
 	@python3 tests/coreos-managed-start.py
@@ -404,3 +408,11 @@ composition-plan composition-prepare composition-start composition-status compos
 	@command -v "$(PYTHON)" >/dev/null || { echo 'Composition qualification requires host Python 3.9+; select PYTHON=/path/to/python3. Bootstrap does not require Python.' >&2; exit 2; }
 	@"$(PYTHON)" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else "Composition qualification requires Python 3.9+")'
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/compose_runtime.py $(patsubst composition-%,%,$@)
+
+# One shareable log covers static checks, staging, and every runtime phase.
+.PHONY: composition-local composition-local-phases
+composition-local:
+	@bash bin/nix-xd-log "$(SCOPE)" composition-local $(MAKE) --no-print-directory composition-local-phases
+
+composition-local-phases:
+	@$(MAKE) --no-print-directory -j1 -S check-static stage composition-plan composition-prepare composition-start composition-qualify composition-status WORKSPACES="$(abspath $(CURDIR)/..)" CHECKOUT="$(notdir $(CURDIR))"

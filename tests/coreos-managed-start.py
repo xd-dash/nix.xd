@@ -101,7 +101,7 @@ class ManagedStart(unittest.TestCase):
         self.assertFalse((second / "base.qcow2").exists())
         self.assertTrue((second / "build.txt").exists())
         self.assertIn("/artifacts/base.qcow2", self.record.read_text())
-        self.assertIn('artifact_state=' + str(primary), (second / "manifest.txt").read_text())
+        self.assertIn('artifact_state=' + str(primary.resolve()), (second / "manifest.txt").read_text())
 
     def test_fresh_boot_records_container_identity(self):
         result = self.run_start('missing')
