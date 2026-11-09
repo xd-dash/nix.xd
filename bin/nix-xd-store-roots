@@ -52,6 +52,7 @@ while read -r name output extra; do
   resolved="$(inside nix build --no-write-lock-file --no-link --print-out-paths "$flake#$output^out")"
   [[ "$resolved" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+$ ]] ||
     { echo "Expected one store path for $output, got $resolved" >&2; exit 1; }
+  inside nix path-info "$resolved" >/dev/null || { echo "Unregistered store path: $resolved" >&2; exit 1; }
   guest register "$group" "$name" "$resolved"
 done < "$manifest"
 echo 'STORE_ROOTS_RESULT=passed'
