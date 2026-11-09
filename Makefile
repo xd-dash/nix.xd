@@ -48,7 +48,7 @@ OS := $(shell uname -s)
 TASK_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
-.PHONY: help self-update bootstrap plan image-build machine-init machine-check machine-handoff machine-select machine-start machine-stop start stop restart status logs shell exec ps inspect store-info sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan check-static
+.PHONY: help self-update bootstrap plan image-build machine-init machine-check machine-handoff machine-select machine-start machine-stop start stop restart status logs shell exec ps inspect store-info store-diagnose sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan check-static
 
 help:
 	@printf '%s\n' \
@@ -75,6 +75,7 @@ help:
 	  'make qualify QUALIFY_APP=1 MODULES=secrets FLAKE=path  Flake qualification plus modules' \
 	  'make qualify-plan FLAKE=path PLAN_TARGET=\x23app (application-owned plan)' \
 	  'make start|stop|restart|status|logs|shell|exec|ps|inspect|store-info' \
+	  'make store-diagnose MACHINE=... SCOPE=...  Log complete read-only Nix store inventory' \
 	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
 	  'make qualify-starwisp-shared COREOS_SSH_KEY=...  Build current store closures and qualify guest 9P' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
@@ -145,6 +146,10 @@ stage show check build path-info run:
 
 develop shell exec ps inspect store-info:
 	@$(TASK) $@
+
+# One read-only store report through the same provider/arch adapter and logger.
+store-diagnose:
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" store-diagnose bash bin/nix-xd-task store-diagnose
 
 # Qualifiers call Nix app outputs owned by the selected checkout.
 # No claimed success when the selected output or host capability is missing.
@@ -234,6 +239,7 @@ $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
 check-static:
+	@bash tests/store-diagnose-contract.sh
 	@bash -n bin/nix-xd-qualify-starwisp-shared bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
