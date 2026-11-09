@@ -311,11 +311,13 @@ class Runtime:
         print('COMPOSITION_QUALIFICATION=passed readers=6 placements=3')
 
     def profile(self):
+        mode = self.env.get('NIX_XD_PROFILE_MODE', 'store')
+        require(mode in ('store', 'execution'), 'PROFILE_MODE must be store or execution')
         samples = int(self.env.get('NIX_XD_PROFILE_SAMPLES', '1'))
         require(1 <= samples <= 3, 'PROFILE_SAMPLES must be 1..3')
         names = sorted(self.plan['workloads'])
         before = self.batch([{'name': name, 'action': 'roots'} for name in names])
-        report = {'sourceRevision': self.plan['sourceRevision'], 'samples': samples, 'placements': {}}
+        report = {'sourceRevision': self.plan['sourceRevision'], 'mode': mode, 'samples': samples, 'placements': {}}
         for place in sorted(self.plan['placements']):
             name = next(name for name in names if self.plan['workloads'][name]['placement'] == place)
             state = json.loads(self.control(name, 'inspect'))
@@ -328,11 +330,11 @@ class Runtime:
             run(command, env, True, 'true\n', timeout=30)
             baseline = time.monotonic() - baseline_start
             print('PROFILE_TRANSPORT placement=%s real_sec=%.3f' % (place, baseline), flush=True)
-            script = self.profile_script(unit, state['target'], samples)
+            script = self.profile_script(unit, state['target'], samples, mode)
             started = time.monotonic()
             output = run(command, env, True, script, timeout=samples * 8 * 70 + 30)
             print(output, end='', flush=True)
-            path = self.root / ('profile-' + place + '.log')
+            path = self.root / ('profile-' + mode + '-' + place + '.log')
             path.write_text(output)
             records, timings = [], {}
             for line in output.splitlines():
@@ -352,18 +354,18 @@ class Runtime:
         after = self.batch([{'name': name, 'action': 'roots'} for name in names])
         require(before == after, 'Reader generations or roots changed during profiling')
         report['result'] = 'measured'
-        write_json(self.root / 'profile.json', report)
+        write_json(self.root / ('profile-' + mode + '.json'), report)
         failed = [(place, record) for place, data in report['placements'].items() for record in data['results']
                   if record['exit'] != '0']
         require(not failed, 'Profile includes failed or timed-out commands; inspect profile logs and profile.json')
         print('COMPOSITION_PROFILE_RESULT=passed placements=3 readers=3 roots=unchanged')
 
     @staticmethod
-    def profile_script(unit, boot, samples):
+    def profile_script(unit, boot, samples, mode="store"):
         q = shlex.quote
         header = ('set -Eeuo pipefail\nexport LC_ALL=C\nunit=' + q(unit) + '\n' +
                   'test "$(cat /proc/sys/kernel/random/boot_id)" = ' + q(boot) + '\n')
-        return header + r'''test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+        prelude = header + r'''test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
 command -v timeout >/dev/null
 cid="$(podman inspect "$unit" --format '{{.Id}}')"
 test "$(podman inspect "$unit" --format '{{.State.Running}}')" = true
@@ -379,8 +381,8 @@ measure() {
   set -e
   printf 'PROFILE_RESULT stage=%s sample=%s exit=%s\n' "$stage" "$sample" "$rc"
 }
-''' + 'for sample in ' + ' '.join(str(n + 1) for n in range(samples)) + r'''; do
-  measure shell-baseline "$sample" /usr/bin/true
+'''
+        commands = r'''  measure shell-baseline "$sample" /usr/bin/true
   measure podman-inspect "$sample" podman inspect "$unit" --format '{{.State.Running}}'
   measure alpine-exec "$sample" podman exec "$unit" /bin/true
   measure alpine-shell "$sample" podman exec "$unit" /bin/sh -c ':'
@@ -388,6 +390,18 @@ measure() {
   measure nix-version "$sample" podman exec "$unit" /usr/local/bin/nix --version
   measure nix-query "$sample" podman exec "$unit" /bin/sh -ec 'hello=$(readlink /usr/local/bin/hello); nix path-info "${hello%/bin/hello}"'
   measure nix-query-offline "$sample" podman exec "$unit" /bin/sh -ec 'hello=$(readlink /usr/local/bin/hello); nix --offline path-info "${hello%/bin/hello}"'
+'''
+        if mode == "execution":
+            commands = r'''  measure guest-true "$sample" /usr/bin/true
+  measure guest-shell "$sample" /bin/bash --noprofile --norc -c ':'
+  measure podman-inspect "$sample" podman inspect "$unit" --format '{{.State.Running}}'
+  measure alpine-true "$sample" podman exec "$unit" /bin/true
+  measure alpine-shell "$sample" podman exec "$unit" /bin/sh -c ':'
+  measure busybox-true "$sample" podman exec "$unit" /bin/busybox true
+  measure busybox-shell "$sample" podman exec "$unit" /bin/busybox sh -c ':'
+  measure busybox-shell-clean-env "$sample" podman exec --env ENV= --env BASH_ENV= "$unit" /bin/busybox sh -c ':'
+'''
+        return prelude + 'for sample in ' + ' '.join(str(n + 1) for n in range(samples)) + '; do\n' + commands + r'''
 done
 test "$(podman inspect "$unit" --format '{{.Id}}')" = "$cid"
 printf 'PROFILE_READER_UNCHANGED=true\n'

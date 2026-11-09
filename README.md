@@ -1099,3 +1099,13 @@ Send the printed `logs/<scope>-composition-profile-<UTC>-<pid>.log` file for
 review. Structured timings and placement output are also saved in
 `.state/compositions/<scope>/<composition>/profile.json` and `profile-*.log`.
 Do not run `composition-local` just to profile an already qualified topology.
+
+For the next execution-path comparison, run
+`make composition-profile PROFILE_MODE=execution PROFILE_SAMPLES=2` using the
+same existing composition. This skips the Nix queries and compares guest-native
+true/Bash, Podman inspection, Alpine true/sh, explicit BusyBox true/sh, and
+BusyBox sh with ENV/BASH_ENV cleared only for that exec. The two samples expose
+repeat/order variation; no runtime configuration is changed. Execution results
+are saved separately in `profile-execution.json` and
+`profile-execution-<placement>.log`. The previous store profile is retained as
+`profile.json` (older runs) or `profile-store.json` (new runs).

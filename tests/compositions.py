@@ -318,6 +318,17 @@ esac
             self.assertIn('stage=nix-query-offline sample=1 exit=42', result.stdout)
             self.assertIn('PROFILE_READER_UNCHANGED=true', result.stdout)
 
+    def test_execution_mode_compares_busybox_without_running_nix(self):
+        script = Runtime.profile_script('nix-xd-test', 'test-boot', 1, 'execution')
+        self.assertIn('/bin/bash --noprofile --norc', script)
+        self.assertIn('/bin/busybox true', script)
+        self.assertIn('/bin/busybox sh', script)
+        self.assertIn('--env ENV= --env BASH_ENV=', script)
+        self.assertNotIn('/usr/local/bin/nix', script)
+        self.assertNotIn('nix path-info', script)
+        result = subprocess.run(['bash', '-n'], input=script, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_profile_does_not_invalidate_qualification_or_require_new_staging(self):
         runtime = Runtime.__new__(Runtime)
         runtime.plan = plan()

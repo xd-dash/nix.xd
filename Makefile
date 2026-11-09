@@ -401,6 +401,8 @@ workload-recreate-abandon:
 
 # Flake-composed sandbox phases; each can be run independently.
 PYTHON ?= python3
+PROFILE_MODE ?= store
+export NIX_XD_PROFILE_MODE = $(PROFILE_MODE)
 PROFILE_SAMPLES ?= 1
 export NIX_XD_PROFILE_SAMPLES = $(PROFILE_SAMPLES)
 COMPOSITION ?= shared-store-matrix
