@@ -455,9 +455,11 @@ fatline-logmash-qualify:
 .PHONY: fatline-adapter-refresh
 
 .PHONY: fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop fatline-services-local fatline-services-phases
-fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop:
+fatline-services-prepare fatline-services-refresh fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_services.py $(patsubst fatline-services-%,%,$@)
 fatline-services-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-services-phases
 fatline-services-phases:
 	@$(MAKE) --no-print-directory -j1 -S fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-logmash-qualify fatline-services-status
+
+.PHONY: fatline-services-refresh

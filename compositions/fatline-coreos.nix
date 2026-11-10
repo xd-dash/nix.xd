@@ -18,7 +18,8 @@
   };
   services = {
     repository = "dash-xd/agni";
-    revision = "1608001b6fb1c57ad7481b7786c5a9a5e3c4932f";
+    revision = "28465d99258c972abe29cad21eebef327a623415";
+    refreshFrom = [ "1608001b6fb1c57ad7481b7786c5a9a5e3c4932f" ];
     package = "coreos-services-vm1";
     contract = "coreos-services-v1";
   };

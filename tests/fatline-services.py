@@ -7,6 +7,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
 from fatline_services import Services
@@ -63,6 +64,51 @@ class Lifecycle(unittest.TestCase):
             link.root = root
             with self.assertRaisesRegex(ValueError, 'fatline-services-stop'):
                 link.execute('stop')
+
+    def test_refresh_preserves_credentials_and_both_generations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            services, calls = self.make(directory)
+            services.link.scope = 'scope'
+            services.link.command = ['ssh']
+            services.link.env = {}
+            services.link.state['boot'] = 'same-boot'
+            services.state.update(status='activating', source={'revision':'old'})
+            metadata = {'schema':1,'logmaRev':'logma','skymillRev':'skymill','ratelimiterRev':'limiter','probe':'new-probe'}
+            services.state['metadata'] = dict(metadata, probe='old-probe')
+            source = {'revision':'b'*40,'refreshFrom':['old'],'package':'coreos-services-vm1'}
+            services.selection = lambda: source
+            services.retain = lambda: calls.append(('retain-both',))
+            for name in ('guest.sh','render.py','acl-policy.json','render-users-acl.py'):
+                (services.root/name).write_text('unchanged\n')
+            credentials = services.root/'credentials'; credentials.mkdir()
+            (credentials/'secret').write_text('preserve-this-value')
+            def owner(*args):
+                calls.append(args)
+                if args[0] == 'cat':
+                    return json.dumps(metadata) if args[1].endswith('metadata.json') else 'unchanged'
+                return '/nix/store/' + 'a'*32 + '-services'
+            services.link.runtime.owner = owner
+            with patch('fatline_services.run', return_value='FATLINE_SERVICES_REFRESH_SAFE=true\n'), contextlib.redirect_stdout(io.StringIO()):
+                services.refresh()
+            self.assertEqual((credentials/'secret').read_text(), 'preserve-this-value')
+            self.assertEqual(services.state['retiredRoots'], [{'root':'/registered-services-root','bundle':'/nix/store/services'}])
+            self.assertEqual(services.state['metadata']['probe'], 'new-probe')
+            self.assertFalse(any(call[0] == 'rm' for call in calls))
+            self.assertEqual(calls[-1], ('retain-both',))
+
+    def test_refresh_refuses_missing_inactive_guest_ack(self):
+        with tempfile.TemporaryDirectory() as directory:
+            services, calls = self.make(directory)
+            services.state.update(status='activating', source={'revision':'old'})
+            services.link.scope = 'scope'
+            services.link.command, services.link.env = ['ssh'], {}
+            services.link.state['boot'] = 'boot'
+            services.selection = lambda: {'refreshFrom':['old'],'revision':'b'*40}
+            with patch('fatline_services.run', return_value=''):
+                with self.assertRaisesRegex(ValueError, 'not confirmed'):
+                    services.refresh()
+            self.assertEqual(calls, [])
+            self.assertEqual(services.state['root'], '/registered-services-root')
 
 
 if __name__ == '__main__': unittest.main()

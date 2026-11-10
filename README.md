@@ -1336,3 +1336,13 @@ are `fatline-services-status` and `fatline-services-stop`. Stop application serv
 before `fatline-stop`; the latter refuses to stop Redis or release its roots while
 application activation is active or unresolved. Application roots are released
 only after acknowledged application stop; transport roots have their own lifecycle.
+
+
+`fatline-services-refresh` supports a declared compatible bundle correction before
+application activation completes. It verifies the guest boot identity and absence
+of running applications, and requires unchanged component pins, scripts and
+credential policy. Credentials and ACL digests are preserved; a new versioned root
+retains the replacement bundle while prior roots remain registered until an
+acknowledged application stop. This is a bounded preparation refresh, not general
+live upgrade or crash recovery. After refreshing a failed bootstrap, retry
+`fatline-services-activate`, then the service and Smoke Logmash qualification gates.
