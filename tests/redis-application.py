@@ -19,6 +19,8 @@ elif args[0] == 'exec':
     assert args[1] == 'nix-xd-test'
     command = args[2:]
     assert command[0] != '/bin/sh', 'application was shell-wrapped'
+    assert command[0] != '/bin/test', 'Alpine does not provide a standalone test executable'
+    if command[0] == '/bin/busybox': assert command[1:4] == ['test', '!', '-e']
     if command[0].endswith('/redis-server'):
         assert command[command.index('--port') + 1] == '0'
         assert command[command.index('--appendonly') + 1] == 'no'

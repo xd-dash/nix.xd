@@ -17,7 +17,7 @@ cleanup() {
       echo 'APPLICATION_CLEANUP=uncertain; application root retained' >&2
       exit 1
     fi
-    timeout --signal=TERM --kill-after=5s 30s podman exec "$unit" /bin/test ! -e "$directory/redis.pid" || exit 1
+    timeout --signal=TERM --kill-after=5s 30s podman exec "$unit" /bin/busybox test ! -e "$directory/redis.pid" || exit 1
     echo 'APPLICATION_CLEANUP=passed'
   fi
   exit "$rc"
@@ -59,6 +59,6 @@ measure request-batch podman exec "$unit" "$app/bin/redis-benchmark" \
   -s "$socket" -n "$requests" -c 1 -t ping_mbulk --csv
 measure shutdown podman exec "$unit" "$app/bin/redis-cli" -s "$socket" SHUTDOWN NOSAVE
 cleanup_required=0
-measure stopped podman exec "$unit" /bin/test ! -e "$directory/redis.pid"
+measure stopped podman exec "$unit" /bin/busybox test ! -e "$directory/redis.pid"
 [[ "$(podman inspect "$unit" --format '{{.Id}}')" == "$cid" ]]
 printf 'APPLICATION_CLEANUP=passed\nAPPLICATION_READER_UNCHANGED=true\nAPPLICATION_RESULT=passed\n'
