@@ -1346,3 +1346,13 @@ retains the replacement bundle while prior roots remain registered until an
 acknowledged application stop. This is a bounded preparation refresh, not general
 live upgrade or crash recovery. After refreshing a failed bootstrap, retry
 `fatline-services-activate`, then the service and Smoke Logmash qualification gates.
+
+
+`fatline-services-probe-refresh` builds and retains the flake-selected qualification
+probe independently from the running application generation. It checks component
+pins, records the actual probe in evidence, and changes only the executable used
+by the temporary qualification container. Application paths, units, credentials,
+state and activation remain unchanged. Logma readiness requires HTTP 200,
+`text/plain`, and `ready`; Skymill operations retain their JSON contract. After a
+probe correction, run `fatline-services-qualify` and `fatline-logmash-qualify`
+without activation or a Redis restart.

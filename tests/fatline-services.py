@@ -110,5 +110,26 @@ class Lifecycle(unittest.TestCase):
             self.assertEqual(calls, [])
             self.assertEqual(services.state['root'], '/registered-services-root')
 
+    def test_probe_refresh_does_not_rebind_live_applications(self):
+        with tempfile.TemporaryDirectory() as directory:
+            services, calls = self.make(directory)
+            services.link.scope = 'scope'
+            services.retain = lambda: None
+            source = {'revision':'c'*40,'package':'coreos-services-vm1'}
+            services.selection = lambda key: source
+            old = {'schema':1,'logmaRev':'logma','skymillRev':'skymill','ratelimiterRev':'limiter',
+                   'logma':'old-logma','skymill':'old-skymill','probe':'old-probe'}
+            services.state['metadata'] = dict(old)
+            new = dict(old, probe='/nix/store/'+'a'*32+'-probe/bin/fatline-services-probe', logma='new-unused-logma')
+            def owner(*args):
+                calls.append(args)
+                return json.dumps(new) if args[0] == 'cat' else '/nix/store/'+'b'*32+'-bundle'
+            services.link.runtime.owner = owner
+            with contextlib.redirect_stdout(io.StringIO()): services.refresh_probe()
+            self.assertEqual(services.state['metadata'], old)
+            self.assertEqual(services.state['status'], 'active')
+            self.assertEqual(services.state['qualificationProbe']['executable'], new['probe'])
+            self.assertFalse(any(call[0] in ('rm','systemctl') for call in calls))
+
 
 if __name__ == '__main__': unittest.main()

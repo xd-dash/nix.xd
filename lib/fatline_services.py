@@ -30,18 +30,20 @@ class Services:
         require(self.state, 'Run fatline-services-prepare first')
         self.link.retain()
         retained = [{'root':self.state['root'], 'bundle':self.state['bundle']}] + self.state.get('retiredRoots', [])
+        if self.state.get('qualificationProbe'):
+            retained.append(self.state['qualificationProbe'])
         for generation in retained:
             self.link.runtime.owner('sh', '-ec',
                 'test -e "$2"; if [ -L "$1" ]; then test "$(readlink "$1")" = "$2"; else nix-store --realise --add-root "$1" "$2" >/dev/null; fi',
                 'retain', generation['root'], generation['bundle'])
 
-    def selection(self):
+    def selection(self, key="services"):
         owner = self.link.runtime.owner
         staged = owner('cat', self.link.runtime.flake + '/.nix-xd-source-revision')
         require(staged == os.environ.get('NIX_XD_WORKLOAD_REV'), 'Stage the selected nix.xd revision first')
         plan = json.loads(owner('nix', 'eval', '--json', '--no-write-lock-file',
             self.link.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.host-link'))
-        source = plan['services']
+        source = plan[key]
         require(source['repository'] == 'dash-xd/agni' and source['contract'] == 'coreos-services-v1' and
                 re.fullmatch(r'[a-f0-9]{40}', source['revision']) and source['package'] == 'coreos-services-vm1',
                 'Invalid application source binding')
@@ -115,6 +117,28 @@ class Services:
         self.retain()
         print('FATLINE_SERVICES_REFRESH=passed credentials=preserved previous_roots=retained')
 
+    def refresh_probe(self):
+        require(self.state, 'Prepare application services first')
+        source = self.selection('servicesProbe')
+        self.retain()
+        owner = self.link.runtime.owner
+        root = '/nix/home/nixuser/.local/state/nix-xd/fatline-' + self.link.scope + '-probe-' + source['revision']
+        bundle = owner('nix', 'build', '--no-write-lock-file', '--print-out-paths', '--out-link', root,
+            'github:dash-xd/agni/' + source['revision'] + '?dir=local/fatline#' + source['package'])
+        require(re.fullmatch(r'/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+', bundle), 'Invalid qualification bundle')
+        metadata = json.loads(owner('cat', bundle + '/metadata.json'))
+        for key in ('schema','logmaRev','skymillRev','ratelimiterRev'):
+            require(metadata[key] == self.state['metadata'][key], 'Probe changes application component pins')
+        require(re.fullmatch(r'/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+/bin/fatline-services-probe', metadata['probe']),
+                'Invalid probe executable')
+        previous = self.state.get('qualificationProbe')
+        if previous and previous['root'] != root:
+            self.state.setdefault('retiredRoots', []).append({'root':previous['root'], 'bundle':previous['bundle']})
+        self.state['qualificationProbe'] = {'source':source,'root':root,'bundle':bundle,'executable':metadata['probe']}
+        write_json(self.path, self.state)
+        write_json(self.root / 'qualification.json', {'result':'unqualified','phase':'probe-refresh'})
+        print('FATLINE_SERVICES_PROBE_REFRESH=passed runtime=unchanged')
+
     def guest(self, action):
         require(self.state, 'Prepare application services first')
         link = self.link
@@ -127,6 +151,8 @@ class Services:
         variables = dict(action=action, scope=link.scope, boot=link.state['boot'], incoming=incoming,
             archive=link.state['archive'], old_acl_digest=link.state['aclDigest'], new_acl_digest=self.state['aclDigest'])
         variables.update({key:self.state['metadata'][key] for key in ('logma','skymill','probe')})
+        if action == 'qualify' and self.state.get('qualificationProbe'):
+            variables['probe'] = self.state['qualificationProbe']['executable']
         script = 'set -Eeuo pipefail\n' + '\n'.join(key + '=' + shlex.quote(value) for key,value in variables.items()) + '\n'
         script += (self.root / 'guest.sh').read_text()
         output = run(link.command, link.env, True, script, timeout=1200)
@@ -137,6 +163,9 @@ class Services:
         require(any(marker in output.splitlines() for marker in markers[action]), 'Missing guest acknowledgement; all roots retained')
 
     def execute(self, action):
+        if action == 'probe-refresh':
+            self.refresh_probe()
+            return
         if action == 'refresh':
             self.refresh()
             return
@@ -152,7 +181,7 @@ class Services:
                 write_json(self.link.root / evidence, {'result':'unqualified','phase':'services-activation'})
             self.state['status'] = 'activating'
             write_json(self.path, self.state)
-            print('FATLINE_SERVICES_ACTIVATION_START redis_restart=required ephemeral_state=true', flush=True)
+            print('FATLINE_SERVICES_ACTIVATION_START redis_restart=if_not_already_active ephemeral_state=true', flush=True)
         self.guest(action)
         if action == 'activate':
             self.link.state['aclDigest'] = self.state['aclDigest']
@@ -162,11 +191,15 @@ class Services:
         elif action == 'qualify':
             write_json(self.root / 'qualification.json', {'result':'passed','boot':self.link.state['boot'],
                 'source':self.state['source'], 'components':self.state['metadata'],
+                'qualificationProbe':self.state.get('qualificationProbe'),
                 'aclDigest':self.state['aclDigest'],'policyDigest':self.state['policyDigest'],
                 'gate':'coreos-services-single-vm','fullFatline':False})
             print('FATLINE_SERVICES_RESULT=passed full_fatline=false')
         elif action == 'stop':
-            for generation in [{'root':self.state['root']}] + self.state.get('retiredRoots', []):
+            retained = [{'root':self.state['root']}] + self.state.get('retiredRoots', [])
+            if self.state.get('qualificationProbe'):
+                retained.append(self.state['qualificationProbe'])
+            for generation in retained:
                 self.link.runtime.owner('rm', '-f', '--', generation['root'])
             self.state['status'] = 'stopped'
             self.state['retiredRoots'] = []
@@ -176,7 +209,7 @@ class Services:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('prepare','refresh','activate','qualify','status','stop'))
+    parser.add_argument('action', choices=('prepare','refresh','probe-refresh','activate','qualify','status','stop'))
     action = parser.parse_args().action
     link = HostLink()
     with (link.root / 'controller.lock').open('a') as lock:

@@ -23,6 +23,12 @@
     package = "coreos-services-vm1";
     contract = "coreos-services-v1";
   };
+  servicesProbe = {
+    repository = "dash-xd/agni";
+    revision = "4a53bbc70c025e99236cc456979f3989f8e02023";
+    package = "coreos-services-vm1";
+    contract = "coreos-services-v1";
+  };
   placement = {
     name = "vm1";
     kind = "coreos";
