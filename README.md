@@ -1553,3 +1553,43 @@ checks to `restart-local`. Auxiliary Podman calls do not inherit the Redis unit'
 notification/socket-activation environment; bootstrap containers use
 `--sdnotify=ignore`. Consumers bind to Redis as well as following planned restarts,
 so a disappearing Redis stops them. This repair still uses ephemeral Redis.
+
+### Focused VM1 reboot gate
+
+This gate reboots the existing guest, preserving its disk, scoped credentials,
+application binaries and owner-store roots. All VM1 processes are interrupted;
+Redis remains ephemeral. VM2 must remain running with the same boot/container IDs.
+
+```bash
+matrix stage WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd &&
+matrix FATLINE_PROFILE=vm1 fatline-reboot-plan &&
+matrix FATLINE_PROFILE=vm1 fatline-restart-upgrade &&
+matrix FATLINE_PROFILE=vm1 fatline-reboot-local
+```
+
+The plan is read-only in both guests. It verifies independent service observations
+and a noninteractive logind or authorized sudo reboot capability. Missing authority
+stops the chain before helper installation or reboot. Future Starwisp 9P Ignition
+includes a narrowly scoped Wisp reboot policy; existing guest authority must be
+provisioned through an authorized administrator, never through a forced power cycle
+or an implicit grant of broad sudo access.
+
+Agni installs a guest-local read-only 9P readiness barrier ahead of the Nix-backed
+startup hooks. After reboot, the controller waits for the same trusted SSH host key
+and a different boot ID. It never starts or recovers services during observation.
+It checks autonomous service startup, mount-before-process timestamps, a fresh
+Redis/bootstrap invocation, runtime and on-disk bootstrap revocation, unchanged VM2,
+and retained closures. Only then does it reconcile this Fatline scope's transport
+and startup-helper boot records. It reruns service readiness, Skymill delivery/ack,
+and authenticated host Smoke Logmash delivery.
+
+Results and checkpoints live under the VM1 `services` directory:
+`reboot-qualification.json` and `reboot-transaction.json`. All phases log through
+the standard Make interface. A lost controller reply can resume with
+`matrix FATLINE_PROFILE=vm1 fatline-reboot-resume`; a persisted request is never
+sent again. Failed or changed-host-key observations leave roots protected and do
+not silently adopt a new boot. Other VM1 workload records are not rewritten;
+transient reader workloads need their own explicit restart/reconciliation.
+
+A passing reboot gate still does not qualify bootstrap fault injection, unexpected
+crashes, production publisher reconciliation, Redis durability or GCE replacement.

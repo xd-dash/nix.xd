@@ -252,6 +252,7 @@ check-static-internal:
 	@python3 tests/fatline-host-link.py
 	@python3 tests/fatline-multivm.py
 	@python3 tests/fatline-recovery.py
+	@python3 tests/fatline-reboot.py
 	@python3 tests/fatline-logmash.py
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
@@ -519,3 +520,11 @@ fatline-restart-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-restart-phases
 fatline-restart-phases:
 	@$(MAKE) --no-print-directory -j1 -S fatline-restart-prepare fatline-restart-qualify fatline-services-qualify fatline-resource-logmash-qualify fatline-services-status
+
+.PHONY: fatline-reboot-plan fatline-reboot-local fatline-reboot-resume
+fatline-reboot-plan:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_reboot.py plan
+fatline-reboot-local:
+	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_reboot.py run
+fatline-reboot-resume:
+	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_reboot.py resume
