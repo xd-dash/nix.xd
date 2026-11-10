@@ -250,6 +250,7 @@ check-static:
 
 check-static-internal:
 	@python3 tests/fatline-host-link.py
+	@python3 tests/fatline-logmash.py
 	@python3 tests/wisp-go-owner.py
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
@@ -437,7 +438,15 @@ fatline-host-link-phases:
 	@$(MAKE) --no-print-directory -j1 -S fatline-prepare fatline-start fatline-qualify fatline-status
 
 # Source-built optional Smoke composition; existing Wisp/Fatline gates remain available.
-WISP_SMOKE_REV ?= 4885f1109302189cfb42d8d3acafa8c605efae1e
+WISP_SMOKE_REV ?= 66950da9a5e4e5303f5dcd018f9039f9b6fc8496
 .PHONY: wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward
 wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go $(patsubst wisp-go-%,%,$@)
+
+.PHONY: fatline-logmash fatline-logmash-phases fatline-logmash-qualify
+fatline-logmash:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-logmash-phases
+fatline-logmash-phases:
+	@$(MAKE) --no-print-directory -j1 -S wisp-go-build wisp-go-check fatline-prepare fatline-start fatline-logmash-qualify
+fatline-logmash-qualify:
+	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_logmash.py

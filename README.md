@@ -1247,3 +1247,37 @@ socket. No host nginx container or Logma repository client is required for that
 path. The current Wisp gate does not yet qualify that authenticated subscription;
 that is the next application gate after SSH/systemd passes. Logmash's existing
 Unix target and ACL-auth provider should be composed rather than duplicated.
+
+### Smoke Logmash through Wisp: single-VM application gate
+
+```sh
+matrix stage WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd &&
+matrix fatline-logmash
+```
+
+This logged aggregate builds the pinned Smoke/Wisp composition in Nix-Alpine,
+runs its owner and host checks, prepares/starts the first scoped Redis/nginx
+transport fixture, then runs the real compiled-in Smoke Logmash subscriber.
+No host Go installation, host nginx container or separate serverless subscriber
+container is required. First preparation may build Agni's pinned transport fixtures;
+this is not a full Fatline/Logma/Skymill deployment or a six-reader rerun.
+
+The route is Smoke Logmash -> private local Unix socket -> Go Wisp SSH -> guest
+loopback nginx -> Redis Unix socket. `--redis-socket` selects this explicit endpoint
+for one logical source; channel identity and named-user ACL authentication remain
+Logmash's responsibility. No test DNS changes are made.
+
+The gate checks wrong-password and foreign-channel rejection through Logmash,
+subscription acknowledgement, exact expected message delivery, clean subscriber
+cancellation, tunnel/socket cleanup, and final guest health/root retention. Existing
+Agni checks also cover subscriber write/admin denial and guest socket permissions.
+Credentials are qualification-only, stored privately and passed to the subscriber
+through its process environment. They are never command arguments, build inputs,
+or tunnel credentials. Runtime Smoke secret-provider integration remains separate.
+
+Expected marker: `SMOKE_LOGMASH_WISP_RESULT=passed full_fatline=false`.
+Send `logs/nix-xd-arm-fatline-logmash-<timestamp>-<pid>.log`; detailed child logs
+remain under `.state/fatline/fatline-arm-vm1/logmash-*.log`. On failure, the aggregate
+keeps the guest services and roots available for diagnosis, while the application
+gate cleans up its owned host processes. After success the services remain up;
+`matrix fatline-stop` stops them and releases only their retained outputs.
