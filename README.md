@@ -1430,3 +1430,70 @@ step automatically and records its configuration revision separately. No public
 HTTP ports or new Redis permissions are added. Applied identical scripts are
 reused, including across probe-only revisions; stop/recreation invalidates that
 configuration acknowledgement.
+
+### Two scoped Fatline guests
+
+`FATLINE_PROFILE=vm1|vm2` selects a flake-declared placement and scope. VM1 keeps
+its existing artifact pins and state. VM2 reuses the shared-store matrix's second
+QEMU runner and immutable boot artifacts, with a separate writable disk, SSH port
+2223, `fatline-arm-vm2` credentials, service directories, socket and Podman network.
+Both guests use their own loopback nginx listener on 16379; optional Mac TCP
+forwards use 16379 and 26379 respectively. Logma/Skymill HTTP stays private.
+The new profile does not change the ephemeral Redis persistence contract.
+
+Using the existing `matrix` Make wrapper, after pulling and staging:
+
+```bash
+matrix wisp-go-build &&
+matrix FATLINE_PROFILE=vm2 fatline-vm-local &&
+matrix FATLINE_PROFILE=vm1 fatline-resource-local
+```
+
+The VM2 gate starts/reuses only its runner, checks Wisp/9P, prepares independent
+credentials, qualifies services, and receives a real Logma dispatch through host
+Smoke Logmash. It does not rerun the six-reader matrix. Do not run the activation
+aggregate unnecessarily against an already qualified VM1.
+
+Then qualify both cross-VM directions:
+
+```bash
+matrix wisp-go-linux && matrix fatline-cross-qualify
+```
+
+Linux Smoke is source-built through Nix-Alpine with the same pinned Go toolchain
+and source revision as the Mac binary. Its static output is imported into the
+shared Nix store and explicitly rooted. Each source guest runs a bounded rootless
+Smoke Logmash container with no network interface, read-only store and only the
+destination's subscriber credential. Go Wisp forwards from a private Mac Unix
+socket to destination nginx; the existing OpenSSH adapter creates a private
+reverse Unix listener in the source guest. SSH private keys stay on the Mac.
+This gate qualifies **host-brokered SSH**, not direct inter-VM networking.
+
+Each direction receives a fresh Logma resource dispatch, cancels its subscriber,
+removes its sockets/temporary credential, and leaves all eight Fatline service
+container IDs and both boot IDs unchanged. Subscriber credentials must differ
+between profiles. The transient guest unit has a 180-second runtime bound;
+interruption recovery and Redis durability are still separate gates.
+Every command writes its usual diagnostic log; detailed cross-VM evidence is in
+`.state/fatline/cross/qualification.json` and adjacent per-process logs.
+
+### Persistent peer-builder runtime gate
+
+Create a persistent Grumble builder only if it has not already been configured:
+
+```bash
+make ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 \
+  SCOPE=nix-xd-grumble STORE_VOLUME=nix-xd-grumble-store \
+  PEER_STORES='agni=nix-xd-arm-store' bootstrap
+matrix builder-store-qualify
+```
+
+The gate requires both selected volumes and running builders; it never creates
+missing peers. It registers distinct tiny outputs concurrently in the two stores,
+checks separate registration databases, reads Agni through Grumble's existing
+read-only peer mount, and checks reverse read-only access with a temporary reader.
+It preserves the current Agni owner's configuration and both persistent stores.
+Only probe files and roots are removed after the readers exit; no GC runs.
+For existing custom names, select `STORE_VOLUME`, `PEER_BUILDER_SCOPE`,
+`PEER_BUILDER_VOLUME`, and `PEER_BUILDER_ALIAS` explicitly. Full-volume peer access
+is for trusted builders; execution/import from a peer remains a separate action.

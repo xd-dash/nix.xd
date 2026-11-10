@@ -250,6 +250,7 @@ check-static:
 
 check-static-internal:
 	@python3 tests/fatline-host-link.py
+	@python3 tests/fatline-multivm.py
 	@python3 tests/fatline-logmash.py
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
@@ -429,7 +430,9 @@ composition-local-phases:
 	@$(MAKE) --no-print-directory -j1 -S check-static stage composition-plan composition-prepare composition-start composition-qualify composition-status WORKSPACES="$(abspath $(CURDIR)/..)" CHECKOUT="$(notdir $(CURDIR))"
 
 # Agni owns Fatline service/security templates; this is the host adapter.
-FATLINE_SCOPE ?= fatline-arm-vm1
+FATLINE_PROFILE ?= vm1
+FATLINE_SCOPE ?= fatline-arm-$(FATLINE_PROFILE)
+export NIX_XD_FATLINE_PROFILE = $(FATLINE_PROFILE)
 export NIX_XD_FATLINE_SCOPE = $(FATLINE_SCOPE)
 .PHONY: fatline-prepare fatline-start fatline-status fatline-qualify fatline-stop fatline-host-link fatline-host-link-phases
 fatline-prepare fatline-start fatline-status fatline-qualify fatline-stop fatline-adapter-refresh:
@@ -485,3 +488,25 @@ fatline-resource-logmash-qualify:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_logmash.py --resource
 
 .PHONY: fatline-services-configure-logma
+
+.PHONY: fatline-vm-start fatline-vm-local fatline-vm-phases wisp-go-linux fatline-cross-qualify
+fatline-vm-start:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_vm.py
+fatline-vm-local:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-vm-phases
+fatline-vm-phases:
+	@$(MAKE) --no-print-directory -j1 -S fatline-vm-start fatline-prepare fatline-start fatline-adapter-refresh fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-configure-logma fatline-resource-logmash-qualify fatline-services-status
+wisp-go-linux:
+	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go linux
+fatline-cross-qualify:
+	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_cross.py
+
+PEER_BUILDER_SCOPE ?= nix-xd-grumble
+PEER_BUILDER_VOLUME ?= $(PEER_BUILDER_SCOPE)-store
+PEER_BUILDER_ALIAS ?= agni
+export NIX_XD_PEER_BUILDER_SCOPE = $(PEER_BUILDER_SCOPE)
+export NIX_XD_PEER_BUILDER_VOLUME = $(PEER_BUILDER_VOLUME)
+export NIX_XD_PEER_BUILDER_ALIAS = $(PEER_BUILDER_ALIAS)
+.PHONY: builder-store-qualify
+builder-store-qualify:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/builder_store_qualify.py

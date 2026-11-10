@@ -28,26 +28,28 @@ class HostLink:
         require((os.environ['NIX_XD_SYSTEM'], actual) in (('aarch64-linux','aarch64'), ('x86_64-linux','x86_64')), 'Owner architecture mismatch')
         self.scope = os.environ.get('NIX_XD_FATLINE_SCOPE', 'fatline-arm-vm1')
         require(re.fullmatch(r'[a-z][a-z0-9-]{0,31}', self.scope), 'Invalid Fatline scope')
-        require(self.scope == 'fatline-arm-vm1', 'Only the first pinned VM1 profile is implemented')
+        self.profile = os.environ.get('NIX_XD_FATLINE_PROFILE', 'vm1')
+        require(self.profile in ('vm1', 'vm2'), 'Select Fatline profile vm1 or vm2')
+        require(self.scope == 'fatline-arm-' + self.profile, 'Scope does not match selected profile')
         self.root = REPO / '.state/fatline' / self.scope
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
         self.state_path = self.root / 'state.json'
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else None
         self.config = self.state['plan'] if self.state else json.loads(self.runtime.owner('nix', 'eval', '--json',
-            '--no-write-lock-file', self.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.host-link'))
+            '--no-write-lock-file', self.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.' + getattr(self, 'profile', 'vm1')))
         require(self.config['storeDomain'] == 'common', 'Unsupported store domain')
         require(self.config['schema'] == 1 and self.config['scope'] == self.scope and
                 self.config['system'] == os.environ['NIX_XD_SYSTEM'], 'Invalid Fatline plan binding')
         source = self.config['sources']['agni']
         require(source['repository'] == 'dash-xd/agni' and re.fullmatch(r'[a-f0-9]{40}', source['revision']),
                 'Invalid pinned Agni source')
-        require(self.config['ingress'] == {'transport':'ssh-tcp-nginx-unix', 'hostPort':16379, 'guestProxyPort':16379},
+        require(self.config['ingress'] == {'transport':'ssh-tcp-nginx-unix', 'hostPort':16379 if self.profile == 'vm1' else 26379, 'guestProxyPort':16379},
                 'Unsupported ingress profile')
         self.agni_rev = source['revision']
-        self.runtime.plan = {'placements': {'vm1': self.config['placement']},
-                             'workloads': {'transport': {'placement': 'vm1'}}}
-        self.command, self.env = self.runtime.transport_command('vm1', 'transport')
+        self.runtime.plan = {'placements': {self.profile: self.config['placement']},
+                             'workloads': {'transport': {'placement': self.profile}}}
+        self.command, self.env = self.runtime.transport_command(self.profile, 'transport')
 
     def guest(self, action):
         require(self.state, 'Run fatline-prepare first')
@@ -105,7 +107,7 @@ class HostLink:
             'passwordFile':'/run/credentials/publisher', 'scope':self.scope,
             'channel':self.scope + ':qualification', 'payload':payload}
         write_json(credentials / 'publisher.json', publisher)
-        subscriber = dict(publisher, network='tcp', address='127.0.0.1:16379', username='subscriber',
+        subscriber = dict(publisher, network='tcp', address='127.0.0.1:' + str(self.config['ingress']['hostPort']), username='subscriber',
                           passwordFile=str(credentials / 'subscriber'))
         write_json(credentials / 'subscriber.json', subscriber)
         client = metadata['clientDarwin'] if platform.system() == 'Darwin' else metadata['clientLinux']
@@ -137,7 +139,7 @@ class HostLink:
         staged = self.runtime.owner('cat', self.runtime.flake + '/.nix-xd-source-revision')
         require(staged == os.environ.get('NIX_XD_WORKLOAD_REV'), 'Stage the selected revision first')
         desired = json.loads(self.runtime.owner('nix', 'eval', '--json', '--no-write-lock-file',
-            self.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.host-link'))
+            self.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.' + getattr(self, 'profile', 'vm1')))
         adapter = desired['guestAdapter']
         require(desired['scope'] == self.scope and adapter['repository'] == 'dash-xd/agni' and
                 adapter['contract'] == 'fatline-host-link-v1' and
@@ -166,20 +168,20 @@ class HostLink:
         self.guest('status')
         self.guest('check')
         tunnel_command = self.command[:-2] + ['-o','ExitOnForwardFailure=yes','-N','-L',
-                          '127.0.0.1:16379:127.0.0.1:16379', self.command[-2]]
+                          '127.0.0.1:' + str(self.config['ingress']['hostPort']) + ':127.0.0.1:16379', self.command[-2]]
         native = [str(self.root / 'host-link'), '--config', str(self.root / 'credentials/subscriber.json')]
         tunnel = subscriber = None
         with (self.root / 'tunnel.log').open('w') as tunnel_log, (self.root / 'subscriber.log').open('w') as subscriber_log:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as available:
-                    available.bind(('127.0.0.1', 16379))
+                    available.bind(('127.0.0.1', self.config['ingress']['hostPort']))
                 tunnel = subprocess.Popen(tunnel_command, env=self.env, stdin=subprocess.DEVNULL,
                     stdout=tunnel_log, stderr=subprocess.STDOUT)
                 deadline = time.monotonic() + 30
                 while time.monotonic() < deadline:
                     require(tunnel.poll() is None, 'SSH tunnel failed; see tunnel.log')
                     try:
-                        with socket.create_connection(('127.0.0.1', 16379), timeout=1): break
+                        with socket.create_connection(('127.0.0.1', self.config['ingress']['hostPort']), timeout=1): break
                     except OSError:
                         time.sleep(0.2)
                 else: raise ValueError('SSH forward readiness timed out')

@@ -26,14 +26,15 @@ def wait_log(process, path, expected, timeout):
     raise ValueError('Acknowledgement timed out; see ' + str(path))
 
 
-def subscriber_environment(base, password):
+def subscriber_environment(base, password, source='us:vm1'):
     # Keep credentials process-scoped; neither command arguments nor logs contain them.
-    return dict(base, LOGMASH_REDIS_US_VM1_USERNAME='subscriber',
-                LOGMASH_REDIS_US_VM1_PASSWORD=password)
+    prefix = 'LOGMASH_REDIS_' + source.upper().replace(':', '_')
+    return dict(base, **{prefix + '_USERNAME':'subscriber', prefix + '_PASSWORD':password})
 
 
 def qualify(link, resource=False):
     link.retain()
+    source = link.config.get('logicalSource', 'us:' + getattr(link, 'profile', 'vm1'))
     root = link.root
     result = root / ('resource-logmash-qualification.json' if resource else 'logmash-qualification.json')
     write_json(result, {'result':'running', 'gate':'smoke-logmash-wisp'})
@@ -54,14 +55,14 @@ def qualify(link, resource=False):
     require(not socket_path.exists() and not socket_path.is_symlink(), 'Existing socket path is not owned by this run')
     transport_log = root / 'logmash-wisp.log'
     subscriber_log = root / 'logmash-subscriber.log'
-    known_hosts = link.runtime.primary / 'starwisp/known_hosts'
+    known_hosts = Path(link.env.get('COREOS_STATE_ROOT', str(link.runtime.primary))) / 'starwisp/known_hosts'
     tunnel_command = [str(binary), 'wisp', 'forward', '--address',
         '127.0.0.1:' + str(link.config['placement']['sshPort']), '--user',
         os.environ.get('COREOS_GUEST_USER', 'wisp'), '--identity', os.environ['COREOS_SSH_KEY'],
         '--known-hosts', str(known_hosts), '--listen', str(socket_path),
         '--target-network', 'tcp', '--target', '127.0.0.1:16379', '--timeout', '10m']
     native = [str(binary), 'logmash', '--redis-socket', str(socket_path), '--auth-provider', 'acl-env']
-    env = subscriber_environment(link.env, password)
+    env = subscriber_environment(link.env, password, source)
     tunnel = subscriber = None
     passed = False
     resource_binding = None
@@ -72,18 +73,18 @@ def qualify(link, resource=False):
             wait_log(tunnel, transport_log, 'WISP_FORWARD_READY=true', 30)
             # Exercise auth and channel restrictions through the actual Smoke command.
             for name, selector, credentials, expected in (
-                ('wrong-password', channel, subscriber_environment(link.env, 'invalid-qualification-password'), 'WRONGPASS'),
+                ('wrong-password', channel, subscriber_environment(link.env, 'invalid-qualification-password', source), 'WRONGPASS'),
                 ('foreign-channel', 'foreign:qualification', env, 'NOPERM')):
-                denied = subprocess.run(native + ['us:vm1:' + selector], env=credentials,
+                denied = subprocess.run(native + [source + ':' + selector], env=credentials,
                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, timeout=60)
                 (root / ('logmash-' + name + '.log')).write_text(denied.stdout)
                 require(denied.returncode != 0 and expected in denied.stdout,
                         'Expected denial missing: ' + name)
                 print('SMOKE_LOGMASH_DENIAL=' + name, flush=True)
-            subscriber = subprocess.Popen(native + ['us:vm1:' + channel], env=env,
+            subscriber = subprocess.Popen(native + [source + ':' + channel], env=env,
                 stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT)
-            wait_log(subscriber, subscriber_log, 'logmash: ready source=us:vm1', 60)
+            wait_log(subscriber, subscriber_log, 'logmash: ready source=' + source, 60)
             print('SMOKE_LOGMASH_SUBSCRIBER_READY=true', flush=True)
             if resource:
                 from fatline_services import Services
@@ -97,7 +98,7 @@ def qualify(link, resource=False):
                     request.unlink(missing_ok=True)
             else:
                 link.guest('publish')
-            wait_log(subscriber, subscriber_log, 'us:vm1:' + channel + '\t' + config['payload'], 60)
+            wait_log(subscriber, subscriber_log, source + ':' + channel + '\t' + config['payload'], 60)
             print('SMOKE_LOGMASH_MESSAGE=passed', flush=True)
             subscriber.send_signal(signal.SIGTERM)
             require(subscriber.wait(timeout=15) == 0, 'Logmash did not cancel cleanly')

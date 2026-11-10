@@ -42,7 +42,7 @@ class Services:
         staged = owner('cat', self.link.runtime.flake + '/.nix-xd-source-revision')
         require(staged == os.environ.get('NIX_XD_WORKLOAD_REV'), 'Stage the selected nix.xd revision first')
         plan = json.loads(owner('nix', 'eval', '--json', '--no-write-lock-file',
-            self.link.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.host-link'))
+            self.link.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.' + getattr(self.link, 'profile', 'vm1')))
         source = plan[key]
         require(source['repository'] == 'dash-xd/agni' and source['contract'] == 'coreos-services-v1' and
                 re.fullmatch(r'[a-f0-9]{40}', source['revision']) and source['package'] == 'coreos-services-vm1',

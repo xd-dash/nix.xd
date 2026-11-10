@@ -72,6 +72,8 @@
         });
       fatlinePlans = eachSystem (system: {
         host-link = import ./compositions/fatline-coreos.nix { inherit system; };
+        vm1 = import ./compositions/fatline-coreos.nix { inherit system; profile = "vm1"; };
+        vm2 = import ./compositions/fatline-coreos.nix { inherit system; profile = "vm2"; };
       });
       compositions = eachSystem (system: {
         shared-store-matrix = import ./compositions/shared-store-matrix.nix { inherit system; };

@@ -8,7 +8,7 @@ action="${1:?Provide build, check, qualify or forward}"
 mkdir -p "$root"
 chmod 700 "$root"
 case "$action" in
-  build|check)
+  build|check|linux)
     [[ "${NIX_XD_PROVIDER:-podman}" == podman ]] || { echo 'Wisp Go owner adapter requires Podman' >&2; exit 1; }
     runtime=(podman)
     [[ "$(uname -s)" != Darwin ]] || runtime+=(--connection "${NIX_XD_MACHINE:?Provide machine}")
@@ -16,6 +16,7 @@ case "$action" in
     flake="${NIX_XD_WORKLOAD_FLAKE:-/workspaces/nix.xd}"
     case "$(uname -s)" in Darwin) target_os=darwin ;; Linux) target_os=linux ;; *) echo 'Unsupported host OS' >&2; exit 1 ;; esac
     case "$(uname -m)" in arm64|aarch64) target_arch=arm64 ;; x86_64|amd64) target_arch=amd64 ;; *) echo 'Unsupported host architecture' >&2; exit 1 ;; esac
+    [[ "$action" != linux ]] || target_os=linux
     owner_root=/nix/home/nixuser/.local/state/nix-xd/wisp-go/$revision
     # The flake lock selects the toolchain; only pinned Smoke source enters this workspace.
     "${runtime[@]}" exec -i "$owner" nix shell --no-write-lock-file "$flake#wispGoTools" --command bash -se -- "$action" "$revision" "$target_os" "$target_arch" "$owner_root" <<'OWNER'
@@ -40,7 +41,17 @@ else
   go test -c -o "$root/wisp-test-$target_os-$target_arch" ./wisp
 fi
 OWNER
-    if [[ "$action" == check ]]; then
+    if [[ "$action" == linux ]]; then
+      store_path="$("${runtime[@]}" exec "$owner" sh -ec '
+        path=$(nix-store --add "$1")
+        nix-store --realise --add-root "$2" "$path" >/dev/null
+        printf "%s\n" "$path"
+      ' retain "$owner_root/smoke-linux-$target_arch" "$owner_root/guest-smoke-root")"
+      [[ "$store_path" =~ ^/nix/store/[a-z0-9]{32}-smoke-linux-(arm64|amd64)$ ]] || { echo 'Invalid guest Smoke output' >&2; exit 1; }
+      printf '%s\n' "$store_path" > "$root/linux-path"
+      printf '%s\n' "$revision" > "$root/linux-revision"
+      echo WISP_GO_LINUX_BUILD_RESULT=passed
+    elif [[ "$action" == check ]]; then
       [[ -x "$root/wisp.test" && -r "$root/revision" && "$(cat "$root/revision")" == "$revision" ]] || { echo 'Run wisp-go-build before checking host sockets' >&2; exit 1; }
       WISP_REQUIRE_UNIX=1 "$root/wisp.test" -test.v
       echo WISP_GO_CHECK_RESULT=passed
