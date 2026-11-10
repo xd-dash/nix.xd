@@ -437,7 +437,7 @@ fatline-host-link-phases:
 	@$(MAKE) --no-print-directory -j1 -S fatline-prepare fatline-start fatline-qualify fatline-status
 
 # Source-built optional Smoke composition; existing Wisp/Fatline gates remain available.
-WISP_SMOKE_REV ?= 1f72b379c270bac9fe06bdb7b83a779af500522a
+WISP_SMOKE_REV ?= 4885f1109302189cfb42d8d3acafa8c605efae1e
 .PHONY: wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward
 wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go $(patsubst wisp-go-%,%,$@)
