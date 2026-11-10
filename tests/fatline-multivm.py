@@ -19,6 +19,12 @@ from builder_store_qualify import mount
 
 
 class Profiles(unittest.TestCase):
+    def test_cross_dispatch_uses_the_application_fixture_contract(self):
+        request = cross.dispatch_request('fatline-arm-vm2', 'unique', 'a'*48)
+        self.assertEqual(request['Channel'], 'fatline-arm-vm2:qualification')
+        self.assertTrue(request['PublisherID'].startswith('nix-xd-dispatch-'))
+        self.assertGreaterEqual(len(request['Payload']), 32)
+
     def test_vm2_routes_to_its_own_placement(self):
         calls = []
         plan = {'schema':1, 'scope':'fatline-arm-vm2', 'system':'aarch64-linux', 'storeDomain':'common',

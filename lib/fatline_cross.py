@@ -20,6 +20,10 @@ from fatline_logmash import wait_log
 from fatline_services import Services
 
 
+def dispatch_request(scope, token, payload):
+    return {'Channel':scope + ':qualification', 'PublisherID':'nix-xd-dispatch-' + token, 'Payload':payload}
+
+
 def snapshot(link):
     script = 'set -Eeuo pipefail\n'
     script += 'test "$(cat /proc/sys/kernel/random/boot_id)" = ' + shlex.quote(link.state['boot']) + '\n'
@@ -99,7 +103,7 @@ def direction(source, target, binary, guest_binary, root):
                 wait_log(subscriber, Path(subscriber_log.name), 'logmash: ready source=' + logical, 45)
                 payload = secrets.token_hex(24)
                 request = root / (name + '.json')
-                write_json(request, {'Channel':target.scope + ':qualification', 'PublisherID':name, 'Payload':payload})
+                write_json(request, dispatch_request(target.scope, token, payload))
                 try: Services(target).dispatch(request)
                 finally: request.unlink(missing_ok=True)
                 wait_log(subscriber, Path(subscriber_log.name), logical + ':' + target.scope + ':qualification\t' + payload, 45)
