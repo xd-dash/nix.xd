@@ -32,6 +32,9 @@ class Services:
         retained = [{'root':self.state['root'], 'bundle':self.state['bundle']}] + self.state.get('retiredRoots', [])
         if self.state.get('qualificationProbe'):
             retained.append(self.state['qualificationProbe'])
+        recovery = self.root / 'recovery.json'
+        if recovery.exists():
+            retained.append(json.loads(recovery.read_text()))
         for generation in retained:
             self.link.runtime.owner('sh', '-ec',
                 'test -e "$2"; if [ -L "$1" ]; then test "$(readlink "$1")" = "$2"; else nix-store --realise --add-root "$1" "$2" >/dev/null; fi',
@@ -84,6 +87,7 @@ class Services:
             self.retain()
             print('FATLINE_SERVICES_REFRESH=reused')
             return
+        require(not (self.root / 'recovery.json').exists(), 'Installed restart graph must be migrated before changing application pins')
         require(self.state['status'] in ('prepared','activating','stopped') and
                 self.state['source']['revision'] in source.get('refreshFrom', []),
                 'Stop services and select a declared compatible refresh before changing pins')

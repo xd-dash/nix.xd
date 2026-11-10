@@ -1497,3 +1497,42 @@ Only probe files and roots are removed after the readers exit; no GC runs.
 For existing custom names, select `STORE_VOLUME`, `PEER_BUILDER_SCOPE`,
 `PEER_BUILDER_VOLUME`, and `PEER_BUILDER_ALIAS` explicitly. Full-volume peer access
 is for trusted builders; execution/import from a peer remains a separate action.
+
+### Controlled Redis restart reconciliation
+
+The next focused gate adopts Agni's immutable startup helper, preserving the
+existing Logma/Skymill binaries and credentials. Redis's Quadlet gets
+`ExecStartPre`/`ExecStartPost`/`ExecStopPost` hooks. Startup prepares a private
+runtime ACL, waits for Redis, installs Functions, revokes the bootstrap identity
+in Redis and the runtime ACL file, and only then completes Redis startup.
+Dependent nginx/Logma/Skymill units wait for that completion. Logma additionally
+requires nginx. Their `PartOf` relationships propagate a controlled Redis restart.
+
+The reusable ACL template and the runtime ACL are separate files: the template
+contains the hash needed to enable a bounded bootstrap window on each start;
+Redis reads the runtime file, whose bootstrap identity is disabled at steady
+state and on bootstrap failure. Bootstrap plaintext stays in its private role
+mount. A startup failure prevents the dependency start transaction from succeeding.
+This does not claim security against the trusted guest owner.
+
+After pulling and staging, use the existing `matrix` wrapper:
+
+```bash
+matrix FATLINE_PROFILE=vm1 fatline-restart-local
+```
+
+This command **restarts VM1's ephemeral Redis twice**, so its messages and Streams
+are lost. It does not reboot either VM or modify VM2. The first restart adopts
+the graph; the second tests propagation with all consumers active. The gate checks
+new container IDs, a new Redis invocation/bootstrap acknowledgement, unchanged
+boot ID, on-disk and authenticated runtime bootstrap revocation, then reruns service
+readiness, Skymill publish/deduplication/receive/ack and host resource delivery.
+Every phase logs to `logs/`; restart evidence is recorded under the profile's
+`services/restart-qualification.json`.
+
+The recovery bundle is independently pinned and rooted while installed units
+reference it, including after application stop. Application pin refresh is blocked
+until the installed graph is explicitly migrated. No running application generation
+is silently replaced. VM reboot, unexpected process/owner crash, durable Redis
+storage, backups and spot replacement remain separate gates. Production publisher
+reconciliation and shared-process tenant qualification also remain pending.

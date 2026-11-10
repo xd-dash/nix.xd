@@ -251,6 +251,7 @@ check-static:
 check-static-internal:
 	@python3 tests/fatline-host-link.py
 	@python3 tests/fatline-multivm.py
+	@python3 tests/fatline-recovery.py
 	@python3 tests/fatline-logmash.py
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
@@ -510,3 +511,11 @@ export NIX_XD_PEER_BUILDER_ALIAS = $(PEER_BUILDER_ALIAS)
 .PHONY: builder-store-qualify
 builder-store-qualify:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/builder_store_qualify.py
+
+.PHONY: fatline-restart-prepare fatline-restart-qualify fatline-restart-local fatline-restart-phases
+fatline-restart-prepare fatline-restart-qualify:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_recovery.py $(patsubst fatline-restart-%,%,$@)
+fatline-restart-local:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-restart-phases
+fatline-restart-phases:
+	@$(MAKE) --no-print-directory -j1 -S fatline-restart-prepare fatline-restart-qualify fatline-services-qualify fatline-resource-logmash-qualify fatline-services-status
