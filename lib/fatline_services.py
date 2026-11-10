@@ -34,7 +34,9 @@ class Services:
             retained.append(self.state['qualificationProbe'])
         recovery = self.root / 'recovery.json'
         if recovery.exists():
-            retained.append(json.loads(recovery.read_text()))
+            record = json.loads(recovery.read_text())
+            retained.append(record)
+            retained.extend(record.get('retiredRoots', []))
         for generation in retained:
             self.link.runtime.owner('sh', '-ec',
                 'test -e "$2"; if [ -L "$1" ]; then test "$(readlink "$1")" = "$2"; else nix-store --realise --add-root "$1" "$2" >/dev/null; fi',

@@ -12,6 +12,29 @@ from fatline_services import Services
 
 
 class RestartEvidence(unittest.TestCase):
+    def test_declared_retry_retains_the_partially_installed_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old = {'source':{'revision':'old'}, 'root':'old-root','bundle':'old-bundle','status':'installing'}
+            (root / 'recovery.json').write_text(json.dumps(old))
+            source = {'revision':'new','refreshFrom':['old'],'package':'coreos-services-vm1'}
+            metadata = {'schema':1, 'logmaRev':'l', 'skymillRev':'s','ratelimiterRev':'r',
+                'probe':'/nix/store/'+'b'*32+'-probe/bin/fatline-services-probe'}
+            def owner(*args):
+                if args[0] == 'nix': return '/nix/store/'+'a'*32+'-bundle'
+                return json.dumps(metadata) if args[-1].endswith('metadata.json') else '#!/bin/bash'
+            services = SimpleNamespace(root=root, state={'status':'active','metadata':metadata},
+                selection=lambda key:source, retain=lambda:None,
+                link=SimpleNamespace(scope='scope',state={'boot':'same'},runtime=SimpleNamespace(owner=owner)))
+            with patch.object(gate, 'invoke'):
+                gate.prepare(services)
+            record = json.loads((root / 'recovery.json').read_text())
+            self.assertEqual(record['status'], 'installed')
+            self.assertEqual(record['retiredRoots'], [{'root':'old-root','bundle':'old-bundle'}])
+            old['status'] = 'installed'
+            (root / 'recovery.json').write_text(json.dumps(old))
+            with self.assertRaisesRegex(ValueError, 'migrate explicitly'): gate.prepare(services)
+
     def test_lost_acknowledgement_marks_failed_and_retains_adapter(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

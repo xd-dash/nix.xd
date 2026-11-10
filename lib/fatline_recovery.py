@@ -23,7 +23,9 @@ def prepare(services):
     source = services.selection('servicesRecovery')
     path = services.root / 'recovery.json'
     previous = json.loads(path.read_text()) if path.exists() else None
-    require(not previous or previous['source'] == source, 'Installed restart graph pins another revision; migrate explicitly')
+    require(not previous or previous['source'] == source or (previous['status'] == 'installing' and
+            previous['source']['revision'] in source.get('refreshFrom', [])),
+            'Installed restart graph pins another revision; migrate explicitly')
     services.retain()
     root = '/nix/home/nixuser/.local/state/nix-xd/fatline-' + link.scope + '-recovery-' + source['revision']
     bundle = link.runtime.owner('nix', 'build', '--no-write-lock-file', '--print-out-paths', '--out-link', root,
@@ -36,6 +38,9 @@ def prepare(services):
     script = link.runtime.owner('cat', bundle + '/recovery.sh') + '\n'
     record = {'source':source, 'root':root, 'bundle':bundle, 'probe':metadata['probe'],
         'sha256':hashlib.sha256(script.encode()).hexdigest(), 'status':'installing', 'boot':link.state['boot']}
+    record['retiredRoots'] = list(previous.get('retiredRoots', [])) if previous else []
+    if previous and previous['root'] != root:
+        record['retiredRoots'].append({'root':previous['root'], 'bundle':previous['bundle']})
     write_json(path, record)
     invoke(services, record, 'install')
     record['status'] = 'installed'

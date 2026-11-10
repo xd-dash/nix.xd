@@ -34,7 +34,8 @@ let vm2 = profile == "vm2"; in
   };
   servicesRecovery = {
     repository = "dash-xd/agni";
-    revision = "202e64ccaff67fd36a5511bb8e88a28719cd9831";
+    revision = "0229581143c0e122ef1e92faba67f188ddb06f0f";
+    refreshFrom = [ "202e64ccaff67fd36a5511bb8e88a28719cd9831" ];
     package = "coreos-services-vm1";
     contract = "coreos-services-v1";
   };
