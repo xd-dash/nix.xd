@@ -104,7 +104,7 @@ def qualify(link):
                     process.wait()
         write_json(result, {'result':'passed' if passed else 'failed', 'gate':'smoke-logmash-wisp',
             'smokeRev':revision, 'agniRev':link.state['agniRev'], 'boot':link.state['boot'],
-            'aclDigest':link.state['aclDigest'], 'fullFatline':False})
+            'aclDigest':link.state['aclDigest'], 'guestAdapter':link.state.get('guestAdapter'), 'fullFatline':False})
     print('SMOKE_LOGMASH_WISP_RESULT=passed full_fatline=false')
 
 

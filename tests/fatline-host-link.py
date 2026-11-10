@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import hashlib
+import os
 import contextlib
 import io
 import json
@@ -57,6 +59,36 @@ class Adapter(unittest.TestCase):
             with patch('fatline_host_link.run', return_value=''), contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaisesRegex(ValueError, 'acknowledgement missing'):
                     link.guest('stop')
+
+    def test_adapter_refresh_checks_digest_and_preserves_runtime(self):
+        link = HostLink.__new__(HostLink)
+        script = '#!/bin/bash\necho fixed\n'
+        adapter = {'repository':'dash-xd/agni', 'contract':'fatline-host-link-v1',
+            'compatibleRuntimeRevision':'runtime', 'revision':'b' * 40,
+            'sha256':hashlib.sha256(script.encode()).hexdigest()}
+        with tempfile.TemporaryDirectory() as directory:
+            link.root = Path(directory)
+            link.state_path = link.root / 'state.json'
+            link.state = {'agniRev':'runtime', 'roots':['protected'], 'status':'prepared'}
+            link.scope = 'scope'
+            (link.root / 'guest.sh').write_text('old')
+            class Owner:
+                flake = '/workspaces/nix.xd'
+                def owner(self, *args):
+                    if args[0] == 'cat':
+                        return 'selected' if args[1].endswith('source-revision') else script.strip()
+                    if '--json' in args:
+                        return json.dumps({'scope':'scope','guestAdapter':adapter})
+                    return '/nix/store/source/local/fatline'
+            link.runtime = Owner()
+            with patch.dict(os.environ, {'NIX_XD_WORKLOAD_REV':'selected', 'NIX_XD_SYSTEM':'aarch64-linux'}), contextlib.redirect_stdout(io.StringIO()):
+                link.refresh_adapter()
+                self.assertEqual((link.root / 'guest.sh').read_text(), script)
+                self.assertEqual(link.state['roots'], ['protected'])
+                adapter['sha256'] = '0' * 64
+                with self.assertRaisesRegex(ValueError, 'digest mismatch'):
+                    link.refresh_adapter()
+                self.assertEqual((link.root / 'guest.sh').read_text(), script)
 
     def test_artifact_owner_is_pinned_and_not_a_moving_branch(self):
         plan = (Path(__file__).resolve().parents[1] / 'compositions/fatline-coreos.nix').read_text()

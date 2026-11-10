@@ -1281,3 +1281,12 @@ remain under `.state/fatline/fatline-arm-vm1/logmash-*.log`. On failure, the agg
 keeps the guest services and roots available for diagnosis, while the application
 gate cleans up its owned host processes. After success the services remain up;
 `matrix fatline-stop` stops them and releases only their retained outputs.
+
+
+A prepared Fatline runtime keeps its original build/credential pins. Compatible
+qualification/lifecycle script corrections can be selected separately through
+`guestAdapter` in the flake plan. `matrix fatline-adapter-refresh` verifies the
+selected source revision, script digest and runtime contract before atomically
+refreshing the host's guest-script cache. It does not restart guest services,
+replace credentials, rebuild their closures or release roots. The application
+evidence records the runtime and adapter pins independently.

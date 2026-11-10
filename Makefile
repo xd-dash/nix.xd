@@ -430,12 +430,12 @@ composition-local-phases:
 FATLINE_SCOPE ?= fatline-arm-vm1
 export NIX_XD_FATLINE_SCOPE = $(FATLINE_SCOPE)
 .PHONY: fatline-prepare fatline-start fatline-status fatline-qualify fatline-stop fatline-host-link fatline-host-link-phases
-fatline-prepare fatline-start fatline-status fatline-qualify fatline-stop:
+fatline-prepare fatline-start fatline-status fatline-qualify fatline-stop fatline-adapter-refresh:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_host_link.py $(patsubst fatline-%,%,$@)
 fatline-host-link:
 	@bash bin/nix-xd-log "$(SCOPE)" fatline-host-link $(MAKE) --no-print-directory fatline-host-link-phases
 fatline-host-link-phases:
-	@$(MAKE) --no-print-directory -j1 -S fatline-prepare fatline-start fatline-qualify fatline-status
+	@$(MAKE) --no-print-directory -j1 -S fatline-prepare fatline-start fatline-adapter-refresh fatline-qualify fatline-status
 
 # Source-built optional Smoke composition; existing Wisp/Fatline gates remain available.
 WISP_SMOKE_REV ?= 66950da9a5e4e5303f5dcd018f9039f9b6fc8496
@@ -447,6 +447,8 @@ wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward:
 fatline-logmash:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-logmash-phases
 fatline-logmash-phases:
-	@$(MAKE) --no-print-directory -j1 -S wisp-go-build wisp-go-check fatline-prepare fatline-start fatline-logmash-qualify
+	@$(MAKE) --no-print-directory -j1 -S wisp-go-build wisp-go-check fatline-prepare fatline-start fatline-adapter-refresh fatline-logmash-qualify
 fatline-logmash-qualify:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_logmash.py
+
+.PHONY: fatline-adapter-refresh

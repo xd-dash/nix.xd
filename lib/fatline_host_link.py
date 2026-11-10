@@ -13,6 +13,7 @@ import socket
 import subprocess
 import sys
 import time
+import tempfile
 
 from compose_runtime import Runtime, run, write_json
 from compositions import require
@@ -131,6 +132,34 @@ class HostLink:
         write_json(self.state_path, self.state)
         print('FATLINE_PREPARE_RESULT=passed scope=' + self.scope)
 
+    def refresh_adapter(self):
+        require(self.state, 'Prepare the runtime before refreshing its guest adapter')
+        staged = self.runtime.owner('cat', self.runtime.flake + '/.nix-xd-source-revision')
+        require(staged == os.environ.get('NIX_XD_WORKLOAD_REV'), 'Stage the selected revision first')
+        desired = json.loads(self.runtime.owner('nix', 'eval', '--json', '--no-write-lock-file',
+            self.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.host-link'))
+        adapter = desired['guestAdapter']
+        require(desired['scope'] == self.scope and adapter['repository'] == 'dash-xd/agni' and
+                adapter['contract'] == 'fatline-host-link-v1' and
+                adapter['compatibleRuntimeRevision'] == self.state['agniRev'] and
+                re.fullmatch(r'[a-f0-9]{40}', adapter['revision']) and
+                re.fullmatch(r'[a-f0-9]{64}', adapter['sha256']), 'Incompatible guest adapter')
+        source = self.runtime.owner('nix', 'eval', '--raw', '--expr',
+            '(builtins.getFlake "github:dash-xd/agni/' + adapter['revision'] +
+            '?dir=local/fatline").outPath')
+        require(re.fullmatch(r'/nix/store/[A-Za-z0-9._+/-]+', source), 'Invalid adapter source path')
+        script = self.runtime.owner('cat', source + '/host-link/guest.sh') + '\n'
+        require(hashlib.sha256(script.encode()).hexdigest() == adapter['sha256'], 'Guest adapter digest mismatch')
+        # Only the script cache changes; running units, credentials and closure roots remain bound to the runtime.
+        with tempfile.NamedTemporaryFile('w', dir=self.root, delete=False) as candidate:
+            candidate.write(script)
+            candidate.flush()
+            os.fsync(candidate.fileno())
+        os.replace(candidate.name, self.root / 'guest.sh')
+        self.state['guestAdapter'] = adapter
+        write_json(self.state_path, self.state)
+        print('FATLINE_GUEST_ADAPTER_RESULT=passed revision=' + adapter['revision'])
+
     def qualify(self):
         self.retain()
         write_json(self.root / 'qualification.json', {'result':'running', 'scope':self.scope})
@@ -189,6 +218,7 @@ class HostLink:
 
     def execute(self, action):
         if action == 'prepare': self.prepare()
+        elif action == 'adapter-refresh': self.refresh_adapter()
         elif action == 'qualify': self.qualify()
         else:
             if action == 'start':
@@ -208,7 +238,7 @@ class HostLink:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('prepare','start','status','qualify','stop'))
+    parser.add_argument('action', choices=('prepare','start','status','qualify','stop','adapter-refresh'))
     args = parser.parse_args()
     runtime = HostLink()
     with (runtime.root / 'controller.lock').open('a') as lock:
