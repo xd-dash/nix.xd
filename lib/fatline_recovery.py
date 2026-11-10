@@ -17,13 +17,13 @@ from fatline_host_link import HostLink
 from fatline_services import Services
 
 
-def prepare(services):
+def prepare(services, upgrade=False):
     link = services.link
     require(services.state and services.state['status'] == 'active', 'Activate the selected service profile first')
     source = services.selection('servicesRecovery')
     path = services.root / 'recovery.json'
     previous = json.loads(path.read_text()) if path.exists() else None
-    require(not previous or previous['source'] == source or (previous['status'] == 'installing' and
+    require(not previous or previous['source'] == source or ((previous['status'] == 'installing' or upgrade) and
             previous['source']['revision'] in source.get('refreshFrom', [])),
             'Installed restart graph pins another revision; migrate explicitly')
     services.retain()
@@ -66,7 +66,9 @@ def invoke(services, record, action):
             print('Restart diagnostics unavailable: ' + str(diagnostic_error), file=sys.stderr)
         raise
     print(output, end='', flush=True)
-    expected = 'FATLINE_RESTART_GRAPH=installed runtime=unchanged' if action == 'install' else 'FATLINE_REDIS_RESTART=passed bootstrap=revoked_on_disk_and_runtime boot=unchanged'
+    expected = {'install':'FATLINE_RESTART_GRAPH=installed runtime=unchanged',
+        'recover':'FATLINE_RESTART_RECOVERED=passed',
+        'qualify':'FATLINE_REDIS_RESTART=passed bootstrap=revoked_on_disk_and_runtime boot=unchanged'}[action]
     require(expected in output.splitlines(), 'Missing Agni restart acknowledgement; roots retained')
 
 
@@ -121,13 +123,22 @@ echo FATLINE_RESTART_DIAGNOSTIC=collected
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('prepare','qualify','diagnose'))
+    parser.add_argument('action', choices=('prepare','qualify','diagnose','upgrade','recover'))
     action = parser.parse_args().action
     link = HostLink()
     with (link.root / 'controller.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         services = Services(link)
-        {'prepare':prepare, 'qualify':qualify, 'diagnose':diagnose}[action](services)
+        if action == 'upgrade':
+            prepare(services, upgrade=True)
+        elif action == 'recover':
+            record = json.loads((services.root / 'recovery.json').read_text())
+            require(record['status'] == 'installed' and record['source'] == services.selection('servicesRecovery'), 'Upgrade the selected restart helper first')
+            require(record['boot'] == link.state['boot'], 'Boot changed; explicit reboot reconciliation required')
+            services.retain()
+            invoke(services, record, 'recover')
+        else:
+            {'prepare':prepare, 'qualify':qualify, 'diagnose':diagnose}[action](services)
 
 
 if __name__ == '__main__':

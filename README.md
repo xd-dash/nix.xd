@@ -1536,3 +1536,20 @@ until the installed graph is explicitly migrated. No running application generat
 is silently replaced. VM reboot, unexpected process/owner crash, durable Redis
 storage, backups and spot replacement remain separate gates. Production publisher
 reconciliation and shared-process tenant qualification also remain pending.
+
+If a previous restart helper left Redis inactive after successful bootstrap, use
+an explicit compatible helper upgrade and repair before rerunning qualification:
+
+```bash
+matrix FATLINE_PROFILE=vm1 fatline-restart-upgrade &&
+matrix FATLINE_PROFILE=vm1 fatline-restart-recover &&
+matrix FATLINE_PROFILE=vm1 fatline-restart-local
+```
+
+`upgrade` accepts only declared predecessor revisions and preserves their roots.
+`recover` stops dependent services, starts the corrected graph, verifies the Redis
+invocation/bootstrap marker and revoked identity, and leaves full application
+checks to `restart-local`. Auxiliary Podman calls do not inherit the Redis unit's
+notification/socket-activation environment; bootstrap containers use
+`--sdnotify=ignore`. Consumers bind to Redis as well as following planned restarts,
+so a disappearing Redis stops them. This repair still uses ephemeral Redis.

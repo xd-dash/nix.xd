@@ -34,6 +34,9 @@ class RestartEvidence(unittest.TestCase):
             old['status'] = 'installed'
             (root / 'recovery.json').write_text(json.dumps(old))
             with self.assertRaisesRegex(ValueError, 'migrate explicitly'): gate.prepare(services)
+            with patch.object(gate, 'invoke'):
+                gate.prepare(services, upgrade=True)
+            self.assertEqual(json.loads((root / 'recovery.json').read_text())['status'], 'installed')
 
     def test_lost_acknowledgement_marks_failed_and_retains_adapter(self):
         with tempfile.TemporaryDirectory() as directory:
