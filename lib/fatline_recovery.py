@@ -126,7 +126,7 @@ def main():
     parser.add_argument('action', choices=('prepare','qualify','diagnose','upgrade','recover'))
     action = parser.parse_args().action
     link = HostLink()
-    with (link.root / 'controller.lock').open('a') as lock:
+    with link.lock_path.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         services = Services(link)
         if action == 'upgrade':

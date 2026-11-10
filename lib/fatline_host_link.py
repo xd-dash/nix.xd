@@ -17,6 +17,7 @@ import tempfile
 
 from compose_runtime import Runtime, run, write_json
 from compositions import require
+from fatline_generations import active_root
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -31,7 +32,10 @@ class HostLink:
         self.profile = os.environ.get('NIX_XD_FATLINE_PROFILE', 'vm1')
         require(self.profile in ('vm1', 'vm2'), 'Select Fatline profile vm1 or vm2')
         require(self.scope == 'fatline-arm-' + self.profile, 'Scope does not match selected profile')
-        self.root = REPO / '.state/fatline' / self.scope
+        self.control_root = REPO / '.state/fatline' / self.scope
+        self.control_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.lock_path = self.control_root / 'controller.lock'
+        self.root = active_root(self.runtime.scope, self.profile, self.control_root)
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
         self.state_path = self.root / 'state.json'
@@ -250,7 +254,7 @@ def main():
     parser.add_argument('action', choices=('prepare','start','status','qualify','stop','adapter-refresh'))
     args = parser.parse_args()
     runtime = HostLink()
-    with (runtime.root / 'controller.lock').open('a') as lock:
+    with runtime.lock_path.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         runtime.execute(args.action)
 

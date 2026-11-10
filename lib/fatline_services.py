@@ -292,7 +292,7 @@ def main():
     parser.add_argument('action', choices=('prepare','refresh','probe-refresh','configure-logma','activate','qualify','status','stop'))
     action = parser.parse_args().action
     link = HostLink()
-    with (link.root / 'controller.lock').open('a') as lock:
+    with link.lock_path.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         Services(link).execute(action)
 

@@ -195,7 +195,7 @@ def main():
             for profile in ('vm1','vm2'):
                 os.environ.update(NIX_XD_FATLINE_PROFILE=profile, NIX_XD_FATLINE_SCOPE='fatline-arm-' + profile)
                 link = HostLink()
-                lock = locks.enter_context((link.root / 'controller.lock').open('a'))
+                lock = locks.enter_context(link.lock_path.open('a'))
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 links.append(link)
         finally:

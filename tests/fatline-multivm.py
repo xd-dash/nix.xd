@@ -32,7 +32,7 @@ class Profiles(unittest.TestCase):
             'ingress':{'transport':'ssh-tcp-nginx-unix','hostPort':26379,'guestProxyPort':16379},
             'placement':{'name':'vm2'}}
         class Runtime:
-            def __init__(self, env): self.flake = '/flake'
+            def __init__(self, env): self.flake = '/flake'; self.scope = 'owner'
             def owner(self, *args):
                 calls.append(args)
                 return 'aarch64' if args == ('uname','-m') else json.dumps(plan)

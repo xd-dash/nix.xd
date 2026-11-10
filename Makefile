@@ -254,6 +254,7 @@ check-static-internal:
 	@python3 tests/fatline-recovery.py
 	@python3 tests/fatline-reboot.py
 	@python3 tests/fatline-rebootstrap.py
+	@python3 tests/fatline-generations.py
 	@python3 tests/fatline-logmash.py
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
@@ -535,3 +536,13 @@ fatline-rebootstrap-plan:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py plan
 fatline-rebootstrap-local:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py run
+
+# Sandbox lifecycle: resolve one generation, qualify, then atomically select it.
+SANDBOX_REBOOT ?= 0
+.PHONY: fatline-sandbox-plan fatline-sandbox-local fatline-sandbox-status
+fatline-sandbox-plan:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py plan
+fatline-sandbox-local:
+	@NIX_XD_SANDBOX_REBOOT='$(SANDBOX_REBOOT)' WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py run
+fatline-sandbox-status:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py status

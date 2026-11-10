@@ -23,6 +23,8 @@ from compose_runtime import REPO, run, write_json
 from compositions import require
 from fatline_host_link import HostLink
 from fatline_services import Services
+from fatline_generations import activate, qualification
+from fatline_logmash import qualify as qualify_subscriber
 from fatline_recovery import prepare as prepare_recovery
 from fatline_reboot import observe, run_gate
 
@@ -165,8 +167,27 @@ def restore(link):
     services.execute('activate')
     services.configure_logma()
     prepare_recovery(services,upgrade=True)
-    services.execute('qualify')
     return link
+
+
+def candidate_receipt(link):
+    for name in ('generation-qualification.json','reboot-qualification.json'):
+        path=link.root/'services'/name
+        if path.exists():
+            receipt=json.loads(path.read_text())
+            if receipt.get('result')=='passed':return receipt
+    return None
+
+
+def qualify_services(link,peer,tx):
+    before=observe(link)
+    Services(link).execute('qualify')
+    qualify_subscriber(link,resource=True)
+    require(observe(link)==before,'Service containers changed during generation qualification')
+    require(observe(peer)==tx['peerBefore'],'VM2 changed during generation qualification')
+    receipt={'result':'passed','observation':before,'gates':{'services':True,'hostSubscriber':True,'reboot':False}}
+    write_json(link.root/'services/generation-qualification.json',receipt)
+    return receipt
 
 
 def registry_path(link): return REPO/'.state/vm-bindings'/link.runtime.scope/'vm1.json'
@@ -178,13 +199,10 @@ def save(tx,path):
 
 
 def retire_original(original, tx):
-    # Keep definitions and disk data; stopping the retired runner never releases closure roots.
-    body='set -Eeuo pipefail\ntest "$(cat /proc/sys/kernel/random/boot_id)" = '+shlex_quote(tx['before']['boot'])+'\n'
-    body+='systemctl --user stop '+' '.join(shlex_quote(original.scope+'-'+role+'.service') for role in ('logma','skymill','nginx','redis'))+'\n'
+    # Host-side disposal is independent of guest SSH and never releases store roots.
     retired=json.loads(run(original.runtime.podman+['inspect',tx['oldBinding']['container']],original.env,True,timeout=30))[0]
     require(retired['Id']==tx['oldRunnerId'],'Retired runner identity changed; refusing to stop another container')
     if retired['State']['Running']:
-        run(original.command,original.env,True,body,timeout=180)
         run(original.runtime.podman+['stop',tx['oldBinding']['container']],original.env,timeout=120)
 
 
@@ -192,14 +210,15 @@ def run_rebootstrap(original, peer, plan_only=False):
     require(original.profile=='vm1' and os.environ['NIX_XD_SYSTEM']=='aarch64-linux','Current VM rebootstrap adapter is ARM64 VM1')
     services,peer_services=Services(original),Services(peer)
     require(services.state and services.state['status']=='active' and peer_services.state and peer_services.state['status']=='active','Both Fatline profiles must be active in owner intent')
-    pointer=original.root/'rebootstrap.json'
+    pointer=original.control_root/'rebootstrap.json'
     pending=json.loads(pointer.read_text()) if pointer.exists() else None
     tx_path=Path(pending['transaction']) if pending else None
     tx=json.loads(tx_path.read_text()) if tx_path and tx_path.exists() else None
     fresh=not tx or tx['phase']=='passed'
     if fresh:
-        before,peer_before=observe(original),observe(peer)
-        require(before['boot']==original.state['boot'] and peer_before['boot']==peer.state['boot'] and before['boot']!=peer_before['boot'],'Guest boot records must match before rebootstrap')
+        peer_before=observe(peer)
+        before={'boot':original.state['boot']}
+        require(peer_before['boot']==peer.state['boot'] and before['boot']!=peer_before['boot'],'VM2 boot record must match before sandbox rebuild')
         source=source_selection(original)
         key=public_key()
         port=choose_port(int(os.environ.get('COREOS_REBOOTSTRAP_SSH_PORT','2224')),
@@ -222,7 +241,7 @@ def run_rebootstrap(original, peer, plan_only=False):
         app_state=json.loads((candidate/'services/state.json').read_text())
         app_state['status']='prepared';app_state.pop('configurationAdapter',None)
         write_json(candidate/'services/state.json',app_state)
-        for path in (candidate/'services/reboot-transaction.json',candidate/'services/reboot-qualification.json'):
+        for path in (candidate/'services/reboot-transaction.json',candidate/'services/reboot-qualification.json',candidate/'services/generation-qualification.json',candidate/'generation.json'):
             path.unlink(missing_ok=True)
         subscriber=json.loads((candidate/'credentials/subscriber.json').read_text())
         subscriber['passwordFile']=str(candidate/'credentials/subscriber')
@@ -241,7 +260,7 @@ def run_rebootstrap(original, peer, plan_only=False):
             'candidateRoot':str(candidate),'oldBinding':old_binding,'newBinding':new_binding,
             'oldArtifactState':manifest.get('artifact_state',str(old_state)),
             'before':before,'peerBefore':peer_before,'credentials':credentials(original.root),'ownerId':owner_id,
-            'recoverySelection':recovery_selection,'probeSelection':probe_selection,'oldRunnerId':manifest['container_id'],
+            'rebootGate':os.environ.get('NIX_XD_SANDBOX_REBOOT','1')=='1','recoverySelection':recovery_selection,'probeSelection':probe_selection,'oldRunnerId':manifest['container_id'],
             'storeVolume':original.env.get('COREOS_NIX_STORE_VOLUME',original.runtime.scope+'-store')}
         save(tx,tx_path)
         write_json(pointer,{'schema':1,'transaction':str(tx_path)})
@@ -260,6 +279,8 @@ def run_rebootstrap(original, peer, plan_only=False):
     runtime.binding_overrides['vm1']=tx['newBinding']
     env=runtime.environment('transport')
     if tx['phase']=='prepared':
+        print('FATLINE_SANDBOX_DISPOSE=old_runner_before_rebuild',flush=True)
+        retire_original(original,tx)
         run(['bash',str(REPO/'bin/nix-xd-coreos-podman'),'start'],env)
         run(['bash',str(REPO/'bin/nix-xd-wisp-ssh')],env)
         tx['phase']='booted';save(tx,tx_path)
@@ -269,41 +290,56 @@ def run_rebootstrap(original, peer, plan_only=False):
         require(credentials(link.root)==tx['credentials'],'Runtime credentials changed during reconstruction')
         tx['phase']='restored';save(tx,tx_path)
     if tx['phase']=='restored':
-        receipt=link.root/'services/reboot-qualification.json'
-        result=json.loads(receipt.read_text()) if receipt.exists() else {}
-        if result.get('result')!='passed': run_gate(link,peer)
+        if candidate_receipt(link) is None:
+            if tx.get('rebootGate',True):run_gate(link,peer)
+            else:qualify_services(link,peer,tx)
         require(observe(peer)==tx['peerBefore'],'VM2 changed during candidate qualification')
         tx['phase']='qualified';save(tx,tx_path)
     if tx['phase']=='qualified':
-        receipt=json.loads((link.root/'services/reboot-qualification.json').read_text())
-        require(receipt.get('result')=='passed' and observe(link)==receipt['transaction']['after'], 'Candidate changed after reboot qualification')
-        require(observe(original)==tx['before'],'Original VM1 changed before cutover')
+        receipt=candidate_receipt(link)
+        require(receipt is not None and observe(link)==qualification(receipt)['observation'], 'Candidate changed after reboot qualification')
         require(credentials(link.root)==tx['credentials'],'Candidate credentials changed before cutover')
         tx['phase']='committing';save(tx,tx_path)
     if tx['phase']=='committing':
-        copy_state(link.root,original.root)
-        subscriber=json.loads((original.root/'credentials/subscriber.json').read_text())
-        subscriber['passwordFile']=str(original.root/'credentials/subscriber')
-        write_json(original.root/'credentials/subscriber.json',subscriber)
-        registry=registry_path(original);registry.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
-        write_json(registry,dict(tx['newBinding'],transaction=tx['id']))
+        receipt=candidate_receipt(link)
+        require(receipt is not None and observe(link)==qualification(receipt)['observation'],'Candidate no longer matches its qualified observation')
+        require(observe(peer)==tx['peerBefore'],'VM2 changed before activation')
+        require(credentials(link.root)==tx['credentials'],'Candidate credentials changed before activation')
+        activate(link,tx,receipt)
         tx['phase']='committed';save(tx,tx_path)
     if tx['phase']=='committed':
         retire_original(original,tx)
         tx['phase']='retired';save(tx,tx_path)
     if tx['phase']=='retired':
         require(observe(peer)==tx['peerBefore'],'VM2 changed during cutover')
-        require(credentials(original.root)==tx['credentials'],'Active credential hashes differ from the original generation')
+        require(credentials(link.root)==tx['credentials'],'Active credential hashes differ from the resolved generation')
         actual=run(original.runtime.podman+['inspect',original.runtime.scope,'--format','{{.Id}}'],original.env,True,timeout=30).strip()
         require(actual==tx['ownerId'],'Authoritative Nix owner changed')
         require(run(original.runtime.podman+['inspect',tx['oldBinding']['container'],'--format','{{.State.Running}}'],original.env,True,timeout=30).strip()=='false','Retired VM is still running')
         tx['after']=observe(link)
         tx['phase']='passed';save(tx,tx_path)
-    print('FATLINE_REBOOTSTRAP_RESULT=passed reboot=qualified credentials=preserved roots=retained peer_vm=unchanged archive='+tx['archive'],flush=True)
+    print('FATLINE_SANDBOX_RESULT=passed generation='+tx['id'],flush=True)
+    proof=qualification(candidate_receipt(link))
+    print('FATLINE_REBOOTSTRAP_RESULT=passed reboot='+('qualified' if proof['gates']['reboot'] else 'not_run')+' credentials=preserved roots=retained peer_vm=unchanged archive='+tx['archive'],flush=True)
+
+
+def sandbox_status(original, peer):
+    pointer=original.control_root/'rebootstrap.json'
+    tx=None
+    if pointer.exists():
+        path=Path(json.loads(pointer.read_text())['transaction'])
+        tx=json.loads(path.read_text())
+    result={'logical':'vm1','activeState':str(original.root),'activeGuest':original.config['placement'],
+        'pending':{'id':tx['id'],'phase':tx['phase']} if tx and tx['phase']!='passed' else None,
+        'peer':observe(peer),'fullFatline':False}
+    target=candidate_link(original,tx) if tx and tx['phase'] in ('qualified','committing','committed','retired') else original
+    try:result['observed']=observe(target)
+    except (OSError,subprocess.SubprocessError) as error:result['observed']={'status':'unavailable','error':type(error).__name__}
+    print(json.dumps(result,indent=2,sort_keys=True),flush=True)
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('action',choices=('plan','run'));args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('action',choices=('plan','run','status'));args=parser.parse_args()
     print('FATLINE_REBOOTSTRAP_START action='+args.action,flush=True)
     require(os.environ.get('NIX_XD_FATLINE_PROFILE','vm1')=='vm1','Only VM1 is replaced')
     os.umask(0o077)
@@ -312,11 +348,12 @@ def main():
         try:
             for profile in ('vm1','vm2'):
                 os.environ.update(NIX_XD_FATLINE_PROFILE=profile,NIX_XD_FATLINE_SCOPE='fatline-arm-'+profile)
-                link=HostLink();lock=locks.enter_context((link.root/'controller.lock').open('a'))
+                link=HostLink();lock=locks.enter_context(link.lock_path.open('a'))
                 fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);links.append(link)
         finally:
             os.environ.clear();os.environ.update(previous)
-        run_rebootstrap(*links,plan_only=args.action=='plan')
+        if args.action=='status': sandbox_status(*links)
+        else: run_rebootstrap(*links,plan_only=args.action=='plan')
 
 
 if __name__=='__main__':

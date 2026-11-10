@@ -130,7 +130,7 @@ def main():
     parser.add_argument("--resource", action="store_true")
     args = parser.parse_args()
     link = HostLink()
-    with (link.root / 'controller.lock').open('a') as lock:
+    with link.lock_path.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         qualify(link, resource=args.resource)
 

@@ -1593,47 +1593,24 @@ transient reader workloads need their own explicit restart/reconciliation.
 A passing reboot gate still does not qualify bootstrap fault injection, unexpected
 crashes, production publisher reconciliation, Redis durability or GCE replacement.
 
-### Rebootstrap VM1 without guest administrator access
+### Fatline sandbox generations
 
-A missing reboot capability is repaired by rebuilding the guest from Agni's
-pinned Ignition, not by changing policy inside a running guest. Rebootstrap uses
-the same public SSH key, authoritative Nix owner/volume, application revisions,
-and runtime credentials. It adds no root SSH key and has no sudo fallback.
+The current lifecycle and architectural review are in
+[the sandbox contract](docs/sandbox-contract.md). Sandbox rebuilds permit downtime;
+activation selects one qualified generation atomically, independent of old-guest
+SSH health. Store ownership and peer-VM isolation remain unchanged.
 
 ```bash
-matrix stage WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd &&
-matrix FATLINE_PROFILE=vm1 fatline-rebootstrap-plan &&
-matrix FATLINE_PROFILE=vm1 fatline-rebootstrap-local
+matrix FATLINE_PROFILE=vm1 fatline-sandbox-local &&
+matrix FATLINE_PROFILE=vm1 fatline-sandbox-status
 ```
 
-The plan checks both existing guests and selects a free replacement SSH port,
-starting at 2224 (`COREOS_REBOOTSTRAP_SSH_PORT` can change the start of the range).
-The local gate builds and roots the exact Agni Ignition, starts a separate VM1
-candidate, reconstructs the pinned services with the existing private credential
-files, and qualifies its autonomous reboot and host subscriber path. This
-briefly runs three CoreOS guests; the candidate defaults to 2 GiB RAM.
-The replacement starts with fresh writable application state. The old writable
-state remains on the retained original disk; this is not a data migration gate.
+This resumes the existing qualified candidate without rebooting it again. New
+sandbox generations default to one cold boot and service qualification; reboot is
+a separate gate (`SANDBOX_REBOOT=1` opts in before activation). The old runner is
+stopped before a fresh build boots, and old disks/artifacts/roots remain retained.
+The common interface resolves the active physical guest and generation-local
+state from one binding. Do not copy or merge generation state directories.
 
-The original VM1 stays available until the candidate passes. Cutover writes an
-explicit logical-to-physical VM binding used by the common runtime and Fatline
-interfaces, then stops the old services and runner. It never deletes the original
-runner, disk, boot artifacts, known-hosts file, credentials, or closure roots.
-The old artifact directory remains in place because VM2 still mounts it. The
-immutable base disk is hard-linked where possible, with copying only across
-filesystems; no shared Nix closures are copied into guest images.
-
-The active binding is `.state/vm-bindings/<owner>/vm1.json`. Keep using the same
-Make wrapper: it resolves the replacement automatically, including its new SSH
-port and state directory. Other VM1 reader records retain their previous boot
-bindings and need explicit lifecycle reconciliation before reuse. VM2's boot,
-service container IDs, and the Nix owner container ID must remain unchanged.
-
-Every phase is logged. `FATLINE_REBOOTSTRAP_RESULT=passed` means reconstruction,
-reboot qualification, activation and old-runner retirement all passed. The final
-line names the private archive directory. Checkpoints and archives live under
-`.state/rebootstrap/<owner>/<transaction>`; candidate host evidence is retained
-under `.state/fatline-candidates`. If interrupted, rerun
-`matrix FATLINE_PROFILE=vm1 fatline-rebootstrap-local` to continue the pending
-transaction. A failed candidate is retained for diagnosis and does not trigger
-cutover. Old roots remain retained; garbage collection is never part of this gate.
+Use the logged status command instead of hard-coded paths when collecting active
+evidence. The prior `fatline-rebootstrap-*` targets remain compatibility aliases.

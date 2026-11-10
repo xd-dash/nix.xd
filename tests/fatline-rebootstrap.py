@@ -72,6 +72,31 @@ class ReplacementContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'identity changed'):gate.retire_original(original,tx)
             self.assertEqual(run.call_count,1)
 
+    def test_qualified_candidate_can_activate_without_contacting_old_guest(self):
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'NIX_XD_SYSTEM':'aarch64-linux'}):
+            root=Path(directory)
+            proof={'result':'passed','transaction':{'after':{'boot':'new','containers':{}}}}
+            tx={'id':'candidate','phase':'qualified','oldBinding':{'container':'old'},'newBinding':{},'peerBefore':{},
+                'bootstrap':'bootstrap','recoverySelection':'recovery','probeSelection':'probe','credentials':{},'ownerId':'owner-id','archive':'archive'}
+            (root/'transaction.json').write_text(json.dumps(tx))
+            (root/'rebootstrap.json').write_text(json.dumps({'transaction':str(root/'transaction.json')}))
+            runtime=SimpleNamespace(scope='owner',podman=['podman'],binding_overrides={},transport_command=lambda *args:(['old-ssh'],{}),environment=lambda name:{})
+            original=SimpleNamespace(root=root,control_root=root,profile='vm1',runtime=runtime)
+            peer=SimpleNamespace()
+            services=SimpleNamespace(state={'status':'active'},retain=lambda:None,
+                selection=lambda key:{'servicesRecovery':'recovery','servicesProbe':'probe'}[key])
+            candidate=SimpleNamespace(root=root/'candidate')
+            def observe(link):
+                if link is original:raise AssertionError('Old guest must not be contacted')
+                return {} if link is peer else proof['transaction']['after']
+            def command(argv,*args,**kwargs):
+                self.assertNotEqual(argv,['old-ssh'])
+                return 'false' if '{{.State.Running}}' in argv else 'owner-id'
+            with patch.object(gate,'Services',return_value=services),patch.object(gate,'source_selection',return_value='bootstrap'),patch.object(gate,'observe',side_effect=observe),patch.object(gate,'candidate_link',return_value=candidate),patch.object(gate,'candidate_receipt',return_value=proof),patch.object(gate,'credentials',return_value={}),patch.object(gate,'run',side_effect=command),patch.object(gate,'retire_original'),patch.object(gate,'activate') as activate,patch.object(gate,'run_gate') as reboot:
+                gate.run_rebootstrap(original,peer)
+                activate.assert_called_once();reboot.assert_not_called()
+            self.assertEqual(json.loads((root/'transaction.json').read_text())['phase'],'passed')
+
     def test_failed_candidate_qualification_never_stops_original_or_writes_binding(self):
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'NIX_XD_SYSTEM':'aarch64-linux'}):
             root=Path(directory)
@@ -80,7 +105,7 @@ class ReplacementContract(unittest.TestCase):
             (root/'transaction.json').write_text(json.dumps(tx))
             (root/'rebootstrap.json').write_text(json.dumps({'transaction':str(root/'transaction.json')}))
             runtime=SimpleNamespace(binding_overrides={},transport_command=lambda *args:(['ssh'],{}),environment=lambda name:{})
-            original=SimpleNamespace(root=root,profile='vm1',runtime=runtime)
+            original=SimpleNamespace(root=root,control_root=root,profile='vm1',runtime=runtime)
             peer=SimpleNamespace()
             services=SimpleNamespace(state={'status':'active'},retain=lambda:None,
                 selection=lambda key:{'servicesRecovery':'recovery','servicesProbe':'probe'}[key])
