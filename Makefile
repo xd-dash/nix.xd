@@ -251,6 +251,7 @@ check-static:
 check-static-internal:
 	@python3 tests/fatline-host-link.py
 	@python3 tests/fatline-logmash.py
+	@python3 tests/fatline-services.py
 	@python3 tests/wisp-go-owner.py
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
@@ -452,3 +453,11 @@ fatline-logmash-qualify:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_logmash.py
 
 .PHONY: fatline-adapter-refresh
+
+.PHONY: fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop fatline-services-local fatline-services-phases
+fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_services.py $(patsubst fatline-services-%,%,$@)
+fatline-services-local:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-services-phases
+fatline-services-phases:
+	@$(MAKE) --no-print-directory -j1 -S fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-logmash-qualify fatline-services-status

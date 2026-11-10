@@ -225,6 +225,12 @@ class HostLink:
                 self.retain()
                 self.state['status'] = 'prepared'
                 write_json(self.state_path, self.state)
+            if action == 'stop':
+                applications = self.root / 'services/state.json'
+                if applications.exists():
+                    status = json.loads(applications.read_text())['status']
+                    require(status not in ('active','activating'),
+                            'Stop application services with fatline-services-stop before stopping Redis')
             if action in ('start', 'stop'):
                 write_json(self.root / 'qualification.json', {'result':'unqualified', 'phase':action})
             self.guest(action)

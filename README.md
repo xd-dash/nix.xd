@@ -1290,3 +1290,49 @@ selected source revision, script digest and runtime contract before atomically
 refreshing the host's guest-script cache. It does not restart guest services,
 replace credentials, rebuild their closures or release roots. The application
 evidence records the runtime and adapter pins independently.
+
+### Logma and Skymill on the first CoreOS guest
+
+After the single-VM Smoke/Wisp transport gate passes:
+
+```sh
+matrix stage WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd &&
+matrix fatline-services-local
+```
+
+This focused logged aggregate prepares the pinned Agni `coreos-services-vm1`
+bundle, activates separate Logma and Skymill containers, checks the application
+contracts, reruns host Smoke Logmash delivery, and reports service status. It uses
+the already running VM and common store. No six-reader rerun or host toolchain
+installation is required. Both supported Linux architectures use the same service
+declarations; native x86-64/CoreOS runtime qualification remains deferred.
+
+Activation deliberately restarts the existing **ephemeral Redis/nginx pair once**
+to add production-policy application identities. Existing Redis fixture data is
+lost at that boundary; the same subscriber/publisher credentials and ingress
+remain valid. The Ratelimiter lifecycle Functions are installed with a separate
+bootstrap credential and that identity is then revoked. All application closures
+are rooted before activation. This is sandbox activation, not recovery or a
+zero-downtime migration. Interrupted operations retain roots and conservative state.
+
+Logma and Skymill have distinct credential mounts; only Logma mounts its own
+writable lifecycle directory. Their root filesystems, store mounts, and Redis
+socket mounts are read-only. Their HTTP endpoints remain unpublished on the guest
+internal network. Skymill's pinned HTTP adapter does not provide application
+authentication; exposing that API outside this trust domain needs a separate gate.
+
+The application gate checks Logma's strict `/lifecycle/readyz`, Skymill publish /
+idempotency / receive / ack, command/admin/cross-key ACL denials, actual read-only
+mounts, private credential permissions, and absence of published HTTP ports. The
+aggregate then proves that host Smoke Logmash still works through Wisp and nginx.
+It does not claim full Logma resource semantics, crash durability, multi-VM service
+behavior or production HTTP authentication. Expected application marker:
+`FATLINE_SERVICES_RESULT=passed full_fatline=false`, followed by the existing
+`SMOKE_LOGMASH_WISP_RESULT=passed full_fatline=false` marker.
+
+Send `logs/nix-xd-arm-fatline-services-local-<timestamp>-<pid>.log`. Detailed phase
+logs remain alongside it. Services stay running after success. Lifecycle commands
+are `fatline-services-status` and `fatline-services-stop`. Stop application services
+before `fatline-stop`; the latter refuses to stop Redis or release its roots while
+application activation is active or unresolved. Application roots are released
+only after acknowledged application stop; transport roots have their own lifecycle.

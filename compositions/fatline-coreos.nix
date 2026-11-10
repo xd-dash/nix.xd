@@ -16,6 +16,12 @@
     contract = "fatline-host-link-v1";
     compatibleRuntimeRevision = "dee1aa14b41e7fe4094d7b007a3ecb702d6f8759";
   };
+  services = {
+    repository = "dash-xd/agni";
+    revision = "1608001b6fb1c57ad7481b7786c5a9a5e3c4932f";
+    package = "coreos-services-vm1";
+    contract = "coreos-services-v1";
+  };
   placement = {
     name = "vm1";
     kind = "coreos";
