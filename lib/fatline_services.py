@@ -139,6 +139,34 @@ class Services:
         write_json(self.root / 'qualification.json', {'result':'unqualified','phase':'probe-refresh'})
         print('FATLINE_SERVICES_PROBE_REFRESH=passed runtime=unchanged')
 
+    def configure_logma(self):
+        require(self.state and self.state['status'] == 'active', 'Application services must be active')
+        selected = self.selection('servicesProbe')
+        previous = self.state.get('configurationAdapter')
+        if previous and previous.get('status') == 'applied' and previous['source'] == selected:
+            self.guest('status')
+            print('FATLINE_LOGMA_CONFIGURATION=reused')
+            return
+        self.refresh_probe()
+        candidate = self.state['qualificationProbe']
+        script = self.link.runtime.owner('cat', candidate['bundle'] + '/guest.sh') + '\n'
+        digest = hashlib.sha256(script.encode()).hexdigest()
+        if previous and previous.get('status') == 'applied' and previous['sha256'] == digest:
+            self.state['configurationAdapter']['source'] = selected
+            write_json(self.path,self.state)
+            self.guest('status')
+            print('FATLINE_LOGMA_CONFIGURATION=reused script=unchanged')
+            return
+        (self.root / 'configure-logma.sh').write_text(script)
+        self.state['configurationAdapter'] = {'source':selected, 'sha256':hashlib.sha256(script.encode()).hexdigest(), 'status':'applying'}
+        write_json(self.path, self.state)
+        for evidence in (self.root / 'qualification.json', self.link.root / 'logmash-qualification.json', self.link.root / 'resource-logmash-qualification.json'):
+            write_json(evidence, {'result':'unqualified','phase':'configure-logma'})
+        self.guest('configure-logma')
+        self.state['configurationAdapter']['status'] = 'applied'
+        write_json(self.path,self.state)
+        print('FATLINE_LOGMA_CONFIGURATION=passed redis=unchanged skymill=unchanged')
+
     def dispatch(self, request_path):
         require(self.state and self.state['status'] == 'active', 'Application services must be active')
         selected = self.selection('servicesProbe')
@@ -187,18 +215,24 @@ podman run --rm --pull=never --network "nix-xd-$scope" \
         variables = dict(action=action, scope=link.scope, boot=link.state['boot'], incoming=incoming,
             archive=link.state['archive'], old_acl_digest=link.state['aclDigest'], new_acl_digest=self.state['aclDigest'])
         variables.update({key:self.state['metadata'][key] for key in ('logma','skymill','probe')})
-        if action == 'qualify' and self.state.get('qualificationProbe'):
+        if action in ('qualify','configure-logma') and self.state.get('qualificationProbe'):
             variables['probe'] = self.state['qualificationProbe']['executable']
         script = 'set -Eeuo pipefail\n' + '\n'.join(key + '=' + shlex.quote(value) for key,value in variables.items()) + '\n'
-        script += (self.root / 'guest.sh').read_text()
+        script_path = self.root / ('configure-logma.sh' if action == 'configure-logma' else 'guest.sh')
+        if action == 'configure-logma':
+            require(hashlib.sha256(script_path.read_bytes()).hexdigest() == self.state['configurationAdapter']['sha256'], 'Configuration script digest mismatch')
+        script += script_path.read_text()
         output = run(link.command, link.env, True, script, timeout=1200)
         print(output, end='', flush=True)
-        markers = {'activate':('FATLINE_SERVICES_ACTIVATED=passed','FATLINE_SERVICES_ACTIVATED=reused'),
+        markers = {'configure-logma':('FATLINE_LOGMA_CONFIGURED=passed peers=unchanged',), 'activate':('FATLINE_SERVICES_ACTIVATED=passed','FATLINE_SERVICES_ACTIVATED=reused'),
             'qualify':('FATLINE_SERVICES_QUALIFICATION=passed',), 'status':('FATLINE_SERVICES_STATUS=passed private_http=true',),
             'stop':('FATLINE_SERVICES_STOPPED=passed',)}
         require(any(marker in output.splitlines() for marker in markers[action]), 'Missing guest acknowledgement; all roots retained')
 
     def execute(self, action):
+        if action == 'configure-logma':
+            self.configure_logma()
+            return
         if action == 'probe-refresh':
             self.refresh_probe()
             return
@@ -213,6 +247,8 @@ podman run --rm --pull=never --network "nix-xd-$scope" \
         if action in ('activate','qualify'):
             write_json(self.root / 'qualification.json', {'result':'running','phase':action})
         if action == 'activate':
+            if self.state['status'] != 'active':
+                self.state.pop('configurationAdapter',None)
             for evidence in ('qualification.json','logmash-qualification.json'):
                 write_json(self.link.root / evidence, {'result':'unqualified','phase':'services-activation'})
             self.state['status'] = 'activating'
@@ -228,6 +264,7 @@ podman run --rm --pull=never --network "nix-xd-$scope" \
             write_json(self.root / 'qualification.json', {'result':'passed','boot':self.link.state['boot'],
                 'source':self.state['source'], 'components':self.state['metadata'],
                 'qualificationProbe':self.state.get('qualificationProbe'),
+                'configurationAdapter':self.state.get('configurationAdapter'),
                 'aclDigest':self.state['aclDigest'],'policyDigest':self.state['policyDigest'],
                 'gate':'coreos-services-single-vm','fullFatline':False})
             print('FATLINE_SERVICES_RESULT=passed full_fatline=false')
@@ -238,6 +275,7 @@ podman run --rm --pull=never --network "nix-xd-$scope" \
             for generation in retained:
                 self.link.runtime.owner('rm', '-f', '--', generation['root'])
             self.state['status'] = 'stopped'
+            self.state.pop('configurationAdapter',None)
             self.state['retiredRoots'] = []
             write_json(self.path, self.state)
             write_json(self.root / 'qualification.json', {'result':'unqualified','phase':'stopped'})
@@ -245,7 +283,7 @@ podman run --rm --pull=never --network "nix-xd-$scope" \
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('prepare','refresh','probe-refresh','activate','qualify','status','stop'))
+    parser.add_argument('action', choices=('prepare','refresh','probe-refresh','configure-logma','activate','qualify','status','stop'))
     action = parser.parse_args().action
     link = HostLink()
     with (link.root / 'controller.lock').open('a') as lock:

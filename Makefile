@@ -456,7 +456,7 @@ fatline-logmash-qualify:
 .PHONY: fatline-adapter-refresh
 
 .PHONY: fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop fatline-services-local fatline-services-phases
-fatline-services-prepare fatline-services-refresh fatline-services-probe-refresh fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop:
+fatline-services-prepare fatline-services-refresh fatline-services-probe-refresh fatline-services-configure-logma fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_services.py $(patsubst fatline-services-%,%,$@)
 fatline-services-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-services-phases
@@ -480,6 +480,8 @@ builder-store-plan:
 fatline-resource-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-resource-phases
 fatline-resource-phases:
-	@$(MAKE) --no-print-directory -j1 -S fatline-services-probe-refresh fatline-resource-logmash-qualify
+	@$(MAKE) --no-print-directory -j1 -S fatline-services-configure-logma fatline-resource-logmash-qualify
 fatline-resource-logmash-qualify:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_logmash.py --resource
+
+.PHONY: fatline-services-configure-logma

@@ -91,7 +91,7 @@ def qualify(link, resource=False):
                 write_json(request, {'Channel':channel,'PublisherID':'nix-xd-dispatch-' + secrets.token_hex(12),'Payload':config['payload']})
                 try:
                     services = Services(link)
-                    resource_binding = {'runtimeSource':services.state['source'], 'qualificationProbe':services.state.get('qualificationProbe')}
+                    resource_binding = {'runtimeSource':services.state['source'], 'qualificationProbe':services.state.get('qualificationProbe'), 'configurationAdapter':services.state.get('configurationAdapter')}
                     services.dispatch(request)
                 finally:
                     request.unlink(missing_ok=True)

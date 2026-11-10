@@ -131,5 +131,22 @@ class Lifecycle(unittest.TestCase):
             self.assertEqual(services.state['qualificationProbe']['executable'], new['probe'])
             self.assertFalse(any(call[0] in ('rm','systemctl') for call in calls))
 
+    def test_configuration_updates_only_logma_and_records_ack(self):
+        with tempfile.TemporaryDirectory() as directory:
+            services, calls = self.make(directory)
+            services.state['metadata'] = {'logma':'keep-runtime-binary'}
+            selected = {'revision':'new-config'}
+            services.selection = lambda key: selected
+            def refresh(): services.state['qualificationProbe'] = {'source':selected,'bundle':'/nix/store/probe'}
+            services.refresh_probe = refresh
+            services.link.runtime.owner = lambda *args: '#!/bin/bash\necho configure\n'
+            with contextlib.redirect_stdout(io.StringIO()): services.configure_logma()
+            self.assertEqual(calls,[('guest','configure-logma')])
+            self.assertEqual(services.state['configurationAdapter']['status'],'applied')
+            self.assertEqual(services.state['metadata']['logma'],'keep-runtime-binary')
+            self.assertEqual(services.state['status'],'active')
+            with contextlib.redirect_stdout(io.StringIO()): services.configure_logma()
+            self.assertEqual(calls[-1],('guest','status'))
+
 
 if __name__ == '__main__': unittest.main()

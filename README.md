@@ -1398,7 +1398,7 @@ matrix stage WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd &&
 matrix fatline-resource-local
 ```
 
-This logged gate refreshes only the qualification probe, starts the host Smoke
+This logged gate configures Logma's resource store when needed, then starts the host Smoke
 Logmash subscriber through Wisp, and creates/reads Channel and Publisher resources
 through Logma's authenticated HTTP API. A finite composition-owned producer
 implements Logma's PublisherProvider contract, validates the stored configuration,
@@ -1407,8 +1407,8 @@ standalone transport publisher is not used for this dispatch. Publisher resource
 and any newly created channel are deleted afterward; a pre-existing channel is
 preserved. Host subscriber/tunnel cleanup and the existing negative ACL checks
 remain part of the gate. The qualification fixture uses the existing reserved
-channel and grants, so no ACL expansion, application restart or Redis restart is
-needed.
+channel and grants, so no ACL expansion or Redis restart is needed. The initial
+resource-store configuration restarts only Logma; applied equivalent settings are reused.
 
 The pinned default API intentionally has no production PublisherReconciler. This
 qualifies resource-backed fixture composition and Smoke delivery; it does not
@@ -1417,3 +1417,16 @@ that real external producer integrations and full Fatline behavior are qualified
 Evidence records the application and qualification-probe revisions separately.
 Expected marker: `SMOKE_LOGMA_RESOURCE_DISPATCH_RESULT=passed full_fatline=false`.
 Send `logs/nix-xd-arm-fatline-resource-local-<timestamp>-<pid>.log`.
+
+
+The pinned Logma API uses explicit `PUBSUB_RESOURCE_REDIS_*` configuration for its
+resource graph, independently of the lifecycle Redis settings. Agni selects the
+existing private `redis-proxy:6379` nginx endpoint and Logma identity; its wrapper
+reads the graph password from Logma's own credential file at runtime.
+`fatline-services-configure-logma` applies the pinned script and restarts only
+Logma, verifies Redis/nginx/Skymill container IDs are unchanged, and waits for an
+authenticated resource-list request to succeed. The resource aggregate runs this
+step automatically and records its configuration revision separately. No public
+HTTP ports or new Redis permissions are added. Applied identical scripts are
+reused, including across probe-only revisions; stop/recreation invalidates that
+configuration acknowledgement.
