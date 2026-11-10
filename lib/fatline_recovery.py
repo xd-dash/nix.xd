@@ -56,7 +56,15 @@ def invoke(services, record, action):
     body += 'test "$(cat /proc/sys/kernel/random/boot_id)" = ' + shlex.quote(link.state['boot']) + '\n'
     body += 'test "$(sha256sum ' + shlex.quote(script) + ' | cut -d " " -f 1)" = ' + shlex.quote(record['sha256']) + '\n'
     body += shlex.join(command) + '\n'
-    output = run(link.command, link.env, True, body, timeout=900)
+    try:
+        output = run(link.command, link.env, True, body, timeout=900)
+    except subprocess.SubprocessError:
+        print('FATLINE_RESTART_FAILURE=collecting_read_only_diagnostics', flush=True)
+        try:
+            diagnose(services)
+        except (OSError, subprocess.SubprocessError) as diagnostic_error:
+            print('Restart diagnostics unavailable: ' + str(diagnostic_error), file=sys.stderr)
+        raise
     print(output, end='', flush=True)
     expected = 'FATLINE_RESTART_GRAPH=installed runtime=unchanged' if action == 'install' else 'FATLINE_REDIS_RESTART=passed bootstrap=revoked_on_disk_and_runtime boot=unchanged'
     require(expected in output.splitlines(), 'Missing Agni restart acknowledgement; roots retained')
@@ -81,15 +89,45 @@ def qualify(services):
             'rebootQualified':False, 'unexpectedCrashQualified':False, 'fullFatline':False})
 
 
+def diagnose(services):
+    link = services.link
+    body = 'set -Eu\n' + 'scope=' + shlex.quote(link.scope) + '\n'
+    body += r'''
+base="$HOME/.local/state/nix-xd/fatline/$scope"
+apps="$base/services"
+runtime="$base/credentials/runtime"
+printf 'DIAGNOSTIC_BOOT_ID=%s\n' "$(cat /proc/sys/kernel/random/boot_id)"
+for role in redis nginx logma skymill; do
+  echo "DIAGNOSTIC_UNIT=$scope-$role.service"
+  systemctl --user show "$scope-$role.service" \
+    -p LoadState -p ActiveState -p SubState -p Result -p InvocationID -p ExecMainCode -p ExecMainStatus
+  podman inspect "$scope-$role" --format 'CONTAINER={{.Id}} RUNNING={{.State.Running}} EXIT={{.State.ExitCode}}' 2>&1 || true
+done
+for name in restart-before.ids restart-after.ids; do
+  echo "DIAGNOSTIC_FILE=$name"
+  if test -f "$apps/$name"; then cat "$apps/$name"; else echo absent; fi
+done
+if test -f "$runtime/ready"; then printf 'DIAGNOSTIC_BOOTSTRAP_INVOCATION='; cat "$runtime/ready"; else echo DIAGNOSTIC_BOOTSTRAP_READY=absent; fi
+if test -f "$runtime/users.acl"; then
+  stat -c 'DIAGNOSTIC_RUNTIME_ACL_MODE=%a' "$runtime/users.acl"
+  if grep -Fxq 'user bootstrap reset off' "$runtime/users.acl"; then echo DIAGNOSTIC_BOOTSTRAP_FILE=disabled; else echo DIAGNOSTIC_BOOTSTRAP_FILE=not-disabled; fi
+fi
+journalctl --user --no-pager -b -n 100 -u "$scope-redis.service" -u "$scope-nginx.service" -u "$scope-logma.service" -u "$scope-skymill.service"
+echo FATLINE_RESTART_DIAGNOSTIC=collected
+'''
+    output = run(link.command, link.env, True, body, timeout=60)
+    print(output, end='', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('prepare','qualify'))
+    parser.add_argument('action', choices=('prepare','qualify','diagnose'))
     action = parser.parse_args().action
     link = HostLink()
     with (link.root / 'controller.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         services = Services(link)
-        (prepare if action == 'prepare' else qualify)(services)
+        {'prepare':prepare, 'qualify':qualify, 'diagnose':diagnose}[action](services)
 
 
 if __name__ == '__main__':

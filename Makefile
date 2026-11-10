@@ -512,8 +512,8 @@ export NIX_XD_PEER_BUILDER_ALIAS = $(PEER_BUILDER_ALIAS)
 builder-store-qualify:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/builder_store_qualify.py
 
-.PHONY: fatline-restart-prepare fatline-restart-qualify fatline-restart-local fatline-restart-phases
-fatline-restart-prepare fatline-restart-qualify:
+.PHONY: fatline-restart-diagnose fatline-restart-prepare fatline-restart-qualify fatline-restart-local fatline-restart-phases
+fatline-restart-prepare fatline-restart-qualify fatline-restart-diagnose:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_recovery.py $(patsubst fatline-restart-%,%,$@)
 fatline-restart-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-restart-phases
