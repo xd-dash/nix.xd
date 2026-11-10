@@ -56,7 +56,8 @@ verify_podman() {
 }
 
 check_scope() {
-  local scope="$1" volume="$scope-store"
+  local scope="$1"
+  local volume="$scope-store"
   if [[ "$provider" == container ]]; then
     verify_apple "$scope" "$volume"
   else
