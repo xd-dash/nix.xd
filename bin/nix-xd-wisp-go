@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root="$repo/.state/wisp-go"
+source_dir="$root/source"
+revision="${WISP_SMOKE_REV:?Provide pinned Smoke revision}"
+go_cmd="${GO:-go}"
+action="${1:?Provide build, check, qualify or forward}"
+[[ "$revision" =~ ^[a-f0-9]{40}$ ]] || { echo 'Invalid Smoke revision' >&2; exit 1; }
+mkdir -p "$root"
+chmod 700 "$root"
+case "$action" in
+  build|check)
+    command -v "$go_cmd" >/dev/null || { echo 'Go 1.26+ is required for this source-build gate; set GO to its executable' >&2; exit 1; }
+    if [[ ! -d "$source_dir/.git" ]]; then
+      git clone --no-checkout https://github.com/xd-dash/smoke.git "$source_dir"
+      git -C "$source_dir" checkout --detach "$revision"
+    fi
+    [[ "$(git -C "$source_dir" rev-parse HEAD)" == "$revision" ]] || { echo 'Cached Smoke source has another revision; preserve it and select a fresh state directory explicitly' >&2; exit 1; }
+    git -C "$source_dir" diff --quiet HEAD -- || { echo 'Cached Smoke source has local changes' >&2; exit 1; }
+    [[ -z "$(git -C "$source_dir" ls-files --others --exclude-standard)" ]] || { echo 'Cached Smoke source has untracked files' >&2; exit 1; }
+    cd "$source_dir"
+    if [[ "$action" == check ]]; then
+      "$go_cmd" vet ./...
+      WISP_REQUIRE_UNIX=1 "$go_cmd" test -race -count=1 ./...
+      echo WISP_GO_CHECK_RESULT=passed
+    else
+      candidate="$(mktemp "$root/smoke.XXXXXX")"
+      trap 'rm -f "$candidate"' EXIT
+      "$go_cmd" build -o "$candidate" ./cmd/smoke-wisp
+      chmod 700 "$candidate"
+      mv "$candidate" "$root/smoke"
+      printf '%s\n' "$revision" > "$root/revision"
+      echo WISP_GO_BUILD_RESULT=passed
+    fi
+    ;;
+  qualify|forward)
+    [[ -x "$root/smoke" && -r "$root/revision" && "$(cat "$root/revision")" == "$revision" ]] || { echo 'Run wisp-go-build first' >&2; exit 1; }
+    state="${COREOS_STATE_ROOT:-$repo/.state/coreos}/${COREOS_PROFILE:-starwisp}"
+    port="${COREOS_SSH_PORT:-2222}"
+    [[ -r "$state/manifest.txt" && -r "$state/known_hosts" ]] || { echo 'Existing boot manifest and trusted known_hosts are required' >&2; exit 1; }
+    grep -Fxq "port=$port" "$state/manifest.txt" || { echo 'SSH port does not match boot manifest' >&2; exit 1; }
+    options=(--address "127.0.0.1:$port" --user "${COREOS_GUEST_USER:-wisp}" --identity "${COREOS_SSH_KEY:?Provide COREOS_SSH_KEY}" --known-hosts "$state/known_hosts")
+    if [[ "$action" == qualify ]]; then
+      exec "$root/smoke" wisp qualify "${options[@]}" --timeout 2m
+    fi
+    exec "$root/smoke" wisp forward "${options[@]}" --listen "$root/fatline-vm1.sock" --target-network tcp --target 127.0.0.1:16379 --timeout 10m
+    ;;
+  *) echo 'Unknown Wisp Go action' >&2; exit 1 ;;
+esac

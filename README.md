@@ -1197,3 +1197,41 @@ Redis Function reconciliation, Skymill, production policy promotion, the second
 Fatline VM and cross-VM subscriptions are subsequent gates. Old fixed-name,
 reserved-image Fatline templates are not silently deployed. Unix sockets remain
 local to one kernel; later VM-to-VM and Mac routes reuse the TCP/nginx contract.
+
+### Go-native Wisp: first local gate
+
+The pinned optional Smoke composition provides SSH execution, Unix-facing
+forwarding, and the Wisp systemd success/failure/timeout gate. Make remains the
+public launcher and records each command under `logs/`. This does not replace the
+existing Fatline transport or qualify the full application deployment.
+
+With Go 1.26+ installed on the host (`GO=/absolute/path/go` is supported), use your
+existing matrix function and running Starwisp VM:
+
+```sh
+matrix wisp-go-build &&
+matrix wisp-go-check &&
+matrix wisp-go-qualify
+```
+
+Build uses a dedicated checkout at `.state/wisp-go/source`, pinned to the exact
+Smoke commit, and atomically replaces `.state/wisp-go/smoke` after success. It does
+not change a developer's Smoke checkout or installed binary. No host Go bootstrap
+is performed. The same commands apply after bootstrap on ARM64 and x86-64; native
+x86-64/CoreOS execution remains unqualified. The cached source must be clean and at
+the selected revision; changing pins currently requires preserving/moving that
+cache before building the new candidate.
+
+`wisp-go-check` runs vet and race tests, including local AF_UNIX listener checks.
+The local gate requires AF_UNIX coverage and fails if the host prohibits it.
+`wisp-go-qualify` uses the existing trusted guest known_hosts and creates only three
+unique transient user units. It does not provision/reboot the VM or alter store
+roots. Closing SSH alone is not proof that arbitrary remote workloads stopped.
+
+Once nginx is running in VM1, `matrix wisp-go-forward` serves a private Unix socket
+at `.state/wisp-go/fatline-vm1.sock` for up to ten minutes in the foreground:
+local Unix -> Go SSH -> guest loopback nginx -> Redis Unix. An authenticated Redis
+client must connect separately to prove delivery; forwarding readiness alone is not
+application qualification. Ctrl+C closes the tunnel and removes its owned socket.
+Existing socket paths are refused. This first Go slice supports an unencrypted
+private key file and strict existing host trust, without SSH agent/ProxyJump/PTY.
