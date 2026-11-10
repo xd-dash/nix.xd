@@ -1205,25 +1205,28 @@ forwarding, and the Wisp systemd success/failure/timeout gate. Make remains the
 public launcher and records each command under `logs/`. This does not replace the
 existing Fatline transport or qualify the full application deployment.
 
-With Go 1.26+ installed on the host (`GO=/absolute/path/go` is supported), use your
-existing matrix function and running Starwisp VM:
+Build and test through the existing Nix-Alpine owner; no host Go installation is required:
 
 ```sh
+matrix stage WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd &&
 matrix wisp-go-build &&
 matrix wisp-go-check &&
 matrix wisp-go-qualify
 ```
 
-Build uses a dedicated checkout at `.state/wisp-go/source`, pinned to the exact
-Smoke commit, and atomically replaces `.state/wisp-go/smoke` after success. It does
-not change a developer's Smoke checkout or installed binary. No host Go bootstrap
-is performed. The same commands apply after bootstrap on ARM64 and x86-64; native
-x86-64/CoreOS execution remains unqualified. The cached source must be clean and at
-the selected revision; changing pins currently requires preserving/moving that
-cache before building the new candidate.
+The staged flake's locked nixpkgs supplies `wispGoTools` (Go, GCC for race tests,
+Git, Bash and CA certificates). Smoke source is pinned to an exact commit in a
+private owner workspace. The owner cross-compiles the native host Smoke binary
+and a standalone host test executable with CGO disabled. Only these executables
+are copied to `.state/wisp-go`; credentials remain on the host.
 
-`wisp-go-check` runs vet and race tests, including local AF_UNIX listener checks.
-The local gate requires AF_UNIX coverage and fails if the host prohibits it.
+`wisp-go-check` runs vet and the full race suite natively in the owner, then runs
+the standalone SSH/socket tests on the host. Both require AF_UNIX coverage. Host
+tests are not race-instrumented; owner tests are. No package installation or Go
+bootstrap occurs on macOS. The same interface supports ARM64 and x86-64 after
+bootstrap; native x86-64/CoreOS execution remains unqualified. The owner source
+cache must remain clean and at the pinned revision.
+
 `wisp-go-qualify` uses the existing trusted guest known_hosts and creates only three
 unique transient user units. It does not provision/reboot the VM or alter store
 roots. Closing SSH alone is not proof that arbitrary remote workloads stopped.

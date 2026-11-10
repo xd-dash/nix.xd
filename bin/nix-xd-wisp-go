@@ -2,34 +2,57 @@
 set -Eeuo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 root="$repo/.state/wisp-go"
-source_dir="$root/source"
 revision="${WISP_SMOKE_REV:?Provide pinned Smoke revision}"
-go_cmd="${GO:-go}"
 action="${1:?Provide build, check, qualify or forward}"
 [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || { echo 'Invalid Smoke revision' >&2; exit 1; }
 mkdir -p "$root"
 chmod 700 "$root"
 case "$action" in
   build|check)
-    command -v "$go_cmd" >/dev/null || { echo 'Go 1.26+ is required for this source-build gate; set GO to its executable' >&2; exit 1; }
-    if [[ ! -d "$source_dir/.git" ]]; then
-      git clone --no-checkout https://github.com/xd-dash/smoke.git "$source_dir"
-      git -C "$source_dir" checkout --detach "$revision"
-    fi
-    [[ "$(git -C "$source_dir" rev-parse HEAD)" == "$revision" ]] || { echo 'Cached Smoke source has another revision; preserve it and select a fresh state directory explicitly' >&2; exit 1; }
-    git -C "$source_dir" diff --quiet HEAD -- || { echo 'Cached Smoke source has local changes' >&2; exit 1; }
-    [[ -z "$(git -C "$source_dir" ls-files --others --exclude-standard)" ]] || { echo 'Cached Smoke source has untracked files' >&2; exit 1; }
-    cd "$source_dir"
+    [[ "${NIX_XD_PROVIDER:-podman}" == podman ]] || { echo 'Wisp Go owner adapter requires Podman' >&2; exit 1; }
+    runtime=(podman)
+    [[ "$(uname -s)" != Darwin ]] || runtime+=(--connection "${NIX_XD_MACHINE:?Provide machine}")
+    owner="${NIX_XD_SCOPE:?Provide owner scope}"
+    flake="${NIX_XD_WORKLOAD_FLAKE:-/workspaces/nix.xd}"
+    case "$(uname -s)" in Darwin) target_os=darwin ;; Linux) target_os=linux ;; *) echo 'Unsupported host OS' >&2; exit 1 ;; esac
+    case "$(uname -m)" in arm64|aarch64) target_arch=arm64 ;; x86_64|amd64) target_arch=amd64 ;; *) echo 'Unsupported host architecture' >&2; exit 1 ;; esac
+    owner_root=/nix/home/nixuser/.local/state/nix-xd/wisp-go
+    # The flake lock selects the toolchain; only pinned Smoke source enters this workspace.
+    "${runtime[@]}" exec -i "$owner" nix shell --no-write-lock-file "$flake#wispGoTools" --command bash -se -- "$action" "$revision" "$target_os" "$target_arch" "$owner_root" <<'OWNER'
+set -Eeuo pipefail
+action=$1 revision=$2 target_os=$3 target_arch=$4 root=$5
+mkdir -p "$root"
+if [[ ! -d "$root/source/.git" ]]; then
+  git clone --no-checkout https://github.com/xd-dash/smoke.git "$root/source"
+  git -C "$root/source" checkout --detach "$revision"
+fi
+cd "$root/source"
+[[ "$(git rev-parse HEAD)" == "$revision" ]] || { echo 'Cached owner Smoke source pins another revision' >&2; exit 1; }
+git diff --quiet HEAD --
+[[ -z "$(git ls-files --others --exclude-standard)" ]] || { echo 'Owner Smoke source has untracked files' >&2; exit 1; }
+if [[ "$action" == check ]]; then
+  go vet ./...
+  WISP_REQUIRE_UNIX=1 go test -race -count=1 ./...
+  echo WISP_GO_OWNER_CHECK_RESULT=passed
+else
+  export GOOS="$target_os" GOARCH="$target_arch" CGO_ENABLED=0
+  go build -o "$root/smoke-$target_os-$target_arch" ./cmd/smoke-wisp
+  go test -c -o "$root/wisp-test-$target_os-$target_arch" ./wisp
+fi
+OWNER
     if [[ "$action" == check ]]; then
-      "$go_cmd" vet ./...
-      WISP_REQUIRE_UNIX=1 "$go_cmd" test -race -count=1 ./...
+      [[ -x "$root/wisp.test" && -r "$root/revision" && "$(cat "$root/revision")" == "$revision" ]] || { echo 'Run wisp-go-build before checking host sockets' >&2; exit 1; }
+      WISP_REQUIRE_UNIX=1 "$root/wisp.test" -test.v
       echo WISP_GO_CHECK_RESULT=passed
     else
       candidate="$(mktemp "$root/smoke.XXXXXX")"
-      trap 'rm -f "$candidate"' EXIT
-      "$go_cmd" build -o "$candidate" ./cmd/smoke-wisp
-      chmod 700 "$candidate"
+      test_candidate="$(mktemp "$root/wisp-test.XXXXXX")"
+      trap 'rm -f "$candidate" "$test_candidate"' EXIT
+      "${runtime[@]}" exec "$owner" cat "$owner_root/smoke-$target_os-$target_arch" > "$candidate"
+      "${runtime[@]}" exec "$owner" cat "$owner_root/wisp-test-$target_os-$target_arch" > "$test_candidate"
+      chmod 700 "$candidate" "$test_candidate"
       mv "$candidate" "$root/smoke"
+      mv "$test_candidate" "$root/wisp.test"
       printf '%s\n' "$revision" > "$root/revision"
       echo WISP_GO_BUILD_RESULT=passed
     fi

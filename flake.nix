@@ -64,6 +64,10 @@
           nixAlpineCheck = nestedAlpine.check;
           nixAlpineRuntime = nestedAlpine.runtime;
           nixAlpineRegistration = nestedAlpine.registration;
+          wispGoTools = pkgs.buildEnv {
+            name = "nix-xd-wisp-go-tools";
+            paths = [ pkgs.go_1_26 pkgs.gcc pkgs.git pkgs.bash pkgs.cacert ];
+          };
           inherit applicationRedis installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
       fatlinePlans = eachSystem (system: {
