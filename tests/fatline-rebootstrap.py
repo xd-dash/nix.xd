@@ -14,6 +14,14 @@ import compose_runtime
 
 
 class ReplacementContract(unittest.TestCase):
+    def test_empty_exported_public_key_uses_the_private_key_sibling(self):
+        with tempfile.TemporaryDirectory() as directory:
+            private=Path(directory)/'identity'
+            public=Path(str(private)+'.pub')
+            public.write_text('ssh-ed25519 AAAA fixture-comment\n')
+            with patch.dict(os.environ,{'COREOS_SSH_KEY':str(private),'COREOS_SSH_PUBLIC_KEY':''}):
+                self.assertEqual(gate.public_key(),'ssh-ed25519 AAAA')
+
     def test_physical_vm1_binding_preserves_vm2_artifacts(self):
         with tempfile.TemporaryDirectory() as directory,patch.object(compose_runtime,'REPO',Path(directory)):
             runtime=compose_runtime.Runtime({'NIX_XD_PROVIDER':'podman','NIX_XD_SCOPE':'owner','COREOS_STATE_ROOT':directory+'/original'})

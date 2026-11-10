@@ -51,7 +51,7 @@ def source_selection(link):
 
 
 def public_key():
-    path=Path(os.environ.get('COREOS_SSH_PUBLIC_KEY',os.environ['COREOS_SSH_KEY']+'.pub')).expanduser()
+    path=Path(os.environ.get('COREOS_SSH_PUBLIC_KEY') or os.environ['COREOS_SSH_KEY']+'.pub').expanduser()
     key=' '.join(path.read_text().split()[:2])
     require(re.fullmatch(r'ssh-ed25519 [A-Za-z0-9+/=]+',key),'Provide the existing Ed25519 public key')
     return key
