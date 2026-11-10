@@ -13,6 +13,7 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
 volume="$scope-store"
+[[ -z "${NIX_XD_PEER_STORES:-}" && "${NIX_XD_STORE_VOLUME:-$volume}" == "$volume" ]] || die "Builder store overrides currently require PROVIDER=podman"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
 
 if ! command -v container >/dev/null 2>&1; then

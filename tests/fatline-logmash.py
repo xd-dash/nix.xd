@@ -16,7 +16,7 @@ import fatline_logmash as gate
 
 
 class ApplicationGate(unittest.TestCase):
-    def exercise(self, deny='expected', deliver=True):
+    def exercise(self, deny='expected', deliver=True, resource=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binary = root / '.state/wisp-go/smoke'
@@ -50,7 +50,7 @@ class ApplicationGate(unittest.TestCase):
                     else:
                         options['stdout'].write('logmash: ready source=us:vm1\n')
                         if deliver:
-                            options['stdout'].write('us:vm1:tenant:qualification\tunique-message\n')
+                            options['stdout'].write('us:vm1:tenant:qualification\t' + ('d'*48 if resource else 'unique-message') + '\n')
                     options['stdout'].flush()
                     processes.append(self)
                 def poll(self): return self.returncode
@@ -66,6 +66,14 @@ class ApplicationGate(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 1 if deny == 'expected' else 0,
                                                    stdout=marker if deny == 'expected' else '')
 
+            class ResourceServices:
+                def __init__(self, link): self.state = {'source':{'revision':'fixture'}}
+                def dispatch(self, path):
+                    body = json.loads(path.read_text())
+                    if body['Channel'] != 'tenant:qualification' or body['Payload'] != 'd'*48:
+                        raise ValueError('incorrect resource binding')
+                    calls.append('resource-dispatch')
+
             original_wait = gate.wait_log
             def wait(process, path, expected, timeout):
                 if not deliver and '\t' in expected:
@@ -74,23 +82,25 @@ class ApplicationGate(unittest.TestCase):
 
             with patch.object(gate, 'REPO', root), patch.dict(os.environ, {'WISP_SMOKE_REV':'a' * 40,
                     'COREOS_SSH_KEY':'/host/key'}), patch.object(gate.subprocess, 'Popen', Process), \
-                    patch.object(gate.subprocess, 'run', negative), patch.object(gate, 'wait_log', wait), \
+                    patch.object(gate.subprocess, 'run', negative), patch.object(gate, 'wait_log', wait), patch('fatline_services.Services', ResourceServices), patch.object(gate.secrets,'token_hex',return_value='d'*48), \
                     contextlib.redirect_stdout(io.StringIO()):
                 if deny != 'expected' or not deliver:
-                    with self.assertRaises(ValueError): gate.qualify(link)
+                    with self.assertRaises(ValueError): gate.qualify(link, resource=resource)
                 else:
-                    gate.qualify(link)
-            result = json.loads((root / 'logmash-qualification.json').read_text())
+                    gate.qualify(link, resource=resource)
+            result = json.loads((root / ('resource-logmash-qualification.json' if resource else 'logmash-qualification.json')).read_text())
             self.assertEqual(result['result'], 'passed' if deny == 'expected' and deliver else 'failed')
             self.assertFalse((root / 'logmash.sock').exists())
             self.assertTrue(all(process.poll() == 0 for process in processes))
             self.assertNotIn('stop', calls)
+            if resource: self.assertIn('resource-dispatch', calls)
             for process in processes:
                 self.assertNotIn(secret, ' '.join(process.command))
                 if process.tunnel:
                     self.assertNotIn('LOGMASH_REDIS_US_VM1_PASSWORD', process.env)
 
     def test_delivery_cancellation_and_cleanup(self): self.exercise()
+    def test_resource_mode_uses_resource_producer(self): self.exercise(resource=True)
     def test_unexpected_auth_success_fails_gate_and_cleans_tunnel(self): self.exercise(deny='accepted')
     def test_missing_delivery_fails_gate_and_cleans_both_processes(self): self.exercise(deliver=False)
 

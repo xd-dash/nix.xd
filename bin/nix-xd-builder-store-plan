@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo/lib/builder-stores.sh"
+builder_stores_init "${NIX_XD_SCOPE:-nix-xd-arm}"
+builder_store_mounts

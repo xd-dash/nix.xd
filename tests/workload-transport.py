@@ -112,7 +112,7 @@ class Transport(unittest.TestCase):
         self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'],
                         TEST_BASH=self.shell, CALLS=str(self.calls), CONTROLLER_STATE=str(self.root / "phase"), SHELL_PAYLOAD=str(self.root / "shell-payload"),
                         NIX_XD_PROVIDER='podman', NIX_XD_MACHINE='coreos-arm64',
-                        NIX_XD_SCOPE='nix-xd-arm', NIX_XD_SYSTEM='aarch64-linux',
+                        NIX_XD_SCOPE='nix-xd-arm', NIX_XD_STORE_VOLUME='nix-xd-arm-store', NIX_XD_SYSTEM='aarch64-linux',
                         NIX_XD_WORKLOAD='starwisp-probe', NIX_XD_WORKLOAD_GENERATION='',
                         COREOS_PROFILE='starwisp', COREOS_GUEST_USER='wisp', COREOS_SSH_PORT='2222',
                         COREOS_STATE_ROOT=str(self.root / 'coreos'), COREOS_SSH_KEY=str(self.key))

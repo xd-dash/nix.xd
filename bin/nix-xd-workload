@@ -25,7 +25,7 @@ if [[ "$(uname -s)" == Darwin ]]; then runtime+=(--connection "$machine"); fi
 inside() { "${runtime[@]}" exec "$scope" "$@"; }
 actual="$(inside uname -m)"
 case "$system:$actual" in aarch64-linux:aarch64|aarch64-linux:arm64|x86_64-linux:x86_64) ;; *) fail 'Owner architecture mismatch' ;; esac
-[[ "$("${runtime[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')" == "$scope-store" ]] || fail 'Unexpected owner volume'
+[[ "$("${runtime[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')" == "${NIX_XD_STORE_VOLUME:-$scope-store}" ]] || fail 'Unexpected owner volume'
 inside sh -ec 'test "$(id -u)" = 1000; test -f /nix/.nix-xd-direct-volume-v2'
 controller=(nix run --no-write-lock-file "$flake#workload-control" --)
 if [[ -n "${NIX_XD_WORKLOAD_CONTROLLER:-}" ]]; then
@@ -73,7 +73,7 @@ if [[ "$placement" == host ]]; then
   [[ "$(selected_control placement)" == host ]] || fail 'Workload is not declared for host placement'
   state="$root/host"
   mkdir -p "$state"
-  store_export="$("${runtime[@]}" volume inspect "$scope-store" --format '{{.Mountpoint}}')/store"
+  store_export="$("${runtime[@]}" volume inspect "${NIX_XD_STORE_VOLUME:-$scope-store}" --format '{{.Mountpoint}}')/store"
 else
 [[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ && "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail 'Invalid guest profile or user'
 [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Invalid guest SSH port'
@@ -81,7 +81,7 @@ else
 state="$root/$profile"
 [[ -f "$state/manifest.txt" && -f "$state/build.txt" && -f "$state/known_hosts" ]] || fail 'Boot and qualify the shared-store guest first'
 grep -Fxq "port=$port" "$state/manifest.txt" || fail 'Guest port differs from boot manifest'
-grep -Fxq "shared_nix_volume=$scope-store" "$state/build.txt" || fail 'Guest exports a different owner store'
+grep -Fxq "shared_nix_volume=${NIX_XD_STORE_VOLUME:-$scope-store}" "$state/build.txt" || fail 'Guest exports a different owner store'
 opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10
   -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$state/known_hosts"
   -o ServerAliveInterval=15 -o ServerAliveCountMax=4)

@@ -124,7 +124,7 @@ class Runtime:
         placement = self.plan['placements'][binding['placement']]
         env = dict(self.env, NIX_XD_WORKLOAD=name, NIX_XD_WORKLOAD_GENERATION='',
                    NIX_XD_WORKLOAD_PLACEMENT='host' if placement['kind'] == 'host' else 'guest',
-                   COREOS_NIX_STORE_VOLUME=self.scope + '-store', COREOS_PROFILE='starwisp')
+                   COREOS_NIX_STORE_VOLUME=self.env.get('NIX_XD_STORE_VOLUME', self.scope + '-store'), COREOS_PROFILE='starwisp')
         # Qualification must not execute legacy probes from an unrelated caller.
         for key in ('COREOS_GUEST_PROBE_ROOTFS', 'COREOS_GUEST_NIX_EXECUTABLE',
                     'COREOS_GUEST_DYNAMIC_EXECUTABLE', 'COREOS_GUEST_OCI_ARCHIVE', 'COREOS_ARTIFACT_STATE'):
@@ -181,7 +181,7 @@ class Runtime:
             state = Path(env['COREOS_STATE_ROOT']) / 'starwisp'
             require('port=' + str(placement['sshPort']) in (state / 'manifest.txt').read_text().splitlines(),
                     'VM port differs from boot manifest')
-            require('shared_nix_volume=' + self.scope + '-store' in (state / 'build.txt').read_text().splitlines(),
+            require('shared_nix_volume=' + self.env.get('NIX_XD_STORE_VOLUME', self.scope + '-store') in (state / 'build.txt').read_text().splitlines(),
                     'VM store binding differs')
             command = ['ssh', '-T', '-i', env['COREOS_SSH_KEY'], '-p', str(placement['sshPort']),
                        '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=10',

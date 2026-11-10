@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Qualify Smoke Logmash over the separately qualified Wisp SSH transport."""
+import argparse
+import secrets
 import fcntl
 import json
 import os
@@ -30,10 +32,10 @@ def subscriber_environment(base, password):
                 LOGMASH_REDIS_US_VM1_PASSWORD=password)
 
 
-def qualify(link):
+def qualify(link, resource=False):
     link.retain()
     root = link.root
-    result = root / 'logmash-qualification.json'
+    result = root / ('resource-logmash-qualification.json' if resource else 'logmash-qualification.json')
     write_json(result, {'result':'running', 'gate':'smoke-logmash-wisp'})
     binary = REPO / '.state/wisp-go/smoke'
     revision = os.environ['WISP_SMOKE_REV']
@@ -42,6 +44,8 @@ def qualify(link):
     link.guest('status')
     link.guest('check')
     config = json.loads((root / 'credentials/subscriber.json').read_text())
+    if resource:
+        config['payload'] = secrets.token_hex(24)
     password = Path(config['passwordFile']).read_text().strip()
     require(config['username'] == 'subscriber' and len(password) >= 32, 'Invalid subscriber credential')
     channel = link.scope + ':qualification'
@@ -60,6 +64,7 @@ def qualify(link):
     env = subscriber_environment(link.env, password)
     tunnel = subscriber = None
     passed = False
+    resource_binding = None
     try:
         with transport_log.open('w') as transport_output, subscriber_log.open('w') as output:
             tunnel = subprocess.Popen(tunnel_command, env=link.env, stdin=subprocess.DEVNULL,
@@ -80,7 +85,18 @@ def qualify(link):
                 stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT)
             wait_log(subscriber, subscriber_log, 'logmash: ready source=us:vm1', 60)
             print('SMOKE_LOGMASH_SUBSCRIBER_READY=true', flush=True)
-            link.guest('publish')
+            if resource:
+                from fatline_services import Services
+                request = root / ('resource-' + secrets.token_hex(12) + '.json')
+                write_json(request, {'Channel':channel,'PublisherID':'nix-xd-dispatch-' + secrets.token_hex(12),'Payload':config['payload']})
+                try:
+                    services = Services(link)
+                    resource_binding = {'runtimeSource':services.state['source'], 'qualificationProbe':services.state.get('qualificationProbe')}
+                    services.dispatch(request)
+                finally:
+                    request.unlink(missing_ok=True)
+            else:
+                link.guest('publish')
             wait_log(subscriber, subscriber_log, 'us:vm1:' + channel + '\t' + config['payload'], 60)
             print('SMOKE_LOGMASH_MESSAGE=passed', flush=True)
             subscriber.send_signal(signal.SIGTERM)
@@ -103,16 +119,19 @@ def qualify(link):
                     process.kill()
                     process.wait()
         write_json(result, {'result':'passed' if passed else 'failed', 'gate':'smoke-logmash-wisp',
-            'smokeRev':revision, 'agniRev':link.state['agniRev'], 'boot':link.state['boot'],
+            'resourceBinding':resource_binding, 'resourceBacked':resource, 'smokeRev':revision, 'agniRev':link.state['agniRev'], 'boot':link.state['boot'],
             'aclDigest':link.state['aclDigest'], 'guestAdapter':link.state.get('guestAdapter'), 'fullFatline':False})
-    print('SMOKE_LOGMASH_WISP_RESULT=passed full_fatline=false')
+    print('SMOKE_LOGMA_RESOURCE_DISPATCH_RESULT=passed full_fatline=false' if resource else 'SMOKE_LOGMASH_WISP_RESULT=passed full_fatline=false')
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resource", action="store_true")
+    args = parser.parse_args()
     link = HostLink()
     with (link.root / 'controller.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        qualify(link)
+        qualify(link, resource=args.resource)
 
 
 if __name__ == '__main__':

@@ -25,7 +25,7 @@
   };
   servicesProbe = {
     repository = "dash-xd/agni";
-    revision = "4a53bbc70c025e99236cc456979f3989f8e02023";
+    revision = "43e9badaa93179bd5857d172fa05eb9eff5af307";
     package = "coreos-services-vm1";
     contract = "coreos-services-v1";
   };

@@ -155,7 +155,7 @@ store-diagnose:
 
 # Declarative GC roots are registered only inside the authoritative Nix-Alpine store.
 store-roots-inspect store-roots-apply:
-	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' STORE_ROOTS_FLAKE='$(COREOS_PROBE_FLAKE)' STORE_ROOTS_VOLUME='$(if $(COREOS_NIX_STORE_VOLUME),$(COREOS_NIX_STORE_VOLUME),$(SCOPE)-store)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-roots $(patsubst store-roots-%,%,$@)
+	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' STORE_ROOTS_FLAKE='$(COREOS_PROBE_FLAKE)' STORE_ROOTS_VOLUME='$(if $(COREOS_NIX_STORE_VOLUME),$(COREOS_NIX_STORE_VOLUME),$(STORE_VOLUME))' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-roots $(patsubst store-roots-%,%,$@)
 
 # Qualifiers call Nix app outputs owned by the selected checkout.
 # No claimed success when the selected output or host capability is missing.
@@ -252,6 +252,7 @@ check-static-internal:
 	@python3 tests/fatline-host-link.py
 	@python3 tests/fatline-logmash.py
 	@python3 tests/fatline-services.py
+	@python3 tests/builder-stores.py
 	@python3 tests/wisp-go-owner.py
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
@@ -465,3 +466,20 @@ fatline-services-phases:
 .PHONY: fatline-services-refresh
 
 .PHONY: fatline-services-probe-refresh
+
+# Persistent builder store selection; peer aliases map to /peer/<alias>:ro.
+STORE_VOLUME ?= $(SCOPE)-store
+PEER_STORES ?=
+export NIX_XD_STORE_VOLUME = $(STORE_VOLUME)
+export NIX_XD_PEER_STORES = $(PEER_STORES)
+.PHONY: builder-store-plan
+builder-store-plan:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-store-plan
+
+.PHONY: fatline-resource-local fatline-resource-phases fatline-resource-logmash-qualify
+fatline-resource-local:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-resource-phases
+fatline-resource-phases:
+	@$(MAKE) --no-print-directory -j1 -S fatline-services-probe-refresh fatline-resource-logmash-qualify
+fatline-resource-logmash-qualify:
+	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_logmash.py --resource

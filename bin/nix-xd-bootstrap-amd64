@@ -10,6 +10,10 @@ scope="${NIX_XD_SCOPE:-nix-xd-amd64}"
 image="${NIX_XD_IMAGE:-localhost/nix-xd:amd64}"
 volume="$scope-store"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo/lib/builder-stores.sh"
+builder_stores_init "$scope"
+volume="$builder_store_volume"
+builder_stores_check podman
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die 'Invalid scope'
 [[ "$image" == localhost/nix-xd:amd64 ]] || die 'Unexpected image; use dedicated AMD64 bootstrap image'
 [[ "$(id -u)" != 0 ]] || die 'Run under ordinary user'
@@ -38,24 +42,7 @@ mkdir -p "$dir"
 file="$dir/$scope.container"
 tmp="$(mktemp "$dir/.nix-xd.XXXXXXXX")"
 trap 'rm -f -- "$tmp"' EXIT
-cat >"$tmp" <<EOF
-[Unit]
-Description=Nix-Alpine AMD64 ($scope)
-
-[Container]
-Image=$image
-ContainerName=$scope
-Pull=never
-Volume=$volume:/nix
-Exec=sleep infinity
-
-[Service]
-Restart=on-failure
-TimeoutStartSec=300
-
-[Install]
-WantedBy=default.target
-EOF
+builder_quadlet "$scope" "$image" "Nix-Alpine AMD64 ($scope)" > "$tmp"
 if [[ -e "$file" ]]; then
   cmp -s "$tmp" "$file" || die "Existing Quadlet differs: $file"
 else

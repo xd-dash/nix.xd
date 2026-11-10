@@ -139,6 +139,42 @@ class Services:
         write_json(self.root / 'qualification.json', {'result':'unqualified','phase':'probe-refresh'})
         print('FATLINE_SERVICES_PROBE_REFRESH=passed runtime=unchanged')
 
+    def dispatch(self, request_path):
+        require(self.state and self.state['status'] == 'active', 'Application services must be active')
+        selected = self.selection('servicesProbe')
+        candidate = self.state.get('qualificationProbe')
+        require(candidate and candidate['source'] == selected, 'Run fatline-services-probe-refresh first')
+        self.retain()
+        link = self.link
+        incoming = link.state['incoming'] + '-dispatch-' + request_path.stem
+        run(link.command, link.env, True, 'install -d -m 700 ' + shlex.quote(incoming) + '\n', timeout=30)
+        options = ['-P' if item == '-p' else item for item in link.command[2:-2]]
+        run(['scp','-q',*options,str(request_path),link.command[-2] + ':' + incoming + '/input.json'],link.env)
+        variables = {'scope':link.scope,'boot':link.state['boot'],'incoming':incoming,'probe':candidate['executable']}
+        script = 'set -Eeuo pipefail\n' + '\n'.join(key+'='+shlex.quote(value) for key,value in variables.items())+'\n'
+        script += r'''test "$(cat /proc/sys/kernel/random/boot_id)" = "$boot"
+test "$(id -u)" != 0
+test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+[[ ",$(findmnt -rn -o OPTIONS --mountpoint /var/mnt/nixstore)," == *,ro,* ]]
+base="$HOME/.local/state/nix-xd/fatline/$scope"
+apps="$base/services"
+cleanup() { rm -f "$incoming/input.json"; rmdir "$incoming" 2>/dev/null || true; }
+trap cleanup EXIT
+podman run --rm --pull=never --network "nix-xd-$scope" \
+ --userns keep-id:uid=1000,gid=1000 --user 1000:1000 \
+ --read-only --read-only-tmpfs=false --security-opt label=disable \
+ --cap-drop all --security-opt no-new-privileges \
+ --mount type=bind,src=/var/mnt/nixstore,dst=/nix/store,ro \
+ --mount "type=bind,src=$base/socket,dst=/run/redis,ro" \
+ --mount "type=bind,src=$apps/credentials/logma,dst=/run/credentials,ro" \
+ --mount "type=bind,src=$incoming,dst=/tmp,ro" \
+ --rootfs "$apps/rootfs" "$probe" dispatch "$scope"
+'''
+        output = run(link.command,link.env,True,script,timeout=180)
+        print(output,end='',flush=True)
+        for marker in ('LOGMA_RESOURCE_READBACK=passed','LOGMA_RESOURCE_DISPATCH=passed','LOGMA_RESOURCE_CLEANUP=passed'):
+            require(marker in output.splitlines(), 'Missing Logma resource acknowledgement')
+
     def guest(self, action):
         require(self.state, 'Prepare application services first')
         link = self.link

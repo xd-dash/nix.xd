@@ -1356,3 +1356,64 @@ state and activation remain unchanged. Logma readiness requires HTTP 200,
 `text/plain`, and `ready`; Skymill operations retain their JSON contract. After a
 probe correction, run `fatline-services-qualify` and `fatline-logmash-qualify`
 without activation or a Redis restart.
+
+### Persistent builders and optional peer-store mounts
+
+Podman builder bootstrap accepts `STORE_VOLUME` (default `$(SCOPE)-store`) and
+`PEER_STORES`, a space-separated list of application aliases. A plain alias such as
+`grumble` selects `nix-xd-grumble-store`; `agni=nix-xd-arm-store` explicitly maps an
+alias to an existing volume. Names and destinations are validated, duplicate
+aliases and a peer equal to the writable store are rejected, and all peer mounts
+are read-only. Missing peer volumes fail preflight and are checked again with
+ExecStartPre on service starts; only the selected writable volume may be created.
+
+```sh
+make ARCH=arm64 PROVIDER=podman MACHINE=coreos-arm64 \
+  SCOPE=nix-xd-grumble STORE_VOLUME=nix-xd-grumble-store \
+  PEER_STORES='agni=nix-xd-arm-store' builder-store-plan
+```
+
+`builder-store-plan` logs the mount declaration without creating volumes or
+containers. Use the same settings with `bootstrap` to create that persistent
+builder. The existing ARM owner does not need to be recreated for a new Grumble
+builder to read its volume. Bootstrap refuses to overwrite a differing existing
+Quadlet; changing an existing builder's mounts requires an explicit recreation
+step, not implicit migration. The defaults preserve existing unit layouts and
+volume names. ARM and native AMD64 Podman bootstrap share the same Bash policy;
+Apple's separate container provider rejects these overrides until adapted.
+
+Peer mounts expose the full selected volume, including its home/profile area, so
+select only trusted peer builders. They do not merge databases or make peer
+executables runnable at alternate paths. Execution views, Nix-aware closure
+transfer, source-owner retention and independently qualified cross-builder builds
+remain separate operations. Do not open a live peer database with Nix's immutable
+read-only mode while its owner can still change it.
+
+### Resource-backed Logma dispatch to Smoke
+
+With the already qualified single-VM services running:
+
+```sh
+matrix stage WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd &&
+matrix fatline-resource-local
+```
+
+This logged gate refreshes only the qualification probe, starts the host Smoke
+Logmash subscriber through Wisp, and creates/reads Channel and Publisher resources
+through Logma's authenticated HTTP API. A finite composition-owned producer
+implements Logma's PublisherProvider contract, validates the stored configuration,
+and emits its unique payload using Logma's scoped Redis identity. The previous
+standalone transport publisher is not used for this dispatch. Publisher resources
+and any newly created channel are deleted afterward; a pre-existing channel is
+preserved. Host subscriber/tunnel cleanup and the existing negative ACL checks
+remain part of the gate. The qualification fixture uses the existing reserved
+channel and grants, so no ACL expansion, application restart or Redis restart is
+needed.
+
+The pinned default API intentionally has no production PublisherReconciler. This
+qualifies resource-backed fixture composition and Smoke delivery; it does not
+claim that the API's `/publishers/{id}/reconcile` route has been configured, or
+that real external producer integrations and full Fatline behavior are qualified.
+Evidence records the application and qualification-probe revisions separately.
+Expected marker: `SMOKE_LOGMA_RESOURCE_DISPATCH_RESULT=passed full_fatline=false`.
+Send `logs/nix-xd-arm-fatline-resource-local-<timestamp>-<pid>.log`.
