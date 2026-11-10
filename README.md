@@ -1238,3 +1238,12 @@ client must connect separately to prove delivery; forwarding readiness alone is 
 application qualification. Ctrl+C closes the tunnel and removes its owned socket.
 Existing socket paths are refused. This first Go slice supports an unencrypted
 private key file and strict existing host trust, without SSH agent/ProxyJump/PTY.
+
+
+The intended host application client is Smoke's compiled-in Logmash, as an
+alternative to a separate Logma serverless test container. Wisp owns only SSH
+transport: Logmash -> local Unix socket -> Wisp SSH -> guest nginx -> Redis Unix
+socket. No host nginx container or Logma repository client is required for that
+path. The current Wisp gate does not yet qualify that authenticated subscription;
+that is the next application gate after SSH/systemd passes. Logmash's existing
+Unix target and ACL-auth provider should be composed rather than duplicated.

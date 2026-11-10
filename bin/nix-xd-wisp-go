@@ -16,7 +16,7 @@ case "$action" in
     flake="${NIX_XD_WORKLOAD_FLAKE:-/workspaces/nix.xd}"
     case "$(uname -s)" in Darwin) target_os=darwin ;; Linux) target_os=linux ;; *) echo 'Unsupported host OS' >&2; exit 1 ;; esac
     case "$(uname -m)" in arm64|aarch64) target_arch=arm64 ;; x86_64|amd64) target_arch=amd64 ;; *) echo 'Unsupported host architecture' >&2; exit 1 ;; esac
-    owner_root=/nix/home/nixuser/.local/state/nix-xd/wisp-go
+    owner_root=/nix/home/nixuser/.local/state/nix-xd/wisp-go/$revision
     # The flake lock selects the toolchain; only pinned Smoke source enters this workspace.
     "${runtime[@]}" exec -i "$owner" nix shell --no-write-lock-file "$flake#wispGoTools" --command bash -se -- "$action" "$revision" "$target_os" "$target_arch" "$owner_root" <<'OWNER'
 set -Eeuo pipefail
