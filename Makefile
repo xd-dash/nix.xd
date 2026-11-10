@@ -249,6 +249,7 @@ check-static:
 	@bash bin/nix-xd-log "$(SCOPE)" check-static $(MAKE) --no-print-directory check-static-internal
 
 check-static-internal:
+	@python3 tests/fatline-host-link.py
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
 	@python3 tests/compositions.py
@@ -422,3 +423,14 @@ composition-local:
 
 composition-local-phases:
 	@$(MAKE) --no-print-directory -j1 -S check-static stage composition-plan composition-prepare composition-start composition-qualify composition-status WORKSPACES="$(abspath $(CURDIR)/..)" CHECKOUT="$(notdir $(CURDIR))"
+
+# Agni owns Fatline service/security templates; this is the host adapter.
+FATLINE_SCOPE ?= fatline-arm-vm1
+export NIX_XD_FATLINE_SCOPE = $(FATLINE_SCOPE)
+.PHONY: fatline-prepare fatline-start fatline-status fatline-qualify fatline-stop fatline-host-link fatline-host-link-phases
+fatline-prepare fatline-start fatline-status fatline-qualify fatline-stop:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_host_link.py $(patsubst fatline-%,%,$@)
+fatline-host-link:
+	@bash bin/nix-xd-log "$(SCOPE)" fatline-host-link $(MAKE) --no-print-directory fatline-host-link-phases
+fatline-host-link-phases:
+	@$(MAKE) --no-print-directory -j1 -S fatline-prepare fatline-start fatline-qualify fatline-status

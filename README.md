@@ -1141,3 +1141,59 @@ secrets qualification. Each placement is measured serially to avoid benchmark
 contention. Application commands are bounded, shutdown runs on ordinary failure,
 and the normal Make logger captures the whole phase in
 `logs/<scope>-composition-application-<UTC>-<pid>.log`.
+
+### First CoreOS Fatline host-link gate
+
+The existing six-reader and Redis application gates qualify shared-store use,
+not a production Fatline deployment. Guest launch latency under TCG remains a
+known limitation; persistent-service tests may proceed without declaring it
+resolved. The next checkpoint is one scoped Redis/nginx substrate in the existing
+VM1, with a native Mac Logma subscriber proving the authenticated route.
+
+`fatlinePlans.<system>.host-link` is the declarative nix.xd composition input.
+It pins Agni, placement, scope, store domain, and the SSH/TCP ingress contract.
+Agni owns the service templates and ACL renderer; nix.xd builds/retains artifacts,
+transports configuration and orchestrates the gate through Make. The subscriber
+uses the maintained `xd-dash/logma/serverless/pubsub` package at the pinned Logma
+revision, including its explicit subscription acknowledgement. It does not use
+the older standalone client without named-user/socket configuration.
+
+After staging the current committed nix.xd checkout, run `make fatline-host-link`
+with the existing ARM/Podman/SSH/state settings. It performs prepare, start,
+qualify, and status serially and logs the entire sequence. The first run builds
+Linux and portable Darwin subscriber helpers in the Nix owner; neither host Go
+nor host Nix is required. No store closures are copied into the guest images.
+Redis and nginx use rootless, separate systemd/Quadlet services with a read-only
+Alpine rootfs and shared store. Existing matrix readers/VMs are preserved.
+
+The route is host subscriber -> localhost SSH forward -> VM-loopback nginx TCP
+listener -> Redis Unix socket. Redis itself has `port 0`, default user disabled,
+RAM-only 40 MiB/noeviction configuration, and a scoped ACL file. The socket's
+parent is 0700 and its mode is 0600. nginx gets a read-only socket-directory mount,
+not credentials. An approved same-VM publisher gets only its own credential
+files. A different container UID must fail Unix connect with EACCES. The host
+subscriber must receive the exact qualification message after subscription ACK;
+foreign keys/channels, subscriber writes/publication, SELECT 1, ACL, CONFIG and
+FUNCTION operations are denied. Anonymous TCP access must fail with NOAUTH.
+The actual loaded ACL artifact is checked against its recorded digest.
+
+This gate uses DB 0 in one logical database per Redis instance. Channel ACLs and
+key prefixes enforce logical tenant separation; database selection is not the
+Pub/Sub boundary. The rootless Podman owner and host controller are trusted
+administrators. Native host test clients are not themselves a hostile-tenant
+sandbox. Guest DAC/mount tests do not establish SELinux isolation; as with the
+qualified 9P executor, these mounts use label separation disabled.
+
+On success, Redis/nginx remain running. The temporary subscriber and SSH forward
+stop, while deployment roots remain retained. `make fatline-status` checks them;
+`make fatline-stop` stops only this scope and releases roots after acknowledged
+termination. Qualification credentials are runtime-only sandbox fixtures, outside
+Nix derivations, under a private scope state directory. Production runtime secret
+operations/rotation remain Smoke's responsibility. Do not send credential files;
+the normal `logs/<scope>-fatline-host-link-<UTC>-<pid>.log` is the review artifact.
+
+The success marker explicitly says `full_fatline=false`. Logma API lifecycle,
+Redis Function reconciliation, Skymill, production policy promotion, the second
+Fatline VM and cross-VM subscriptions are subsequent gates. Old fixed-name,
+reserved-image Fatline templates are not silently deployed. Unix sockets remain
+local to one kernel; later VM-to-VM and Mac routes reuse the TCP/nginx contract.

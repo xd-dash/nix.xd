@@ -66,6 +66,9 @@
           nixAlpineRegistration = nestedAlpine.registration;
           inherit applicationRedis installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
+      fatlinePlans = eachSystem (system: {
+        host-link = import ./compositions/fatline-coreos.nix { inherit system; };
+      });
       compositions = eachSystem (system: {
         shared-store-matrix = import ./compositions/shared-store-matrix.nix { inherit system; };
       });
