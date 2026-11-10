@@ -267,6 +267,7 @@ check-static-internal:
 	@python3 tests/workloads.py
 	@bash -n bin/nix-xd-workload bin/nix-xd-workload-start bin/nix-xd-workload-qualify
 	@bash tests/store-roots-contract.sh
+	@bash tests/store-isolation-contract.sh
 	@bash tests/store-diagnose-contract.sh
 	@bash -n bin/nix-xd-qualify-starwisp-shared bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
@@ -535,3 +536,12 @@ fatline-rebootstrap-plan:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py plan
 fatline-rebootstrap-local:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py run
+
+# Read-only verification of two independent authoritative Nix stores.
+# Provision each scope with the existing generic make bootstrap interface first.
+.PHONY: store-isolation-check
+store-isolation-check:
+	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' \
+	  NIX_XD_ISOLATION_PRIMARY='$(if $(ISOLATION_PRIMARY),$(ISOLATION_PRIMARY),nix-xd-arm)' \
+	  NIX_XD_ISOLATION_SECONDARY='$(if $(ISOLATION_SECONDARY),$(ISOLATION_SECONDARY),nix-xd-grumble-arm)' \
+	  bash bin/nix-xd-log "$(SCOPE)" store-isolation-check bash bin/nix-xd-store-isolation

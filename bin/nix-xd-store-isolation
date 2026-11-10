@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Read-only: no store writes, GC, container creation, or service restarts.
+provider="${NIX_XD_PROVIDER:-container}"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+primary="${NIX_XD_ISOLATION_PRIMARY:-nix-xd-arm}"
+secondary="${NIX_XD_ISOLATION_SECONDARY:-nix-xd-grumble-arm}"
+fail() { printf 'STORE_ISOLATION_RESULT=failed reason=%s\n' "$*" >&2; exit 1; }
+for scope in "$primary" "$secondary"; do
+  [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "invalid scope: $scope"
+done
+[[ "$primary" != "$secondary" ]] || fail 'identical scopes'
+[[ "$provider" == container || "$provider" == podman ]] || fail 'unsupported provider'
+command -v jq >/dev/null || fail 'jq required for machine-readable runtime inspection'
+
+runtime() {
+  if [[ "$provider" == podman && "$(uname -s)" == Darwin ]]; then
+    podman --connection "$machine" "$@"
+  else
+    "$provider" "$@"
+  fi
+}
+inside() { runtime exec "$1" "${@:2}"; }
+
+verify_apple() {
+  local scope="$1" volume="$2"
+  runtime volume inspect "$volume" |
+    jq -e --arg expected "$volume" 'if type == "array" then .[0].id == $expected else .id == $expected end' >/dev/null ||
+    fail "missing or mismatched Apple volume $volume"
+  runtime inspect "$scope" | jq -e --arg expected "$volume" '
+    (if type == "array" then . else [.] end) as $containers
+    | ($containers | length == 1)
+      and ($containers[0].configuration.mounts | type == "array")
+      and ([$containers[0].configuration.mounts[] |
+        select(([.. | strings] | index("/nix")) != null)] | length == 1)
+      and ([$containers[0].configuration.mounts[] |
+        select(
+          ([.. | strings] | index("/nix")) != null
+          and ([.. | strings] | index($expected)) != null
+        )] | length == 1)
+  ' >/dev/null || fail "$scope must mount exactly $volume at /nix"
+}
+
+verify_podman() {
+  local scope="$1" volume="$2"
+  runtime volume inspect "$volume" |
+    jq -e --arg expected "$volume" '.[0].Name == $expected' >/dev/null ||
+    fail "missing or mismatched Podman volume $volume"
+  runtime inspect "$scope" | jq -e --arg expected "$volume" '
+    (length == 1)
+    and ([.[0].Mounts[] | select(.Destination == "/nix")] | length == 1)
+    and ([.[0].Mounts[] |
+      select(.Destination == "/nix" and .Name == $expected and .RW == true)] | length == 1)
+  ' >/dev/null || fail "$scope must mount writable $volume at /nix"
+}
+
+check_scope() {
+  local scope="$1"
+  local volume="$scope-store"
+  if [[ "$provider" == container ]]; then
+    verify_apple "$scope" "$volume"
+  else
+    verify_podman "$scope" "$volume"
+  fi
+  inside "$scope" sh -ec '
+    test -f /nix/.nix-xd-direct-volume-v2
+    test -x /nix/home/nixuser/.nix-profile/bin/nix
+    grep -Eq " /nix rw(,| )" /proc/self/mountinfo
+    test "$(id -u)" = 1000
+    test "$(uname -m)" = aarch64
+  ' || fail "$scope store initialization or architecture is invalid"
+  inside "$scope" nix store info >/dev/null || fail "$scope cannot query local Nix store"
+  printf 'STORE_ISOLATION_SCOPE=passed scope=%s volume=%s system=aarch64-linux\n' "$scope" "$volume"
+}
+
+[[ "$primary-store" != "$secondary-store" ]] || fail 'shared writable volume'
+check_scope "$primary"
+check_scope "$secondary"
+printf 'STORE_ISOLATION_RESULT=passed primary=%s secondary=%s\n' "$primary" "$secondary"
