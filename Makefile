@@ -535,3 +535,12 @@ fatline-rebootstrap-plan:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py plan
 fatline-rebootstrap-local:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py run
+
+# Read-only verification of two independent authoritative Nix stores.
+# Provision each scope with the existing generic make bootstrap interface first.
+.PHONY: store-isolation-check
+store-isolation-check:
+	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' \
+	  NIX_XD_ISOLATION_PRIMARY='$(if $(ISOLATION_PRIMARY),$(ISOLATION_PRIMARY),nix-xd-arm)' \
+	  NIX_XD_ISOLATION_SECONDARY='$(if $(ISOLATION_SECONDARY),$(ISOLATION_SECONDARY),nix-xd-grumble-arm)' \
+	  bash bin/nix-xd-log "$(SCOPE)" store-isolation-check bash bin/nix-xd-store-isolation
