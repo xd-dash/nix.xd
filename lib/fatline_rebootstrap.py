@@ -6,6 +6,7 @@ import base64
 import copy
 import errno
 import fcntl
+import gzip
 import hashlib
 import json
 import os
@@ -78,7 +79,11 @@ def ignition_contract(data, key):
     uri=policy['contents']['source']
     require(uri.startswith('data:'),'Reboot policy must be embedded in Ignition')
     header,payload=uri.split(',',1)
-    policy_text=(base64.b64decode(payload) if ';base64' in header else unquote_to_bytes(payload)).decode()
+    policy_bytes=base64.b64decode(payload) if ';base64' in header else unquote_to_bytes(payload)
+    compression=policy['contents'].get('compression','')
+    require(compression in ('','gzip'),'Unsupported Ignition policy compression')
+    if compression=='gzip': policy_bytes=gzip.decompress(policy_bytes)
+    policy_text=policy_bytes.decode()
     require('subject.user == "wisp"' in policy_text and 'org.freedesktop.login1.reboot' in policy_text and
         'org.freedesktop.systemd1.manage-units' not in policy_text,'Unexpected reboot policy authority')
     mount=next((item for item in value.get('systemd',{}).get('units',[]) if item['name']=='var-mnt-nixstore.mount'),{})

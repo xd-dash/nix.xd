@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import gzip
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,10 @@ class ReplacementContract(unittest.TestCase):
         value={'passwd':{'users':[{'name':'wisp','sshAuthorizedKeys':[key]}]},
             'storage':{'files':[{'path':'/etc/polkit-1/rules.d/60-wisp-reboot.rules','contents':{'source':'data:;base64,'+base64.b64encode(policy.encode()).decode()}}]},
             'systemd':{'units':[{'name':'var-mnt-nixstore.mount','enabled':True,'contents':'Options=ro,nodev'}]}}
+        gate.ignition_contract(json.dumps(value),key)
+        contents=value['storage']['files'][0]['contents']
+        contents['compression']='gzip'
+        contents['source']='data:;base64,'+base64.b64encode(gzip.compress(policy.encode())).decode()
         gate.ignition_contract(json.dumps(value),key)
         value['passwd']['users'].append({'name':'root','sshAuthorizedKeys':[key]})
         with self.assertRaisesRegex(ValueError,'Root SSH'):gate.ignition_contract(json.dumps(value),key)
