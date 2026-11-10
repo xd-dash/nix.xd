@@ -3,7 +3,7 @@ set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 bash -n bin/nix-xd-store-isolation
 command -v jq >/dev/null || { echo 'jq required for isolated-store contract' >&2; exit 1; }
-dry="$(make -sn store-isolation-check ARCH=arm64 PROVIDER=container)"
+dry="$(make -sn store-isolation-check ARCH=arm64 PROVIDER=container OS=Darwin)"
 [[ "$dry" == *"bin/nix-xd-store-isolation"* ]] || exit 1
 ! grep -Eq 'volume (rm|delete)|nix store gc|nix-store --gc|rm -rf /nix' bin/nix-xd-store-isolation
 
