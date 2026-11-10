@@ -36,6 +36,7 @@ class Profiles(unittest.TestCase):
             def owner(self, *args):
                 calls.append(args)
                 return 'aarch64' if args == ('uname','-m') else json.dumps(plan)
+            def placement(self, place): return self.plan['placements'][place], None
             def transport_command(self, place, name):
                 calls.append((place, name))
                 return ['ssh'], {'COREOS_STATE_ROOT':'vm2'}

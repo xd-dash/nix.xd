@@ -39,6 +39,12 @@ let vm2 = profile == "vm2"; in
     package = "coreos-services-vm1";
     contract = "coreos-services-v1";
   };
+  bootstrap = {
+    repository = "dash-xd/agni";
+    revision = "f7758434effd4aee3ffc8f0a746ad67f41d303a6";
+    flakeDirectory = "qemu/coreos-live/local";
+    package = "ignitionStarwisp9p";
+  };
   placement = {
     name = profile;
     kind = "coreos";

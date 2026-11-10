@@ -49,6 +49,7 @@ class HostLink:
         self.agni_rev = source['revision']
         self.runtime.plan = {'placements': {self.profile: self.config['placement']},
                              'workloads': {'transport': {'placement': self.profile}}}
+        self.config = dict(self.config, placement=self.runtime.placement(self.profile)[0])
         self.command, self.env = self.runtime.transport_command(self.profile, 'transport')
 
     def guest(self, action):

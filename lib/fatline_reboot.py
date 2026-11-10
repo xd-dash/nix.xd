@@ -40,12 +40,11 @@ def reboot_capability(link):
     body = r'''set -Eu
 permission=$(busctl --system call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CanReboot 2>/dev/null || true)
 if [[ "$permission" == 's "yes"' ]]; then echo REBOOT_CAPABILITY=logind
-elif sudo -n -l -- /usr/bin/systemctl reboot >/dev/null 2>&1; then echo REBOOT_CAPABILITY=sudo
 else echo REBOOT_CAPABILITY=missing; fi
 '''
     output = run(link.command, link.env, True, body, timeout=30).strip()
-    require(output in ('REBOOT_CAPABILITY=logind','REBOOT_CAPABILITY=sudo'),
-        'Guest lacks noninteractive reboot authority. Provision Agni\'s narrow Starwisp reboot policy using an authorized guest administrator; no forced power cycle was attempted.')
+    require(output == 'REBOOT_CAPABILITY=logind',
+        'Guest lacks noninteractive reboot authority. Rebootstrap with Agni\'s narrow Starwisp reboot policy; no sudo or forced power cycle was attempted.')
     return output.split('=',1)[1]
 
 
@@ -147,7 +146,8 @@ def run_gate(link, peer, resume=False):
                 write_json(old_evidence, {'result':'unqualified','phase':'reboot-requested','transaction':transaction['id']})
             transaction['phase'] = 'requested'
             write_json(path, transaction)
-            command = '/usr/bin/systemctl --no-ask-password reboot' if transaction['capability'] == 'logind' else 'sudo -n /usr/bin/systemctl reboot'
+            require(transaction['capability'] == 'logind', 'Reboot must use the declaratively provisioned logind capability')
+            command = '/usr/bin/systemctl --no-ask-password reboot'
             result = subprocess.run(link.command, env=link.env, text=True,
                 input='set -Eeuo pipefail\ntest "$(cat /proc/sys/kernel/random/boot_id)" = ' + shlex.quote(transaction['before']['boot']) + '\n' + command + '\n',
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)

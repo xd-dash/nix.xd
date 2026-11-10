@@ -1568,11 +1568,10 @@ matrix FATLINE_PROFILE=vm1 fatline-reboot-local
 ```
 
 The plan is read-only in both guests. It verifies independent service observations
-and a noninteractive logind or authorized sudo reboot capability. Missing authority
+and a noninteractive logind reboot capability. Missing authority
 stops the chain before helper installation or reboot. Future Starwisp 9P Ignition
-includes a narrowly scoped Wisp reboot policy; existing guest authority must be
-provisioned through an authorized administrator, never through a forced power cycle
-or an implicit grant of broad sudo access.
+includes a narrowly scoped Wisp reboot policy; existing guests must be rebootstrapped from the corrected Ignition. No sudo
+fallback, administrator login or forced power cycle is used for reboot qualification.
 
 Agni installs a guest-local read-only 9P readiness barrier ahead of the Nix-backed
 startup hooks. After reboot, the controller waits for the same trusted SSH host key
@@ -1593,3 +1592,48 @@ transient reader workloads need their own explicit restart/reconciliation.
 
 A passing reboot gate still does not qualify bootstrap fault injection, unexpected
 crashes, production publisher reconciliation, Redis durability or GCE replacement.
+
+### Rebootstrap VM1 without guest administrator access
+
+A missing reboot capability is repaired by rebuilding the guest from Agni's
+pinned Ignition, not by changing policy inside a running guest. Rebootstrap uses
+the same public SSH key, authoritative Nix owner/volume, application revisions,
+and runtime credentials. It adds no root SSH key and has no sudo fallback.
+
+```bash
+matrix stage WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd &&
+matrix FATLINE_PROFILE=vm1 fatline-rebootstrap-plan &&
+matrix FATLINE_PROFILE=vm1 fatline-rebootstrap-local
+```
+
+The plan checks both existing guests and selects a free replacement SSH port,
+starting at 2224 (`COREOS_REBOOTSTRAP_SSH_PORT` can change the start of the range).
+The local gate builds and roots the exact Agni Ignition, starts a separate VM1
+candidate, reconstructs the pinned services with the existing private credential
+files, and qualifies its autonomous reboot and host subscriber path. This
+briefly runs three CoreOS guests; the candidate defaults to 2 GiB RAM.
+The replacement starts with fresh writable application state. The old writable
+state remains on the retained original disk; this is not a data migration gate.
+
+The original VM1 stays available until the candidate passes. Cutover writes an
+explicit logical-to-physical VM binding used by the common runtime and Fatline
+interfaces, then stops the old services and runner. It never deletes the original
+runner, disk, boot artifacts, known-hosts file, credentials, or closure roots.
+The old artifact directory remains in place because VM2 still mounts it. The
+immutable base disk is hard-linked where possible, with copying only across
+filesystems; no shared Nix closures are copied into guest images.
+
+The active binding is `.state/vm-bindings/<owner>/vm1.json`. Keep using the same
+Make wrapper: it resolves the replacement automatically, including its new SSH
+port and state directory. Other VM1 reader records retain their previous boot
+bindings and need explicit lifecycle reconciliation before reuse. VM2's boot,
+service container IDs, and the Nix owner container ID must remain unchanged.
+
+Every phase is logged. `FATLINE_REBOOTSTRAP_RESULT=passed` means reconstruction,
+reboot qualification, activation and old-runner retirement all passed. The final
+line names the private archive directory. Checkpoints and archives live under
+`.state/rebootstrap/<owner>/<transaction>`; candidate host evidence is retained
+under `.state/fatline-candidates`. If interrupted, rerun
+`matrix FATLINE_PROFILE=vm1 fatline-rebootstrap-local` to continue the pending
+transaction. A failed candidate is retained for diagnosis and does not trigger
+cutover. Old roots remain retained; garbage collection is never part of this gate.

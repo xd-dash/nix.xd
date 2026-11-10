@@ -67,6 +67,7 @@ class Runtime:
         self.root.mkdir(parents=True, exist_ok=True)
         self.podman = ['podman'] + (['--connection', self.machine] if platform.system() == 'Darwin' else [])
         self.plan = None
+        self.binding_overrides = {}
         self.probe_round = 0
 
     def owner(self, *args):
@@ -119,9 +120,26 @@ class Runtime:
                      self.env, True, json.dumps(requests), timeout=120)
         return json.loads(output)
 
+    def placement(self, name):
+        declaration = self.plan['placements'][name]
+        if declaration['kind'] != 'coreos':
+            return declaration, None
+        path = REPO / '.state/vm-bindings' / self.scope / (name + '.json')
+        binding = getattr(self, 'binding_overrides', {}).get(name)
+        if binding is None and path.exists():
+            binding = json.loads(path.read_text())
+        if binding is None:
+            return declaration, None
+        require(binding.get('schema') == 1 and binding.get('logical') == name and
+                binding.get('baseContainer') == declaration['container'], 'VM binding differs from declared placement')
+        require(re.fullmatch(r'[a-z][a-z0-9-]{0,63}', binding['container']) and
+                type(binding['sshPort']) is int and 1024 <= binding['sshPort'] <= 65535 and
+                Path(binding['stateRoot']).is_absolute(), 'Invalid physical VM binding')
+        return dict(declaration, container=binding['container'], sshPort=binding['sshPort']), binding
+
     def environment(self, name):
         binding = self.plan['workloads'][name]
-        placement = self.plan['placements'][binding['placement']]
+        placement, physical = self.placement(binding['placement'])
         env = dict(self.env, NIX_XD_WORKLOAD=name, NIX_XD_WORKLOAD_GENERATION='',
                    NIX_XD_WORKLOAD_PLACEMENT='host' if placement['kind'] == 'host' else 'guest',
                    COREOS_NIX_STORE_VOLUME=self.env.get('NIX_XD_STORE_VOLUME', self.scope + '-store'), COREOS_PROFILE='starwisp')
@@ -136,6 +154,9 @@ class Runtime:
             else:
                 env['COREOS_STATE_ROOT'] = str(self.root / binding['placement'])
                 env['COREOS_ARTIFACT_STATE'] = str(self.primary / 'starwisp')
+            if physical:
+                env['COREOS_STATE_ROOT'] = physical['stateRoot']
+                env.pop('COREOS_ARTIFACT_STATE', None)
         else:
             env['COREOS_STATE_ROOT'] = str(self.root)
         return env
@@ -173,7 +194,7 @@ class Runtime:
 
     def transport_command(self, place, name):
         env = self.environment(name)
-        placement = self.plan['placements'][place]
+        placement, _ = self.placement(place)
         if placement['kind'] == 'host':
             command = (['podman', 'machine', 'ssh', self.machine, 'bash -se']
                        if platform.system() == 'Darwin' else ['bash', '-se'])
