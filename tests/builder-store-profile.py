@@ -28,6 +28,27 @@ class ProfilePlan(unittest.TestCase):
             with self.subTest(stores=stores):
                 self.assertNotEqual(self.run_plan(stores).returncode, 0)
 
+    def test_rejects_peer_store_as_writable_chroot(self):
+        self.assertNotEqual(self.run_plan("grumble=peer-store",
+                                          NIX_XD_PEER_STORES="agni=peer-store").returncode, 0)
+
+    def test_plan_includes_read_only_peers(self):
+        result = self.run_plan("grumble=grumble-store", NIX_XD_PEER_STORES="agni=peer-store")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PEER_STORE alias=agni volume=peer-store path=/peer/agni rw=false",
+                      result.stdout)
+
+    def test_empty_profile_fails_before_bootstrap(self):
+        self.assertNotEqual(self.run_plan("").returncode, 0)
+
+    def test_rejects_incompatible_security_toggles(self):
+        self.assertNotEqual(
+            self.run_plan("grumble=x", BUILDER_CHROOT_NAMESPACE="0",
+                          BUILDER_CHROOT_SYSCALLS="1").returncode, 0)
+        self.assertNotEqual(
+            self.run_plan("grumble=x", BUILDER_CHROOT_NAMESPACE="0",
+                          NIX_XD_CHROOT_SELINUX="disabled").returncode, 0)
+
     def test_rejects_unsafe_namespace_options(self):
         self.assertNotEqual(self.run_plan("grumble=x", BUILDER_CHROOT_NAMESPACE="unconfined").returncode, 0)
 
