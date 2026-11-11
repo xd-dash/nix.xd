@@ -6,6 +6,14 @@ on:
     paths:
       - .github/workflows/nix-store-isolation-static.yml
       - bin/nix-xd-store-isolation
+      - bin/nix-xd-builder-profile-prestart
+      - bin/nix-xd-builder-seccomp.py
+      - bin/nix-xd-builder-store-qualify-atomic
+      - lib/builder-stores.sh
+      - arm/bootstrap-podman.sh
+      - mk/bootstrap-arm64.mk
+      - mk/builder-store-profile.mk
+      - tests/builder-atomic.py
       - tests/store-isolation-contract.sh
       - Makefile
   pull_request:
@@ -28,4 +36,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash tests/store-isolation-contract.sh
+          make nix-store-check
