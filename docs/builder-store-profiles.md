@@ -141,3 +141,34 @@ the confirmation. A fresh qualification can then be run again.
 For arbitrary legacy containers/images, use the inventory to select exact
 resource IDs. Do not automatically delete any volume that might contain an
 authoritative Nix store or a CoreOS-mounted closure.
+
+## Separate authoritative writer alternative
+
+The consolidated branch also carries the earlier Grumble independent-writer
+proposal and the read-only `make store-isolation-check` contract. That gate
+compares distinct Nix-Alpine scopes, each with its own authoritative `/nix`
+volume. It does **not** claim the same properties as the chroot-store POC,
+and it is not a prerequisite to using the qualified same-container model.
+The original checker assumes the default `<scope>-store` volume naming;
+custom volume selections require an explicit future extension.
+
+Use `make store-isolation-static` for the self-contained mock contract.
+The historical `codex/grumble-isolated-writer` branch remains available
+for provenance; the consolidated branch preserves its implementation,
+with the CI workflow renamed to generic Nix store isolation.
+
+## Workspace and image cleanup review
+
+`make workspace-inventory` reports linked Git worktrees, stale
+worktree *metadata* via `git worktree prune --dry-run --verbose`,
+and nearby potential checkout directories. These are candidates,
+not proven stale workspaces. Use `git worktree remove <exact-path>`
+only for an intentionally retired, clean worktree. Do not remove an
+active branch checkout or run `rm -rf` over the workspace directory.
+
+`make builder-runtime-inventory` lists Podman images, containers, volumes
+and managed services in the selected machine. An image can be deleted
+by exact name only after checking it is not used by running or stopped
+containers, or selected in a Quadlet. Retain named Nix volumes until
+their ownership, roots, and consumers have been reconciled.
+Avoid volume pruning and whole-machine pruning.
