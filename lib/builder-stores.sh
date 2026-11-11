@@ -39,6 +39,21 @@ builder_quadlet() {
   [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ && "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || return 1
   printf '[Unit]\nDescription=%s\n\n[Container]\nImage=%s\nContainerName=%s\nPull=never\n' "$description" "$image" "$scope"
   builder_store_mounts
+  if [[ -n ${NIX_XD_INITIAL_CHROOT_STORES:-} ]]; then
+    local specs=() spec name chroot_volume seen=' '
+    read -r -a specs <<< "$NIX_XD_INITIAL_CHROOT_STORES"
+    for spec in ${specs[@]+"${specs[@]}"}; do
+      [[ $spec == *=* ]] || return 2
+      name=${spec%%=*}; chroot_volume=${spec#*=}
+      [[ $name =~ ^[a-z][a-z0-9-]{0,39}$ && $chroot_volume =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || return 2
+      [[ $chroot_volume != "$builder_store_volume" && $seen != *" $name "* ]] || return 2
+      seen="$seen$name "
+      printf 'Volume=%s:/stores/%s\n' "$chroot_volume" "$name"
+    done
+    printf 'Unmask=/proc/*\n'
+    [[ ${NIX_XD_INITIAL_SECCOMP_PATH:-} == "$HOME"/.config/nix-xd/seccomp/"$scope"-nix-chroot.json ]] || return 2
+    printf 'SeccompProfile=%s\n' "$NIX_XD_INITIAL_SECCOMP_PATH"
+  fi
   printf 'Exec=sleep infinity\n\n[Service]\n'
   for ((i=0;i<builder_peer_count;i++)); do
     volume="${builder_peer_volumes[i]}"
