@@ -279,3 +279,33 @@ then remove it by exact path using `git worktree remove` from the
 primary checkout. Do not run wholesale `git worktree prune`,
 `podman system prune`, `podman volume prune`, or delete Nix stores
 as part of generic maintenance.
+
+### Atomic prestart retry after the Podman seccomp-info incompatibility
+
+The first atomic attempt reached image tagging and authoritative-volume creation,
+then failed because `podman info` on the selected machine does not expose
+`.Host.Security.SeccompProfilePath`. The separate `stage` error was a
+Makefile fail-fast defect: the recipe continued after bootstrap failed.
+Neither error establishes a runtime store failure.
+
+The atomic prestart implementation now reads the effective OCI seccomp
+configuration from a disposable, nonprivileged probe container and derives
+the narrowly extended policy from that configuration. It removes the probe
+before creating the managed builder. The bootstrap Make recipe now stops
+immediately on any failing phase.
+
+For the specific **pre-container** partial state recorded in the log
+(image and authoritative volume created, no managed container or Quadlet),
+use:
+
+```sh
+make nix-store-check
+make builder-store-profile-qualify-atomic-resume MACHINE=coreos-arm64
+```
+
+The resume target refuses a missing image/store, an existing managed
+container, or an existing Quadlet. It does not delete any volume. It
+completes the ordinary first-start qualification from the retained
+authoritative volume. A failure after the managed container starts must
+be investigated separately; this resume target will not modify that
+started container.
