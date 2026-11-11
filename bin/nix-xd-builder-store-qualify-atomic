@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-mode=fresh
+mode=${1:-fresh}
+[[ $mode == fresh || $mode == resume ]] || { echo "Expected fresh or resume" >&2; exit 2; }
 scope=${NIX_XD_QUALIFY_SCOPE:-nix-xd-arm-atomic-qualify}
 machine=${NIX_XD_MACHINE:?Select the existing Podman Machine}
 system=${NIX_XD_SYSTEM:-aarch64-linux}
@@ -36,11 +37,17 @@ NIX_XD_SCOPE="$scope" NIX_XD_STORE_VOLUME="$authoritative" \
 [[ $(podman machine inspect "$machine" --format '{{.State}}') == running ]] ||
   fail 'selected-podman-machine-must-be-running'
 podman_cmd=(podman --connection "$machine")
-for volume in "$authoritative" "$chroot_a" "$chroot_b"; do
-  if "${podman_cmd[@]}" volume exists "$volume"; then fail "qualification-volume-already-exists:$volume"; fi
-done
+if [[ $mode == fresh ]]; then
+  for volume in "$authoritative" "$chroot_a" "$chroot_b"; do
+    if "${podman_cmd[@]}" volume exists "$volume"; then fail "qualification-volume-already-exists:$volume"; fi
+  done
+  if "${podman_cmd[@]}" image exists "$image"; then fail "qualification-image-already-exists:$image"; fi
+else
+  "${podman_cmd[@]}" volume exists "$authoritative" || fail 'resume-missing-authoritative-volume'
+  "${podman_cmd[@]}" image exists "$image" || fail 'resume-missing-image'
+  printf 'BUILDER_ATOMIC_PHASE=resume-prestart scope=%s machine=%s\n' "$scope" "$machine"
+fi
 if "${podman_cmd[@]}" container exists "$scope"; then fail "qualification-container-already-exists:$scope"; fi
-if "${podman_cmd[@]}" image exists "$image"; then fail "qualification-image-already-exists:$image"; fi
 if podman machine ssh "$machine" "test -e \$HOME/.config/containers/systemd/$scope.container"; then
   fail "qualification-quadlet-already-exists:$scope"
 fi
