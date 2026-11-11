@@ -17,7 +17,10 @@ for spec in ${entries[@]+"${entries[@]}"}; do
   names="$names$name "; volumes="$volumes$volume "
   for id in $(podman --connection "$machine" ps -aq); do
     mounted=$(podman --connection "$machine" inspect "$id" --format '{{range .Mounts}}{{println .Name}}{{end}}')
-    ! grep -Fxq "$volume" <<< "$mounted" || { echo "Store already attached: $volume" >&2;exit 1; }
+    if grep -Fxq "$volume" <<< "$mounted"; then
+      owner=$(podman --connection "$machine" inspect "$id" --format '{{.Name}}')
+      [[ ${owner#/} == "$scope" ]] || { echo "Store already attached to another owner: $volume" >&2;exit 1; }
+    fi
   done
 done
 # Resolve the configured Podman default profile before allocating resources.
