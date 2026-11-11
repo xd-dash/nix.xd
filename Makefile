@@ -255,6 +255,7 @@ check-static-internal:
 	@python3 tests/fatline-reboot.py
 	@python3 tests/fatline-rebootstrap.py
 	@python3 tests/fatline-generations.py
+	@python3 tests/fatline-profile.py
 	@python3 tests/fatline-logmash.py
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
@@ -546,3 +547,7 @@ fatline-sandbox-local:
 	@NIX_XD_SANDBOX_REBOOT='$(SANDBOX_REBOOT)' WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py run
 fatline-sandbox-status:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py status
+
+.PHONY: fatline-profile-local
+fatline-profile-local:
+	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_profile.py

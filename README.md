@@ -1614,3 +1614,24 @@ state from one binding. Do not copy or merge generation state directories.
 
 Use the logged status command instead of hard-coded paths when collecting active
 evidence. The prior `fatline-rebootstrap-*` targets remain compatibility aliases.
+
+
+### Fatline deployment profile
+
+Agni's `coreos-startup-profile` declares the four service Quadlets, private network,
+Logma configuration, store ordering and Redis Functions/bootstrap revocation hooks
+as one Fatline deployment. Apply it to the existing VM1 through the logged interface:
+
+```bash
+matrix stage WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd &&
+matrix FATLINE_PROFILE=vm1 fatline-profile-local &&
+matrix FATLINE_PROFILE=vm1 fatline-sandbox-status
+```
+
+This restarts VM1's application group, clearing its ephemeral Redis data. It does
+not rebuild Nix-Alpine or reboot CoreOS. The gate checks service readiness and
+host subscriber delivery while verifying VM2 remains unchanged. A failed apply
+retains logs and roots: edit the declaration, stage, and rerun the same command.
+No fault-injection or Nix-Alpine qualification is required. Full Fatline
+qualification remains incomplete; this gate does not qualify the new boot graph
+across reboot, production publisher reconciliation, tenant isolation or durability.

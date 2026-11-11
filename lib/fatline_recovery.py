@@ -129,6 +129,7 @@ def main():
     with link.lock_path.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         services = Services(link)
+        require(action == 'diagnose' or not (services.root / 'startup-profile.json').exists(), 'Use fatline-profile-local for this declarative startup profile')
         if action == 'upgrade':
             prepare(services, upgrade=True)
         elif action == 'recover':

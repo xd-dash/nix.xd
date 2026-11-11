@@ -50,8 +50,10 @@ else echo REBOOT_CAPABILITY=missing; fi
 
 def helper(services, action, boot):
     link = services.link
-    record = json.loads((services.root / 'recovery.json').read_text())
-    script = '/var/mnt/nixstore/' + record['bundle'].removeprefix('/nix/store/') + '/recovery.sh'
+    _, record = services.startup_record()
+    script_name = record.get('script','recovery.sh')
+    require(script_name in ('runtime.sh','recovery.sh'), 'Unsupported startup interface')
+    script = '/var/mnt/nixstore/' + record['bundle'].removeprefix('/nix/store/') + '/' + script_name
     command = ['bash', script, action, link.scope, record['probe']]
     body = 'set -Eeuo pipefail\ntest "$(cat /proc/sys/kernel/random/boot_id)" = ' + shlex.quote(boot) + '\n'
     if action == 'boot-check':
@@ -75,8 +77,7 @@ def reconcile(link, services, transaction, transaction_path):
     require(re.fullmatch(UUID, new) and old != new, 'Invalid boot transition')
     # Resume safely if only one of the two atomic record writes completed.
     require(link.state['boot'] in (old,new), 'Transport record belongs to another boot')
-    path = services.root / 'recovery.json'
-    record = json.loads(path.read_text())
+    path, record = services.startup_record()
     require(record['boot'] in (old,new) and record['source'] == transaction['adapterSource'], 'Restart helper binding changed')
     link.state['boot'] = new
     link.state['lastReboot'] = {'transaction':transaction['id'], 'from':old, 'to':new}
@@ -113,10 +114,10 @@ def run_gate(link, peer, resume=False):
     services, peer_services = Services(link), Services(peer)
     require(services.state and services.state['status'] == 'active', 'VM1 services must be active in owner intent')
     require(peer_services.state and peer_services.state['status'] == 'active', 'VM2 services must be active')
-    recovery_path = services.root / 'recovery.json'
-    require(recovery_path.exists(), 'Upgrade the selected restart helper before reboot qualification')
-    record = json.loads(recovery_path.read_text())
-    require(record['status'] == 'installed' and record['source'] == services.selection('servicesRecovery'), 'Upgrade the selected restart helper before reboot qualification')
+    recovery_path, record = services.startup_record()
+    require(record is not None, 'Apply the selected startup profile before reboot qualification')
+    desired = record['source'] if record.get('script') == 'runtime.sh' else services.selection('servicesRecovery')
+    require(record['status'] == 'installed' and record['source'] == desired, 'Apply the selected startup profile before reboot qualification')
     path = services.root / 'reboot-transaction.json'
     saved = json.loads(path.read_text()) if path.exists() else None
     pending = saved and saved['phase'] != 'passed'

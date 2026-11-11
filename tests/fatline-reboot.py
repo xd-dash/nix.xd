@@ -27,7 +27,8 @@ class RebootContract(unittest.TestCase):
             (root/'recovery.json').write_text(json.dumps({'status':'installed','source':source,'boot':OLD}))
             link=SimpleNamespace(state={'boot':OLD},state_path=root/'state.json',root=root)
             peer=SimpleNamespace(state={'boot':'peer'})
-            service=SimpleNamespace(root=root,link=link,state={'status':'active'},selection=lambda key:source,retain=lambda:None,execute=lambda action:None)
+            service=SimpleNamespace(root=root,link=link,state={'status':'active'},selection=lambda key:source,retain=lambda:None,execute=lambda action:None,
+                startup_record=lambda:(root/'recovery.json',json.loads((root/'recovery.json').read_text())))
             peer_service=SimpleNamespace(state={'status':'active'},retain=lambda:None)
             with patch.object(gate,'Services',side_effect=[service,peer_service]), patch.object(gate,'wait_new_boot',return_value=NEW), patch.object(gate,'helper'), patch.object(gate,'observe',side_effect=[after,peer_before,after,after,peer_before]), patch.object(gate,'logmash_qualify'), patch.object(gate.subprocess,'run') as command:
                 gate.run_gate(link,peer,resume=True)
@@ -65,13 +66,13 @@ class RebootContract(unittest.TestCase):
             (root/'recovery.json').write_text(json.dumps(record))
             link=SimpleNamespace(state={'boot':NEW},state_path=root/'state.json')
             transaction={'id':'transaction','before':{'boot':OLD},'after':{'boot':NEW},'adapterSource':record['source']}
-            gate.reconcile(link,SimpleNamespace(root=root),transaction,root/'transaction.json')
+            gate.reconcile(link,SimpleNamespace(root=root,startup_record=lambda:(root/'recovery.json',json.loads((root/'recovery.json').read_text()))),transaction,root/'transaction.json')
             self.assertEqual(json.loads((root/'recovery.json').read_text())['boot'],NEW)
             self.assertEqual(transaction['phase'],'reconciled')
             record['boot']='foreign'
             (root/'recovery.json').write_text(json.dumps(record))
             with self.assertRaisesRegex(ValueError,'binding changed'):
-                gate.reconcile(link,SimpleNamespace(root=root),transaction,root/'transaction.json')
+                gate.reconcile(link,SimpleNamespace(root=root,startup_record=lambda:(root/'recovery.json',json.loads((root/'recovery.json').read_text()))),transaction,root/'transaction.json')
 
     def test_ssh_disconnect_is_not_boot_evidence(self):
         answers=[subprocess.CompletedProcess([],255,'','Connection closed'),

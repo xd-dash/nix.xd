@@ -26,6 +26,11 @@ class Services:
         self.path = self.root / 'state.json'
         self.state = json.loads(self.path.read_text()) if self.path.exists() else None
 
+    def startup_record(self):
+        path = self.root / 'startup-profile.json'
+        if not path.exists(): path = self.root / 'recovery.json'
+        return path, json.loads(path.read_text()) if path.exists() else None
+
     def retain(self):
         require(self.state, 'Run fatline-services-prepare first')
         self.link.retain()
@@ -37,6 +42,11 @@ class Services:
             record = json.loads(recovery.read_text())
             retained.append(record)
             retained.extend(record.get('retiredRoots', []))
+        profile = self.root / 'startup-profile.json'
+        if profile.exists():
+            startup = json.loads(profile.read_text())
+            retained.append(startup)
+            retained.extend(startup.get('dependencies', []))
         for generation in retained:
             self.link.runtime.owner('sh', '-ec',
                 'test -e "$2"; if [ -L "$1" ]; then test "$(readlink "$1")" = "$2"; else nix-store --realise --add-root "$1" "$2" >/dev/null; fi',
@@ -236,6 +246,8 @@ podman run --rm --pull=never --network "nix-xd-$scope" \
         require(any(marker in output.splitlines() for marker in markers[action]), 'Missing guest acknowledgement; all roots retained')
 
     def execute(self, action):
+        if (self.root / 'startup-profile.json').exists() and action in ('activate','configure-logma','refresh'):
+            raise ValueError('Scope uses the declarative startup profile; reapply with fatline-profile-local or rebuild the sandbox')
         if action == 'configure-logma':
             self.configure_logma()
             return

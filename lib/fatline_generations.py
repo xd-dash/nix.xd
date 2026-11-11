@@ -35,7 +35,9 @@ def qualification(receipt):
 def resolve_manifest(link, tx, receipt):
     proof=qualification(receipt)
     services=json.loads((link.root/'services/state.json').read_text())
-    startup=json.loads((link.root/'services/recovery.json').read_text())
+    startup_path=link.root/'services/startup-profile.json'
+    if not startup_path.exists(): startup_path=link.root/'services/recovery.json'
+    startup=json.loads(startup_path.read_text())
     return {'schema':1,'id':tx['id'],'owner':link.runtime.scope,'logical':link.profile,
         'scope':link.scope,'system':link.state['plan']['system'],
         'guest':{key:tx['newBinding'][key] for key in ('container','sshPort','stateRoot')},

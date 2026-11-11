@@ -32,6 +32,12 @@ let vm2 = profile == "vm2"; in
     package = "coreos-services-vm1";
     contract = "coreos-services-v1";
   };
+  startupProfile = {
+    repository = "dash-xd/agni";
+    revision = "71f16b841c50d785e7c56a27ce5ae5126a9d9cb2";
+    package = "coreos-startup-profile";
+    contract = "coreos-startup-profile-v1";
+  };
   servicesRecovery = {
     repository = "dash-xd/agni";
     revision = "f7758434effd4aee3ffc8f0a746ad67f41d303a6";

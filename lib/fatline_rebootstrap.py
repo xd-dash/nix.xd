@@ -163,6 +163,10 @@ def restore(link):
     if not status: link.guest('prepare')
     link.state['status']='prepared'
     write_json(link.state_path,link.state)
+    if (link.root/'services/startup-profile.json').exists():
+        from fatline_profile import restore_profile
+        restore_profile(link)
+        return link
     link.guest('start')
     services.execute('activate')
     services.configure_logma()
