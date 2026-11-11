@@ -172,3 +172,24 @@ by exact name only after checking it is not used by running or stopped
 containers, or selected in a Quadlet. Retain named Nix volumes until
 their ownership, roots, and consumers have been reconciled.
 Avoid volume pruning and whole-machine pruning.
+
+## Consolidated development branch
+
+Use `codex/nix-store-consolidated` for the ongoing integration. It includes
+the retained independent-writer inspection contract and the existing
+multiple-chroot-store infrastructure. The old branches are kept as historical
+references; do not reset an active local worktree merely to switch branches.
+
+For routine cleanup on the selected Podman Machine, after reviewing
+`make builder-runtime-inventory`, the explicit
+`make builder-image-prune-dangling DANGLING_PRUNE_CONFIRM=YES` target
+runs `podman image prune --force`, which removes dangling images
+but not tagged images or named volumes. This is narrower than
+`podman image prune -a` and is not equivalent to system pruning.
+
+Inspect stale Git worktree metadata with `make workspace-inventory`.
+`git worktree prune --dry-run` in that report does not delete anything.
+To remove a workspace, select an exact path and run `git worktree remove`
+only after ensuring it has no uncommitted changes and is not serving active
+qualification or application source. Delete obsolete worktree metadata only
+after its linked checkout is no longer needed.
