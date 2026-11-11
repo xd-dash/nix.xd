@@ -34,7 +34,7 @@ MACHINE_VERIFY ?= 0
 MACHINE_ENV = NIX_XD_MACHINE="$(MACHINE)" NIX_XD_MACHINE_PROVIDER="$(MACHINE_PROVIDER)" NIX_XD_MACHINE_CPUS="$(MACHINE_CPUS)" NIX_XD_MACHINE_MEMORY_MIB="$(MACHINE_MEMORY_MIB)" NIX_XD_MACHINE_DISK_GIB="$(MACHINE_DISK_GIB)" NIX_XD_MACHINE_DEFAULT="$(MACHINE_DEFAULT)" NIX_XD_MACHINE_BOOTSTRAP="$(MACHINE_BOOTSTRAP)" NIX_XD_MACHINE_VERIFY="$(MACHINE_VERIFY)"
 SCOPE ?= $(if $(filter arm64,$(ARCH)),nix-xd-arm,nix-xd-amd64)
 IMAGE ?= localhost/nix-xd:$(ARCH)
-WORKSPACES ?= $(abspath $(CURDIR))
+WORKSPACES ?= $(abspath $(CURDIR)/..)
 REPO ?=
 BRANCH ?= main
 REV ?=
@@ -258,6 +258,18 @@ endif
 else
 $(error Unknown PROVIDER=$(PROVIDER))
 endif
+
+.PHONY: state-volume-plan state-volume-provision state-volume-inspect state-volume-export
+STATE_KIND ?= control
+STATE_NAME ?=
+STATE_EXPORT_PATH ?=
+STATE_VOLUME_ARGS = NIX_XD_MACHINE='$(MACHINE)' bash bin/nix-xd-state-volume
+
+state-volume-plan state-volume-provision state-volume-inspect:
+	@$(STATE_VOLUME_ARGS) $(patsubst state-volume-%,%,$@) '$(STATE_KIND)' '$(STATE_NAME)'
+
+state-volume-export:
+	@$(STATE_VOLUME_ARGS) export '$(STATE_KIND)' '$(STATE_NAME)' '$(STATE_EXPORT_PATH)'
 
 .PHONY: storage-review
 storage-review:
