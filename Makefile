@@ -82,6 +82,8 @@ help:
 	  'make builder-store-profile-plan|builder-store-profile-check  Validate alternate store profile without touching the VM' \
 	  'make bootstrap-builder-profile  Bootstrap an opt-in multi-chroot Nix-Alpine owner' \
 	  'make builder-store-profile-qualify-resume  Resume an incomplete isolated builder qualification' \
+	  'make builder-store-profile-qualify-atomic MACHINE=...  Fresh complete first-start Quadlet qualification' \
+	  'make builder-store-profile-atomic-clean QUALIFY_RESET_CONFIRM=ERASE:nix-xd-arm-atomic-qualify  Scope-only cleanup' \
 	  'make builder-store-profile-qualify-fresh  One-shot isolated fresh bootstrap + idempotence' \
 	  'make builder-runtime-inventory|builder-store-profile-qualify-clean  Inventory and scoped cleanup' \
 	  'make workspace-inventory  Read-only Git worktree and stale workspace metadata inspection' \
