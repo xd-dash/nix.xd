@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+machine="${1:-coreos-arm64}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo 'Invalid Podman Machine name' >&2; exit 2; }
+command -v podman >/dev/null || { echo 'Podman is required' >&2; exit 2; }
+command -v python3 >/dev/null || { echo 'Python 3 is required' >&2; exit 2; }
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+printf 'STORAGE_REVIEW mode=read-only machine=%s\n' "$machine"
+
+printf '\n== Host checkout state ==\n'
+for dir in .state .cache logs .smoke-state .smoke-ghxd-state .private; do
+  if [[ -e "$repo/$dir" ]]; then
+    du -sh "$repo/$dir"
+  fi
+done
+
+printf '\n== Podman Machine ==\n'
+podman machine inspect "$machine" --format 'name={{.Name}} state={{.State}}'
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || {
+  printf 'Machine is stopped. Skipping remote inspection (no implicit start).\n'
+  exit 0
+}
+p=(podman --connection "$machine")
+printf '\n== Named Podman volumes ==\n'
+"${p[@]}" volume ls --format '{{.Name}}'
+printf '\n== Tagged Podman images ==\n'
+"${p[@]}" images --format '{{.ID}} {{.Repository}}:{{.Tag}}'
+printf '\n== Container mount sources and destinations ==\n'
+while IFS= read -r name; do
+  [[ -n "$name" ]] || continue
+  printf 'CONTAINER %s state=' "$name"
+  "${p[@]}" inspect "$name" --format '{{.State.Status}}'
+  "${p[@]}" inspect "$name" --format '{{json .Mounts}}' |
+    python3 -c 'import json,sys
+mounts=json.load(sys.stdin) or []
+for m in mounts:
+    print("  MOUNT type={} name={} source={} target={} rw={}".format(
+        m.get("Type",""),m.get("Name",""),m.get("Source",""),
+        m.get("Destination",""),m.get("RW","")))
+'
+done < <("${p[@]}" ps -a --format '{{.Names}}')
+
+printf '\n== Historical Apple container provider (inventory only) ==\n'
+if command -v container >/dev/null 2>&1; then
+  container list --all
+  container volume list
+  container image list
+else
+  printf 'Apple container CLI not installed. No Apple-native resources inspected.\n'
+fi
+printf '\nSTORAGE_REVIEW_RESULT=passed mutations=false\n'
