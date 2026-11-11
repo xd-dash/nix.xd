@@ -261,6 +261,13 @@ else
 $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
+.PHONY: vm-state-preflight
+VM_CONTAINER ?=
+VM_INSTANCE ?=
+
+vm-state-preflight:
+	@NIX_XD_MACHINE='$(MACHINE)' bash bin/nix-xd-vm-state-preflight '$(VM_CONTAINER)' '$(VM_INSTANCE)'
+
 .PHONY: state-volume-plan state-volume-provision state-volume-inspect state-volume-export
 STATE_KIND ?= control
 STATE_NAME ?=
@@ -664,6 +671,7 @@ nix-store-check:
 
 .PHONY: nix-store-check-internal
 nix-store-check-internal:
+	@bash -n bin/nix-xd-vm-state-preflight
 	@bash tests/state-volume-contract.sh
 	@bash -n bin/nix-xd-workspace-inventory bin/nix-xd-store-isolation
 	@$(MAKE) --no-print-directory builder-store-profile-check-internal
