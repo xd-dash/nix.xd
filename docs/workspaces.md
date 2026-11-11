@@ -22,7 +22,7 @@ make workspace WORKSPACE_REPO=dash-xd/agni
 ```
 
 An omitted WORKSPACE_BASE uses the remote default branch for a new checkout.
-A new checkout creates the version-only branch `work/YYYYMMDD`.
+A new checkout creates the version-only branch `vYYYYMMDD`.
 Same-day calls reuse that checkout without fetching, pulling or resetting it.
 A checkout on another branch is rejected; this interface does not create feature
 branches. WORKSPACE_BASE only selects the starting revision of a new checkout.

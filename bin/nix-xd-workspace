@@ -22,7 +22,7 @@ esac
 name=${repo##*/}; name=${name##*:}; name=${name%.git}
 [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || die 'Invalid repository name'
 target="${root%/}/$name$version"
-branch="work/$version"
+branch="v$version"
 git check-ref-format --branch "$branch" >/dev/null
 if [[ -n $base ]]; then git check-ref-format "refs/heads/$base" >/dev/null; fi
 if [[ $action == path ]]; then printf '%s\n' "$target"; exit; fi
