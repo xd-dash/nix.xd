@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+action=${1:-inventory}
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+machine=${NIX_XD_MACHINE:?machine}
+scope=${NIX_XD_QUALIFY_SCOPE:-nix-xd-arm-chroot-qualify}
+image=${NIX_XD_QUALIFY_IMAGE:-localhost/nix-xd:arm64-chroot-qualify}
+[[ $machine =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ && $scope == *-qualify ]] || exit 2
+[[ $image =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ && $image == *chroot-qualify ]] || exit 2
+[[ ${NIX_XD_PROVIDER:-podman} == podman ]] || exit 2
+podman_cmd=(podman)
+if [[ $(uname -s) == Darwin ]]; then
+  podman_cmd+=(--connection "$machine")
+fi
+volumes=("$scope-store" "$scope-grumble-chroot" "$scope-experiments-chroot")
+
+case "$action" in
+inventory)
+  printf 'BUILDER_RUNTIME_INVENTORY machine=%s\n' "$machine"
+  "${podman_cmd[@]}" ps -a --format 'table {{.ID}} {{.Names}} {{.Image}} {{.Status}}'
+  "${podman_cmd[@]}" images --format 'table {{.ID}} {{.Repository}} {{.Tag}} {{.CreatedAt}}'
+  "${podman_cmd[@]}" volume ls --format 'table {{.Name}} {{.Driver}}'
+  if [[ $(uname -s) == Darwin ]]; then
+    podman machine ssh "$machine" 'systemctl --user list-units --all --type=service --no-pager "nix-xd*" || true'
+  fi
+  ;;
+clean-qualify)
+  [[ ${NIX_XD_QUALIFY_RESET_CONFIRM:-} == "ERASE:$scope" ]] ||
+    { printf 'Requires QUALIFY_RESET_CONFIRM=ERASE:%s\n' "$scope" >&2; exit 2; }
+  printf 'BUILDER_STORE_CLEANUP scope=%s image=%s\n' "$scope" "$image"
+  # Guard against a shared writer before removing any scope-local resources.
+  ids=$("${podman_cmd[@]}" ps -aq)
+  for id in $ids; do
+    mounted=$("${podman_cmd[@]}" inspect "$id" --format '{{range .Mounts}}{{println .Name}}{{end}}')
+    container_name=$("${podman_cmd[@]}" inspect "$id" --format '{{.Name}}')
+    for volume in "${volumes[@]}"; do
+      if grep -Fxq "$volume" <<< "$mounted" && [[ ${container_name#/} != "$scope" ]]; then
+        printf 'Refusing shared qualification volume %s used by %s\n' "$volume" "$container_name" >&2
+        exit 1
+      fi
+    done
+  done
+  if [[ $(uname -s) == Darwin ]]; then
+    printf -v remote_args '%q ' "$scope"
+    podman machine ssh "$machine" "bash -se -- $remote_args" <<'REMOTE'
+set -Eeuo pipefail
+scope="$1"
+unit="$HOME/.config/containers/systemd/$scope.container"
+if [[ -e "$unit" ]]; then
+  systemctl --user stop "$scope.service" || {
+    systemctl --user is-active --quiet "$scope.service" && exit 1
+  }
+  rm -f -- "$unit"
+  rm -rf -- "$unit.d"
+  systemctl --user daemon-reload
+fi
+REMOTE
+  else
+    echo 'Scoped cleanup currently implemented only for the macOS Podman Machine adapter' >&2
+    exit 2
+  fi
+  if "${podman_cmd[@]}" container exists "$scope"; then
+    "${podman_cmd[@]}" rm "$scope"
+  fi
+  for volume in "${volumes[@]}"; do
+    if "${podman_cmd[@]}" volume exists "$volume"; then
+      "${podman_cmd[@]}" volume rm "$volume"
+    fi
+  done
+  if "${podman_cmd[@]}" image exists "$image"; then
+    "${podman_cmd[@]}" image rm "$image"
+  fi
+  printf 'BUILDER_STORE_QUALIFY_CLEAN_RESULT=passed scope=%s\n' "$scope"
+  ;;
+*)
+  echo 'Expected inventory or clean-qualify' >&2
+  exit 2
+  ;;
+esac
