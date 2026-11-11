@@ -72,6 +72,7 @@ case "$action" in
       --mount "type=volume,src=$volume,dst=/state,ro" \
       --entrypoint /bin/tar "$image" -C /state -cf - . > "$tmp"
     mv -n "$tmp" "$destination"
+    [[ ! -e "$tmp" ]] || fail "Destination appeared during export; retained existing file"
     trap - EXIT
     printf 'STATE_VOLUME_EXPORT=passed volume=%s archive=%s\n' "$volume" "$destination"
     ;;
