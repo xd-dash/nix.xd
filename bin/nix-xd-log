@@ -9,7 +9,7 @@ shift 2
 (( $# > 0 )) || { echo "Command required" >&2; exit 2; }
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-dir="${NIX_XD_LOG_DIR:-$root/logs}"
+dir="${NIX_XD_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/nix-xd/logs}"
 mkdir -p "$dir"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 log="$dir/$scope-$action-$stamp-$$.log"
