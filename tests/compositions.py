@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
 from compositions import validate
+import compose_runtime
 from compose_runtime import Runtime, write_json
 
 
@@ -71,21 +72,23 @@ class Contracts(unittest.TestCase):
                 validate(p)
 
     def test_runtime_separates_vm_state_and_reuses_immutable_artifacts(self):
-        runtime = Runtime.__new__(Runtime)
-        runtime.plan = plan()
-        runtime.scope = 'nix-xd-arm'
-        runtime.env = {'COREOS_GUEST_PROBE_ROOTFS': '/stale', 'COREOS_ARTIFACT_STATE': '/stale'}
-        runtime.primary = Path('/state/primary')
-        runtime.root = Path('/state/matrix')
-        host = runtime.environment('shared-host-a')
-        first = runtime.environment('shared-vm1-a')
-        second = runtime.environment('shared-vm2-a')
-        self.assertEqual(host['NIX_XD_WORKLOAD_PLACEMENT'], 'host')
-        self.assertNotIn('COREOS_GUEST_PROBE_ROOTFS', second)
-        self.assertNotIn('COREOS_ARTIFACT_STATE', first)
-        self.assertEqual(second['COREOS_ARTIFACT_STATE'], '/state/primary/starwisp')
-        self.assertNotEqual(first['COREOS_STATE_ROOT'], second['COREOS_STATE_ROOT'])
-        self.assertEqual(first['COREOS_NIX_STORE_VOLUME'], second['COREOS_NIX_STORE_VOLUME'])
+        with tempfile.TemporaryDirectory() as directory, patch.object(compose_runtime, 'REPO', Path(directory)):
+            runtime = Runtime.__new__(Runtime)
+            runtime.plan = plan()
+            runtime.scope = 'nix-xd-arm'
+            runtime.binding_overrides = {}
+            runtime.env = {'COREOS_GUEST_PROBE_ROOTFS': '/stale', 'COREOS_ARTIFACT_STATE': '/stale'}
+            runtime.primary = Path('/state/primary')
+            runtime.root = Path('/state/matrix')
+            host = runtime.environment('shared-host-a')
+            first = runtime.environment('shared-vm1-a')
+            second = runtime.environment('shared-vm2-a')
+            self.assertEqual(host['NIX_XD_WORKLOAD_PLACEMENT'], 'host')
+            self.assertNotIn('COREOS_GUEST_PROBE_ROOTFS', second)
+            self.assertNotIn('COREOS_ARTIFACT_STATE', first)
+            self.assertEqual(second['COREOS_ARTIFACT_STATE'], '/state/primary/starwisp')
+            self.assertNotEqual(first['COREOS_STATE_ROOT'], second['COREOS_STATE_ROOT'])
+            self.assertEqual(first['COREOS_NIX_STORE_VOLUME'], second['COREOS_NIX_STORE_VOLUME'])
 
 
 class Sequencer(unittest.TestCase):
