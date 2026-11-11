@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+printf 'NIX_XD_WORKSPACE_INVENTORY=read-only repo=%s\n' "$repo"
+printf '%s\n' '--- Worktree bindings ---'
+git -C "$repo" worktree list --porcelain
+printf '%s\n' '--- Stale worktree metadata (dry run, no deletion) ---'
+git -C "$repo" worktree prune --dry-run --verbose
+printf '%s\n' '--- Nearby workspace candidates (not automatically stale) ---'
+parent="$(dirname "$repo")"
+find "$parent" -mindepth 1 -maxdepth 1 -type d \
+  \( -name 'nix.xd*' -o -name '*-qualify*' -o -name '*-stage*' \) -print | sort
+printf '%s\n' '--- Retained worktree configuration ---'
+git -C "$repo" config --get-regexp '^extensions.worktreeConfig$|^worktree\.' || true
+printf '%s\n' 'WORKSPACE_INVENTORY_RESULT=passed mutations=false'
