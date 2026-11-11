@@ -662,6 +662,7 @@ nix-store-check:
 
 .PHONY: nix-store-check-internal
 nix-store-check-internal:
+	@bash tests/state-volume-contract.sh
 	@bash -n bin/nix-xd-workspace-inventory bin/nix-xd-store-isolation
 	@$(MAKE) --no-print-directory builder-store-profile-check-internal
 	@bash tests/store-isolation-contract.sh
