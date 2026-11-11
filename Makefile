@@ -263,6 +263,7 @@ check-static-internal:
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
+	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence
 	@python3 tests/wisp-go-owner.py
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
