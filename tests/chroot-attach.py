@@ -59,6 +59,15 @@ if 'show' in sys.argv:print('loaded')
 if 'restart' in sys.argv:
  s.update(labelDisabled=(Path(os.environ['HOME'])/'.config/containers/systemd/fixture.container.d/31-nix-chroot-selinux.conf').exists(),attached=True,restarts=s['restarts']+1,profile=(Path(os.environ['HOME'])/'.config/containers/systemd/fixture.container.d/30-nix-chroot-profile.conf').exists());p.write_text(json.dumps(s))
 ''');mock.chmod(0o755)
+        # The runtime executes on Linux, where flock and sha256sum are present.
+        # Static tests on macOS mock those platform tools without changing production policy.
+        mock=tools/'flock';mock.write_text('#!/usr/bin/env bash\\nexit 0\\n');mock.chmod(0o755)
+        mock=tools/'sha256sum';mock.write_text('''#!/usr/bin/env python3
+import hashlib,sys
+for name in sys.argv[1:]:
+ with open(name,'rb') as source:
+  print(hashlib.sha256(source.read()).hexdigest()+'  '+name)
+''');mock.chmod(0o755)
         return dict(os.environ,HOME=str(home),PATH=str(tools)+':'+os.environ['PATH'],PYTHONPATH=str(ROOT/'lib')),unit
 
     def test_adds_only_dropin_and_second_apply_reuses_mount(self):
