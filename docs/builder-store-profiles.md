@@ -84,3 +84,60 @@ The broad `make check-static` suite includes Fatline application/VM regressions.
 A failure in that unrelated suite does not override the independently qualified
 chroot-store POC; use `make builder-store-profile-check` for the store-specific
 static boundary and retain the broad gate for integration.
+
+## One-shot fresh ARM qualification
+
+On the existing selected, running Podman Machine, use:
+
+```sh
+make builder-store-profile-qualify-fresh
+```
+
+This creates only the separate `nix-xd-arm-chroot-qualify` builder, with image
+`localhost/nix-xd:arm64-chroot-qualify`, its authoritative volume, and
+two writable volumes (`grumble` and `experiments`). The gate runs the
+store-specific static suite, validates the profile, rejects any preexisting
+qualification resources, bootstraps and stages the builder, checks all three
+mounts and non-root/seccomp constraints, reapplies the profile, then checks
+that the container ID is unchanged. The entire gate is wrapped in a single
+timestamped `*-builder-store-profile-qualify-fresh-*.log`. Failed runs
+retain partial resources for diagnosis; successful ones retain the builder
+for further qualifications. Do not rerun a completed gate without explicitly
+cleaning only its qualification resources.
+
+It requires an already-running Podman Machine and does not create or resize
+the VM. The default local Make configuration selects the machine/workspaces;
+the qualification forces its own scope, image, volume names and secure policy.
+This gate does not re-run the accepted chroot-store POC or perform store GC.
+
+## Inventory and selective cleanup
+
+```sh
+make builder-runtime-inventory
+```
+
+This reports all containers, images, volumes, and Nix-related user services
+on the selected Podman Machine without changing anything. A stopped container
+or an old image is not automatically stale: check attached volumes, Quadlet
+services and CoreOS guest consumers before removal. Never use an indiscriminate
+`podman system prune --volumes` on a machine carrying retained stores.
+
+Only the **dedicated qualification scope** may be reset using:
+
+```sh
+make builder-store-profile-qualify-clean \
+  QUALIFY_RESET_CONFIRM=ERASE:nix-xd-arm-chroot-qualify
+```
+
+Cleanup checks no other container uses its three named volumes, stops its
+Quadlet, removes only its scope-specific container, three volumes and
+qualification image tag, and preserves unrelated builders and CoreOS
+resources. Cleanup is destructive **only for that qualification scope**;
+it deletes its store roots and outputs, so retain the qualification log first.
+If you used a different `QUALIFY_STORE_SCOPE`, match the confirmation
+string to that exact name. The cleanup interface refuses to act without
+the confirmation. A fresh qualification can then be run again.
+
+For arbitrary legacy containers/images, use the inventory to select exact
+resource IDs. Do not automatically delete any volume that might contain an
+authoritative Nix store or a CoreOS-mounted closure.
