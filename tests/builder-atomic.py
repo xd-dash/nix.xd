@@ -25,6 +25,15 @@ class AtomicProfile(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.render({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": []})
 
+    def test_probe_uses_effective_oci_profile_not_unavailable_info_field(self):
+        prestart = (ROOT / "bin/nix-xd-builder-profile-prestart").read_text()
+        self.assertIn("OCIConfigPath", prestart)
+        self.assertIn("seccomp-probe", prestart)
+        self.assertNotIn("SeccompProfilePath", prestart)
+        self.assertIn("trap cleanup EXIT", prestart)
+        makefile = (ROOT / "mk/builder-store-profile.mk").read_text()
+        self.assertIn("@set -e; if [[ '$(INITIAL_PROFILE)' == 1 ]]", makefile)
+
     def test_quadlet_generated_before_first_start(self):
         env = dict(os.environ, NIX_XD_STORE_VOLUME="fixture-store",
                    NIX_XD_PEER_STORES="",
