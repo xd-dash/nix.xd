@@ -54,3 +54,20 @@ builder-store-profile-check-internal:
 	@python3 tests/builder-store-profile.py
 	@python3 tests/chroot-attach.py
 	@echo 'BUILDER_STORE_PROFILE_STATIC_RESULT=passed'
+
+# One logged, fail-closed fresh ARM builder qualification.
+# Refuses any existing qualification image, container, Quadlet or volume.
+QUALIFY_STORE_SCOPE ?= nix-xd-arm-chroot-qualify
+QUALIFY_STORE_IMAGE ?= localhost/nix-xd:arm64-chroot-qualify
+.PHONY: builder-store-profile-qualify-fresh
+builder-store-profile-qualify-fresh:
+	@test "$(PROVIDER)" = podman && test "$(ARCH)" = arm64 || { echo 'Fresh store profile qualification requires ARM64 Podman' >&2; exit 2; }
+	@NIX_XD_QUALIFY_SCOPE='$(QUALIFY_STORE_SCOPE)' \
+	  NIX_XD_QUALIFY_IMAGE='$(QUALIFY_STORE_IMAGE)' \
+	  NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' \
+	  NIX_XD_MACHINE='$(MACHINE)' NIX_XD_PEER_STORES='$(PEER_STORES)' \
+	  BUILDER_CHROOT_NAMESPACE='$(BUILDER_CHROOT_NAMESPACE)' \
+	  BUILDER_CHROOT_SYSCALLS='$(BUILDER_CHROOT_SYSCALLS)' \
+	  NIX_XD_CHROOT_SELINUX='$(CHROOT_SELINUX)' \
+	  bash bin/nix-xd-log "$(QUALIFY_STORE_SCOPE)" builder-store-profile-qualify-fresh \
+	    bash bin/nix-xd-builder-store-qualify-fresh
