@@ -259,6 +259,10 @@ else
 $(error Unknown PROVIDER=$(PROVIDER))
 endif
 
+.PHONY: storage-review
+storage-review:
+	@bash bin/nix-xd-storage-review "$(MACHINE)"
+
 .PHONY: check-static-internal
 check-static:
 	@bash bin/nix-xd-log "$(SCOPE)" check-static $(MAKE) --no-print-directory check-static-internal
