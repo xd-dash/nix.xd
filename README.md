@@ -1,5 +1,8 @@
 # Nix.xd / Nix-Alpine
 
+Use [daily workspaces](docs/workspaces.md) through `make workspace` to create
+`~/workspace/nix.xdYYYYMMDD` and date-scoped development branches.
+
 Generic Nix execution and bootstrap capabilities, selected through Make.
 
 The fresh development path is documented in [Fresh start](docs/fresh-start.md).

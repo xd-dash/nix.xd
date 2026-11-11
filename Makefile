@@ -289,6 +289,7 @@ check-static:
 	@bash bin/nix-xd-log "$(SCOPE)" check-static $(MAKE) --no-print-directory check-static-internal
 
 check-static-internal:
+	@bash tests/workspace-contract.sh
 	@python3 tests/fatline-host-link.py
 	@python3 tests/fatline-multivm.py
 	@python3 tests/fatline-recovery.py
@@ -709,3 +710,5 @@ image-export:
 	@$(TASK_ENV) NIX_XD_IMAGE='$(IMAGE)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-image-export
 runtime-contract-check:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash tests/runtime-resource-contract.sh
+
+include mk/workspace.mk
