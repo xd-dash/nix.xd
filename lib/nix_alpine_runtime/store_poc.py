@@ -54,7 +54,7 @@ printf '%s\\n' "$name" > "$out/identity"
 def policy_diagnostics(spec):
     linux=spec.get('linux',{})
     seccomp=linux.get('seccomp',{})
-    names={'mount','umount','umount2','unshare','setns','clone','clone3','pivot_root','chroot','fsopen','fsconfig','fsmount','move_mount','open_tree','mount_setattr'}
+    names={'sethostname','setdomainname','mount','umount','umount2','unshare','setns','clone','clone3','pivot_root','chroot','fsopen','fsconfig','fsmount','move_mount','open_tree','mount_setattr'}
     rules=[]
     for rule in seccomp.get('syscalls',[]):
         matched=sorted(names.intersection(rule.get('names',[])))

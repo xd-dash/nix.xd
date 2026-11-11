@@ -596,3 +596,7 @@ builder-chroot-diagnose:
 
 CHROOT_SELINUX ?= keep
 export NIX_XD_CHROOT_SELINUX = $(CHROOT_SELINUX)
+
+.PHONY: builder-chroot-syscalls
+builder-chroot-syscalls:
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-profile syscalls

@@ -1,166 +1,44 @@
-# Persistent chroot-store POC
+"""Scoped syscall policy for a trusted nested Nix builder."""
+import argparse
+import copy
+import json
+import os
+import socket
+import subprocess
+import sys
 
-This is generic Nix-Alpine infrastructure qualification, not Grumble application
-implementation. Make selects and attaches a store; the actual build/qualification
-controller runs from the runtime flake inside the existing Nix-Alpine container.
-
-The Podman adapter adds a managed `<scope>.container.d/20-chroot-<name>.conf`
-containing a writable named-volume mount at `/stores/<name>`. The base Quadlet,
-image declaration and authoritative `/nix` volume are unchanged. A missing volume
-is explicitly created by this provisioning operation. Nonempty unmarked volumes,
-conflicting destinations, and volumes attached to another container are rejected.
-Initialization uses a short-lived rootless Podman helper to set only the new
-volume root's ownership. It never recursively changes existing store ownership.
-
-The first attach restarts the Nix-Alpine owner once to apply the mount.
-Stage committed workspaces after this restart because `/workspaces` is ephemeral. Do not run
-it during other owner builds. CoreOS VM runners are separate and are not restarted.
-A repeat attach validates/reuses the mount. The independent volume persists across
-owner recreation while the managed declaration remains present. There is no
-automatic volume deletion or migration.
-
-Using the existing `fatline` Make function (only as a generic runtime selector):
-
-```bash
-fatline chroot-store-attach CHROOT_NAME=grumble &&
-fatline stage &&
-fatline chroot-store-qualify CHROOT_NAME=grumble
-```
-
-The default volume name is `<scope>-grumble-chroot`, deliberately distinct from
-Grumble's separate builder-store volume. Override `CHROOT_VOLUME` explicitly if
-needed. No Grumble checkout, application build, or new GitHub login is needed.
-The configured shared logger records the attach and project-run operations.
-
-## Gate
-
-1. Confirm that the chroot path is a marked persistent mount and that the ordinary
-   executor can create user/mount namespaces. Fail before builds if unavailable;
-   do not disable seccomp, add owner privileges or change kernel policy silently.
-2. Build a small fixture-tool closure, then copy only that declared closure into
-   the chroot store. Both stores retain the logical directory `/nix/store`.
-3. Instantiate independent outputs with unique names and build them concurrently.
-   Record build timestamps and require their execution intervals to overlap.
-4. Query both databases in both directions. Require each unique output to be
-   valid only in its own store and require distinct physical database identities.
-5. Execute the same fixture program in each store view. It invokes Nix explicitly
-   against `local`, verifies the expected output/foreign denial, and reports the
-   database identity visible at `/nix/var/nix/db/db.sqlite`.
-6. Try deleting the rooted chroot fixture: require refusal and continued validity.
-   Release only that fixture's root, delete that exact output, and verify the
-   normal-store output remains valid. Never run authoritative-store GC or delete
-   any authoritative-store output. The normal fixture's temporary root is then
-   released; its output remains available for ordinary future lifecycle handling.
-
-Evidence is written to `/stores/<name>/.poc/<id>.json`; failed runs keep their
-records and roots for inspection. The final marker is
-`CHROOT_STORE_POC_RESULT=passed`. Expected invalid-path/deletion-refusal messages
-may appear during negative checks. Initial cache downloads can take longer than
-the fixture's three-second builds; progress is streamed to the common log.
-
-## Project store selection
-
-`project-run PROJECT_STORE=local` uses the normal store. Selecting
-`PROJECT_STORE=/stores/<name>` requires a marked persistent mount and passes
-`--store` to the project invocation. The selected project's process runs in Nix's
-chroot execution view. Its inherited `NIX_REMOTE=local` and an explicit inner
-`--store local` refer to that view, not a second nested physical chroot path.
-`NIX_XD_PROJECT_PHYSICAL_STORE` records the outer selection for diagnostics;
-projects should not reuse that physical path as a nested `--store` argument.
-An application can still explicitly select another declared store; this is a
-runtime default, not a security isolation policy between same-user projects.
-
-This POC does not qualify arbitrary mount paths, overlay stores, hostile workloads,
-Grml ISO production, or the separate VM-local/guest-only store domains. It does
-not modify Agni or Fatline application policy.
+UTS_CALLS={'sethostname','setdomainname'}
 
 
-Chroot builds explicitly require `sandbox=true` and `sandbox-fallback=false`.
-The normal owner runtime sets `sandbox=false`; inheriting that setting caused the
-first chroot build to miss its physical output location. The launcher applies the
-sandbox requirement to selected chroot invocations and carries it into their
-child Nix processes through process-scoped configuration. Normal-store policy and
-the owner's global configuration are unchanged. Missing sandbox capability is a
-failure, not permission to build outside the selected store view.
+def render(spec):
+    policy=copy.deepcopy(spec.get('linux',{}).get('seccomp'))
+    if not isinstance(policy,dict) or policy.get('defaultAction')!='SCMP_ACT_ERRNO':
+        raise ValueError('Expected an existing restrictive seccomp policy')
+    rules=[]
+    for rule in policy.get('syscalls',[]):
+        names=[name for name in rule['names'] if name not in UTS_CALLS]
+        if names:rules.append(dict(rule,names=names))
+    rules.append({'names':sorted(UTS_CALLS),'action':'SCMP_ACT_ALLOW'})
+    policy['syscalls']=rules
+    return policy
 
 
-If Nix rejects sandbox support after the basic user/mount check, collect the
-small read-only namespace diagnostic before changing the builder profile:
-
-```bash
-fatline project-run PROJECT_FLAKE=/workspaces/nix-xd-fatline \
-  PROJECT_APP=chroot-store-diagnose
-```
-
-It separately probes user/mount, PID with a private proc mount, and combined
-namespace creation. It reports only capability/seccomp status and namespace
-limits. Each probe runs in a child namespace and times out after 15 seconds;
-no sysctl, mount policy, service, or security profile is changed. This diagnostic
-does not qualify the store and does not run builds.
-
-
-## Explicit nested-build namespace profile
-
-The ARM diagnostic passed namespace creation but failed to mount a private proc
-filesystem. The next bounded fix is an opt-in builder Quadlet profile:
-`builder-chroot-profile` writes only `Unmask=/proc/*` into
-`30-nix-chroot-profile.conf`. This removes Podman's extra masked/read-only proc
-submount restrictions so a nested user/PID namespace can mount its own proc.
-It retains seccomp and rootless execution; it does not enable privileged mode,
-add SYS_ADMIN or change kernel sysctls. This is a deliberate builder-only change,
-not application guest policy. The helper inspects live `/proc` submounts from mountinfo (independent of
-Podman inspect schema versions),
-non-root executor, zero effective capabilities and enabled seccomp filter.
-
-Pause owner builds before applying. It restarts only the owner when the live
-proc restrictions still require it. Then restage the ephemeral workspace:
-
-```bash
-fatline builder-chroot-profile &&
-fatline stage &&
-fatline chroot-store-qualify CHROOT_NAME=grumble
-```
-
-The profile's actual sandbox behaviour remains subject to the local POC result;
-a passed configuration helper is not a passed build/retention qualification.
+def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument('action',choices=('render','probe'))
+    args=parser.parse_args()
+    if args.action=='render':
+        json.dump(render(json.load(sys.stdin)),sys.stdout,indent=2,sort_keys=True);print()
+    else:
+        if os.geteuid()==0:raise ValueError('Run the probe as the ordinary builder user')
+        before=socket.gethostname()
+        code='import socket; socket.sethostname(b"nix-chroot-probe"); assert socket.gethostname()=="nix-chroot-probe"'
+        subprocess.run(['unshare','--user','--map-root-user','--uts','--fork',sys.executable,'-c',code],check=True,timeout=20)
+        if socket.gethostname()!=before:raise ValueError('Probe changed the outer hostname')
+        print('BUILDER_UTS_PROBE=passed private=true')
 
 
-The initial proc-only profile applied successfully but did not resolve the mount
-denial. Use `fatline builder-chroot-diagnose` after staging to collect the live OCI
-namespace syscall rules, LSM labels and actual proc mount options, along with
-private tmpfs/proc probes. Only a small allowlist of security fields is printed;
-container environment and credentials are never printed. This command makes no
-profile changes and restarts no containers. Do not infer seccomp versus LSM denial
-from the `EPERM`/permission message alone.
-
-
-## SELinux comparison, then an explicit trusted-builder profile
-
-The live policy diagnostic showed mount syscalls allowed, successful private
-tmpfs mounting, no AppArmor profile, and a remaining `container_t` SELinux label.
-That narrows the proc-specific denial but does not alone prove SELinux causality.
-
-`builder-chroot-profile CHROOT_SELINUX=disabled` first builds a bounded namespace
-probe through Nix-Alpine. Two short-lived rootless, UID-1000 containers use the
-same immutable image, read-only normal store and proc-unmask setting. The first
-uses the owner's SELinux type/level; only the second uses `label=disable`. Both
-retain default seccomp and capabilities. The profile is applied only if the first
-fails and the second succeeds. Failure to isolate the difference leaves the
-owner's SELinux declaration unchanged.
-
-On that successful comparison the helper declares `SecurityLabelDisable=true`
-for this builder, restarts it, checks non-root/zero-effective-capability/seccomp
-invariants, and repeats the proc probe in the actual owner. This removes SELinux
-container confinement for the selected trusted builder. It does not disable host
-SELinux, relabel store contents, alter guest services, enable privileged mode, or
-add SYS_ADMIN. It is not a hostile-tenant execution profile. `keep` is the default
-and makes no new SELinux change.
-
-Stage before the comparison (it builds the probe) and again after any restart:
-
-```bash
-fatline stage &&
-fatline builder-chroot-profile CHROOT_SELINUX=disabled &&
-fatline stage &&
-fatline chroot-store-qualify CHROOT_NAME=grumble
-```
+if __name__=='__main__':
+    try:main()
+    except (ValueError,OSError,subprocess.SubprocessError) as error:
+        print('Builder policy error: '+str(error),file=sys.stderr);sys.exit(1)

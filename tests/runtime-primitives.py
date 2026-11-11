@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'lib'))
 from nix_alpine_runtime import run,scoped_lock,write_json
+from nix_alpine_runtime.builder_policy import render as render_policy
 from nix_alpine_runtime.store_poc import policy_diagnostics
 from nix_alpine_runtime.launch import command, selected_store, store_options
 
@@ -72,6 +73,22 @@ class RuntimePrimitives(unittest.TestCase):
         self.assertEqual(data['namespaceSyscallRules'][0]['names'],['mount'])
         self.assertNotIn('private-fixture-value',output.getvalue())
         self.assertNotIn('secret-command',output.getvalue())
+
+    def test_builder_policy_changes_only_uts_syscalls_and_is_idempotent(self):
+        policy={'defaultAction':'SCMP_ACT_ERRNO','architectures':['SCMP_ARCH_AARCH64'],
+            'syscalls':[{'names':['sethostname','setns'],'action':'SCMP_ACT_ERRNO','errnoRet':1},
+                {'names':['mount','read'],'action':'SCMP_ACT_ALLOW'}]}
+        original=json.loads(json.dumps(policy))
+        result=render_policy({'linux':{'seccomp':policy}})
+        self.assertEqual(policy,original)
+        self.assertEqual(result['defaultAction'],original['defaultAction'])
+        self.assertEqual(result['architectures'],original['architectures'])
+        self.assertEqual(result['syscalls'][0],{'names':['setns'],'action':'SCMP_ACT_ERRNO','errnoRet':1})
+        self.assertEqual(result['syscalls'][1],original['syscalls'][1])
+        self.assertEqual(result['syscalls'][2],{'names':['setdomainname','sethostname'],'action':'SCMP_ACT_ALLOW'})
+        self.assertEqual(render_policy({'linux':{'seccomp':result}}),result)
+        for invalid in ({},{'linux':{'seccomp':{'defaultAction':'SCMP_ACT_ALLOW'}}}):
+            with self.assertRaises(ValueError):render_policy(invalid)
 
     def test_invalid_arguments_are_rejected(self):
         for arguments in ('{}','[1]','[null]'):

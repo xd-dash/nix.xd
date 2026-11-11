@@ -5,6 +5,7 @@ action=${1:-apply}
 case "$action" in
   apply) script=builder-chroot-profile.sh ;;
   diagnose) script=builder-chroot-diagnose.sh ;;
+  syscalls) script=builder-chroot-syscalls.sh ;;
   *) exit 2 ;;
 esac
 scope=${NIX_XD_SCOPE:?scope}
