@@ -71,3 +71,19 @@ builder-store-profile-qualify-fresh:
 	  NIX_XD_CHROOT_SELINUX='$(CHROOT_SELINUX)' \
 	  bash bin/nix-xd-log "$(QUALIFY_STORE_SCOPE)" builder-store-profile-qualify-fresh \
 	    bash bin/nix-xd-builder-store-qualify-fresh
+
+# Inventory is read-only. Cleanup is limited to the explicit *-qualify scope.
+.PHONY: builder-runtime-inventory builder-store-profile-qualify-clean
+builder-runtime-inventory:
+	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' \
+	  NIX_XD_QUALIFY_SCOPE='$(QUALIFY_STORE_SCOPE)' \
+	  NIX_XD_QUALIFY_IMAGE='$(QUALIFY_STORE_IMAGE)' \
+	  bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-store-maintenance inventory
+
+QUALIFY_RESET_CONFIRM ?=
+builder-store-profile-qualify-clean:
+	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' \
+	  NIX_XD_QUALIFY_SCOPE='$(QUALIFY_STORE_SCOPE)' \
+	  NIX_XD_QUALIFY_IMAGE='$(QUALIFY_STORE_IMAGE)' \
+	  NIX_XD_QUALIFY_RESET_CONFIRM='$(QUALIFY_RESET_CONFIRM)' \
+	  bash bin/nix-xd-log "$(QUALIFY_STORE_SCOPE)" "$@" bash bin/nix-xd-builder-store-maintenance clean-qualify
