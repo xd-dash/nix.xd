@@ -20,7 +20,7 @@ prune-dangling)
   [[ ${NIX_XD_DANGLING_PRUNE_CONFIRM:-} == YES ]] || {
     echo "Set DANGLING_PRUNE_CONFIRM=YES to remove only unused dangling images" >&2; exit 2;
   }
-  "${podman_cmd[@]}" image prune --filter dangling=true --force
+  "${podman_cmd[@]}" image prune --force
   printf "BUILDER_DANGLING_IMAGE_PRUNE_RESULT=passed machine=%s volumes=untouched\n" "$machine"
   ;;
 inventory)
