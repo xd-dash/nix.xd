@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+[[ ${NIX_XD_PROVIDER:-podman} == podman ]] || { echo 'Chroot mount POC requires Podman' >&2;exit 2; }
+scope=${NIX_XD_SCOPE:?scope} name=${NIX_XD_CHROOT_NAME:-grumble}
+volume=${NIX_XD_CHROOT_VOLUME:?volume}
+[[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ && $name =~ ^[a-z][a-z0-9-]{0,39}$ && $volume =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ $(uname -s) == Darwin ]]; then
+  machine=${NIX_XD_MACHINE:?machine}
+  [[ $machine =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+  printf -v args '%q ' "$scope" "$name" "$volume"
+  podman machine ssh "$machine" "bash -se -- $args" < "$repo/runtime/chroot-attach.sh"
+else
+  bash "$repo/runtime/chroot-attach.sh" "$scope" "$name" "$volume"
+fi

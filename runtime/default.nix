@@ -5,5 +5,5 @@ pkgs.python3Packages.buildPythonPackage {
   pyproject = true;
   src = ../lib/nix_alpine_runtime;
   build-system = [ pkgs.python3Packages.setuptools ];
-  pythonImportsCheck = [ "nix_alpine_runtime" "nix_alpine_runtime.launch" ];
+  pythonImportsCheck = [ "nix_alpine_runtime" "nix_alpine_runtime.launch" "nix_alpine_runtime.store_poc" ];
 }

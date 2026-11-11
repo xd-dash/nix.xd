@@ -7,7 +7,14 @@ import re
 import sys
 
 
-def command(flake, app, system, arguments):
+def selected_store(value):
+    if value=='local':return value
+    if not re.fullmatch(r'/stores/[a-z][a-z0-9-]{0,39}',value):
+        raise ValueError('PROJECT_STORE must be local or /stores/<name>')
+    return value
+
+
+def command(flake, app, system, arguments, store='local'):
     if not flake or flake.startswith('-') or '#' in flake or any(c in flake for c in ('\n','\r','\x00')):
         raise ValueError('Expected a project flake reference without an output fragment')
     if not re.fullmatch(r'[A-Za-z0-9_-]+',app):raise ValueError('Invalid project app')
@@ -15,7 +22,7 @@ def command(flake, app, system, arguments):
     values=json.loads(arguments)
     if not isinstance(values,list) or not all(isinstance(value,str) and '\x00' not in value for value in values):
         raise ValueError('PROJECT_ARGS_JSON must be a JSON array of strings')
-    return ['nix','run','--no-write-lock-file',flake+'#apps.'+system+'.'+app,'--',*values]
+    return ['nix','run','--store',selected_store(store),'--no-write-lock-file',flake+'#apps.'+system+'.'+app,'--',*values]
 
 
 def main():
@@ -24,9 +31,18 @@ def main():
     parser.add_argument('--app',required=True)
     parser.add_argument('--system',required=True)
     parser.add_argument('--args-json',default='[]')
+    parser.add_argument('--store',default='local')
     args=parser.parse_args()
     if platform.system()!='Linux':raise ValueError('Project orchestration must run inside Nix-Alpine')
-    argv=command(args.flake,args.app,args.system,args.args_json)
+    store=selected_store(args.store)
+    if store!='local':
+        from pathlib import Path
+        if not Path(store).is_mount() or not (Path(store)/'.nix-xd-chroot-v1').is_file():
+            raise ValueError('Selected chroot store must be an attached persistent volume')
+    argv=command(args.flake,args.app,args.system,args.args_json,store)
+    # In the executed chroot view, local means this selected store, not the outer one.
+    os.environ['NIX_REMOTE']='local'
+    os.environ['NIX_XD_PROJECT_PHYSICAL_STORE']=store
     print('PROJECT_EXECUTOR=linux app='+args.app+' system='+args.system,flush=True)
     os.execvp(argv[0],argv)
 

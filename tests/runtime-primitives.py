@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'lib'))
 from nix_alpine_runtime import run,scoped_lock,write_json
-from nix_alpine_runtime.launch import command
+from nix_alpine_runtime.launch import command, selected_store
 
 
 class RuntimePrimitives(unittest.TestCase):
@@ -49,6 +49,12 @@ class RuntimePrimitives(unittest.TestCase):
         argv=command('/workspaces/project','startup','aarch64-linux',json.dumps(args))
         self.assertEqual(argv[-len(args):],args)
         self.assertIn('/workspaces/project#apps.aarch64-linux.startup',argv)
+
+    def test_store_selection_is_explicit_and_scoped(self):
+        argv=command('/project','check','aarch64-linux','[]','/stores/grumble')
+        self.assertEqual(argv[argv.index('--store')+1],'/stores/grumble')
+        for bad in ('/','/nix','/stores/grumble/../other','daemon','local?root=/tmp/other'):
+            with self.assertRaises(ValueError):selected_store(bad)
 
     def test_invalid_arguments_are_rejected(self):
         for arguments in ('{}','[1]','[null]'):
