@@ -58,7 +58,7 @@ esac
     def test_bootstrap_stages_after_namespace_and_after_syscall_profile(self):
         makefile = (ROOT / "mk/builder-store-profile.mk").read_text()
         target = makefile.split("builder-store-profile-complete:", 1)[1].split(
-            "\\n\\n", 1)[0]
+            "\n\n", 1)[0]
         lines = [line.strip() for line in target.splitlines()
                  if line.lstrip().startswith("@$(MAKE)")]
         self.assertEqual(len(lines), 4)
