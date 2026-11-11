@@ -589,3 +589,7 @@ chroot-store-qualify:
 .PHONY: builder-chroot-profile
 builder-chroot-profile:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-profile
+
+.PHONY: builder-chroot-diagnose
+builder-chroot-diagnose:
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-profile diagnose

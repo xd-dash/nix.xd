@@ -123,3 +123,12 @@ fatline chroot-store-qualify CHROOT_NAME=grumble
 
 The profile's actual sandbox behaviour remains subject to the local POC result;
 a passed configuration helper is not a passed build/retention qualification.
+
+
+The initial proc-only profile applied successfully but did not resolve the mount
+denial. Use `fatline builder-chroot-diagnose` after staging to collect the live OCI
+namespace syscall rules, LSM labels and actual proc mount options, along with
+private tmpfs/proc probes. Only a small allowlist of security fields is printed;
+container environment and credentials are never printed. This command makes no
+profile changes and restarts no containers. Do not infer seccomp versus LSM denial
+from the `EPERM`/permission message alone.

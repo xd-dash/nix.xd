@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 [[ ${NIX_XD_PROVIDER:-podman} == podman ]] || { echo 'Builder profile requires Podman' >&2;exit 2; }
+action=${1:-apply}
+case "$action" in
+  apply) script=builder-chroot-profile.sh ;;
+  diagnose) script=builder-chroot-diagnose.sh ;;
+  *) exit 2 ;;
+esac
 scope=${NIX_XD_SCOPE:?scope}
+flake=${NIX_XD_WORKLOAD_FLAKE:-/workspaces/nix.xd}
 [[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ $(uname -s) == Darwin ]]; then
   machine=${NIX_XD_MACHINE:?machine}
   [[ $machine =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
-  printf -v args '%q ' "$scope"
-  podman machine ssh "$machine" "bash -se -- $args" < "$repo/runtime/builder-chroot-profile.sh"
+  printf -v args '%q ' "$scope" "$flake"
+  podman machine ssh "$machine" "bash -se -- $args" < "$repo/runtime/$script"
 else
-  bash "$repo/runtime/builder-chroot-profile.sh" "$scope"
+  bash "$repo/runtime/$script" "$scope" "$flake"
 fi

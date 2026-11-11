@@ -50,6 +50,23 @@ printf '%s\\n' "$name" > "$out/identity"
 
 
 
+
+def policy_diagnostics(spec):
+    linux=spec.get('linux',{})
+    seccomp=linux.get('seccomp',{})
+    names={'mount','umount','umount2','unshare','setns','clone','clone3','pivot_root','chroot','fsopen','fsconfig','fsmount','move_mount','open_tree','mount_setattr'}
+    rules=[]
+    for rule in seccomp.get('syscalls',[]):
+        matched=sorted(names.intersection(rule.get('names',[])))
+        if matched:rules.append({key:value for key,value in dict(rule,names=matched).items() if key in ('names','action','args','errnoRet')})
+    process=spec.get('process',{})
+    print(json.dumps({'ociPolicy':{'seccompDefaultAction':seccomp.get('defaultAction'),
+        'namespaceSyscallRules':rules,'apparmorProfile':process.get('apparmorProfile'),
+        'selinuxLabel':process.get('selinuxLabel'),'maskedPaths':linux.get('maskedPaths'),
+        'readonlyPaths':linux.get('readonlyPaths'),
+        'procMounts':[mount for mount in spec.get('mounts',[]) if mount.get('destination','').startswith('/proc')]}},indent=2,sort_keys=True),flush=True)
+
+
 def namespace_diagnostics():
     probes={
         'user_mount':['--user','--map-root-user','--mount'],
@@ -68,6 +85,10 @@ def namespace_diagnostics():
     for name in ('max_user_namespaces','max_mnt_namespaces','max_pid_namespaces','max_cgroup_namespaces'):
         path=Path('/proc/sys/user')/name
         if path.exists():limits[name]=path.read_text().strip()
+    temporary=subprocess.run(['unshare','--user','--map-root-user','--mount','--fork','sh','-ec',
+        "d=$(mktemp -d); trap 'rmdir \"$d\"' EXIT; mount -t tmpfs tmpfs \"$d\"; umount \"$d\""],
+        text=True,capture_output=True,timeout=15)
+    results['mount_tmpfs']={'exit':temporary.returncode,'error':temporary.stderr.strip()}
     result={'probes':results,'process':status,'limits':limits}
     print(json.dumps(result,indent=2,sort_keys=True),flush=True)
     print('CHROOT_NAMESPACE_DIAGNOSTIC=collected security_changes=false',flush=True)
@@ -143,13 +164,16 @@ def qualify(root,flake,system):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('action',choices=('qualify','view','diagnose'))
+    parser.add_argument('--policy',action='store_true')
     parser.add_argument('--root')
     parser.add_argument('--flake')
     parser.add_argument('--system')
     parser.add_argument('--path')
     parser.add_argument('--foreign')
     args=parser.parse_args()
-    if args.action=='diagnose':namespace_diagnostics()
+    if args.action=='diagnose':
+        if args.policy:policy_diagnostics(json.load(sys.stdin))
+        namespace_diagnostics()
     elif args.action=='view':view(args.path,args.foreign)
     else:
         if not args.root or not args.flake or args.system not in ('aarch64-linux','x86_64-linux'):

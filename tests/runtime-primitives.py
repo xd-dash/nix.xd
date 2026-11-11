@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'lib'))
 from nix_alpine_runtime import run,scoped_lock,write_json
+from nix_alpine_runtime.store_poc import policy_diagnostics
 from nix_alpine_runtime.launch import command, selected_store, store_options
 
 
@@ -61,6 +62,16 @@ class RuntimePrimitives(unittest.TestCase):
         self.assertEqual(argv[argv.index('--store')+1],'/stores/grumble')
         for bad in ('/','/nix','/stores/grumble/../other','daemon','local?root=/tmp/other'):
             with self.assertRaises(ValueError):selected_store(bad)
+
+    def test_oci_diagnostic_prints_only_selected_security_fields(self):
+        spec={'process':{'env':['CREDENTIAL=private-fixture-value'],'args':['secret-command'],'apparmorProfile':'fixture'},
+            'linux':{'seccomp':{'defaultAction':'SCMP_ACT_ERRNO','syscalls':[{'names':['mount','read'],'action':'SCMP_ACT_ALLOW'}]}}}
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):policy_diagnostics(spec)
+        data=json.loads(output.getvalue())['ociPolicy']
+        self.assertEqual(data['namespaceSyscallRules'][0]['names'],['mount'])
+        self.assertNotIn('private-fixture-value',output.getvalue())
+        self.assertNotIn('secret-command',output.getvalue())
 
     def test_invalid_arguments_are_rejected(self):
         for arguments in ('{}','[1]','[null]'):
