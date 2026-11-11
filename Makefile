@@ -83,6 +83,8 @@ help:
 	  'make bootstrap-builder-profile  Bootstrap an opt-in multi-chroot Nix-Alpine owner' \
 	  'make builder-store-profile-qualify-fresh  One-shot isolated fresh bootstrap + idempotence' \
 	  'make builder-runtime-inventory|builder-store-profile-qualify-clean  Inventory and scoped cleanup' \
+	  'make workspace-inventory  Read-only Git worktree and stale workspace metadata inspection' \
+	  'make store-isolation-static|store-isolation-check  Independent Nix-Alpine writer checks' \
 	  'make workload-prepare|workload-inspect|workload-activate|workload-stop WORKLOAD=starwisp-probe' \
 	  'make store-roots-inspect|store-roots-apply MACHINE=... SCOPE=...  Inspect or pin Starwisp closures' \
 	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
@@ -612,3 +614,21 @@ builder-chroot-syscalls:
 
 # Declarative, opt-in post-bootstrap profile for alternate writable Nix stores.
 include mk/builder-store-profile.mk
+
+# Independent authoritative-store writers (distinct Nix-Alpine scopes).
+# Separate from the multi-chroot profile inside one builder.
+ISOLATION_PRIMARY ?= nix-xd-arm
+ISOLATION_SECONDARY ?= nix-xd-grumble-arm
+.PHONY: store-isolation-check store-isolation-static
+store-isolation-check:
+	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' \
+	  NIX_XD_ISOLATION_PRIMARY='$(ISOLATION_PRIMARY)' \
+	  NIX_XD_ISOLATION_SECONDARY='$(ISOLATION_SECONDARY)' \
+	  bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-isolation
+
+store-isolation-static:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash tests/store-isolation-contract.sh
+
+.PHONY: workspace-inventory
+workspace-inventory:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workspace-inventory
