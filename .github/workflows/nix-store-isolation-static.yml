@@ -1,0 +1,31 @@
+name: Independent Nix writer static qualification
+on:
+  push:
+    branches:
+      - codex/nix-store-consolidated
+    paths:
+      - .github/workflows/nix-store-isolation-static.yml
+      - bin/nix-xd-store-isolation
+      - tests/store-isolation-contract.sh
+      - Makefile
+  pull_request:
+    paths:
+      - .github/workflows/nix-store-isolation-static.yml
+      - bin/nix-xd-store-isolation
+      - tests/store-isolation-contract.sh
+      - Makefile
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check independent writer mount contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/store-isolation-contract.sh
