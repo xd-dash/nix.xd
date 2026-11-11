@@ -7,6 +7,10 @@ trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/podman" <<'MOCK'
 #!/usr/bin/env bash
 set -Eeuo pipefail
+if [[ "$1" == machine && "$2" == inspect ]]; then
+  printf 'running\n'
+  exit 0
+fi
 [[ "$1" == --connection && "$2" == coreos-arm64 ]] || exit 10
 shift 2
 case "$1 $2" in
