@@ -82,6 +82,21 @@ builder-store-profile-qualify-fresh:
 	  bash bin/nix-xd-log "$(QUALIFY_STORE_SCOPE)" builder-store-profile-qualify-fresh \
 	    bash bin/nix-xd-builder-store-qualify-fresh
 
+# Resume an incomplete qualification only if the exact scoped resources exist.
+# Do not create a new builder or erase any existing Nix store.
+.PHONY: builder-store-profile-qualify-resume
+builder-store-profile-qualify-resume:
+	@test "$(PROVIDER)" = podman && test "$(ARCH)" = arm64 || { echo 'Resume requires ARM64 Podman' >&2; exit 2; }
+	@NIX_XD_QUALIFY_SCOPE='$(QUALIFY_STORE_SCOPE)' \
+	  NIX_XD_QUALIFY_IMAGE='$(QUALIFY_STORE_IMAGE)' \
+	  NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' \
+	  NIX_XD_MACHINE='$(MACHINE)' NIX_XD_PEER_STORES='$(PEER_STORES)' \
+	  BUILDER_CHROOT_NAMESPACE='$(BUILDER_CHROOT_NAMESPACE)' \
+	  BUILDER_CHROOT_SYSCALLS='$(BUILDER_CHROOT_SYSCALLS)' \
+	  NIX_XD_CHROOT_SELINUX='$(CHROOT_SELINUX)' \
+	  bash bin/nix-xd-log "$(QUALIFY_STORE_SCOPE)" "$@" \
+	    bash bin/nix-xd-builder-store-qualify-fresh resume
+
 # Inventory is read-only. Cleanup is limited to the explicit *-qualify scope.
 .PHONY: builder-runtime-inventory builder-store-profile-qualify-clean
 builder-runtime-inventory:
