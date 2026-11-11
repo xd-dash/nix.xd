@@ -9,13 +9,14 @@ case "$action" in
 esac
 scope=${NIX_XD_SCOPE:?scope}
 flake=${NIX_XD_WORKLOAD_FLAKE:-/workspaces/nix.xd}
+selinux=${NIX_XD_CHROOT_SELINUX:-keep}
 [[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ $(uname -s) == Darwin ]]; then
   machine=${NIX_XD_MACHINE:?machine}
   [[ $machine =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
-  printf -v args '%q ' "$scope" "$flake"
+  printf -v args '%q ' "$scope" "$flake" "$selinux"
   podman machine ssh "$machine" "bash -se -- $args" < "$repo/runtime/$script"
 else
-  bash "$repo/runtime/$script" "$scope" "$flake"
+  bash "$repo/runtime/$script" "$scope" "$flake" "$selinux"
 fi

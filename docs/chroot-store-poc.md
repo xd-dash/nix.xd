@@ -132,3 +132,35 @@ private tmpfs/proc probes. Only a small allowlist of security fields is printed;
 container environment and credentials are never printed. This command makes no
 profile changes and restarts no containers. Do not infer seccomp versus LSM denial
 from the `EPERM`/permission message alone.
+
+
+## SELinux comparison, then an explicit trusted-builder profile
+
+The live policy diagnostic showed mount syscalls allowed, successful private
+tmpfs mounting, no AppArmor profile, and a remaining `container_t` SELinux label.
+That narrows the proc-specific denial but does not alone prove SELinux causality.
+
+`builder-chroot-profile CHROOT_SELINUX=disabled` first builds a bounded namespace
+probe through Nix-Alpine. Two short-lived rootless, UID-1000 containers use the
+same immutable image, read-only normal store and proc-unmask setting. The first
+uses the owner's SELinux type/level; only the second uses `label=disable`. Both
+retain default seccomp and capabilities. The profile is applied only if the first
+fails and the second succeeds. Failure to isolate the difference leaves the
+owner's SELinux declaration unchanged.
+
+On that successful comparison the helper declares `SecurityLabelDisable=true`
+for this builder, restarts it, checks non-root/zero-effective-capability/seccomp
+invariants, and repeats the proc probe in the actual owner. This removes SELinux
+container confinement for the selected trusted builder. It does not disable host
+SELinux, relabel store contents, alter guest services, enable privileged mode, or
+add SYS_ADMIN. It is not a hostile-tenant execution profile. `keep` is the default
+and makes no new SELinux change.
+
+Stage before the comparison (it builds the probe) and again after any restart:
+
+```bash
+fatline stage &&
+fatline builder-chroot-profile CHROOT_SELINUX=disabled &&
+fatline stage &&
+fatline chroot-store-qualify CHROOT_NAME=grumble
+```

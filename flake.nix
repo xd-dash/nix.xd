@@ -68,6 +68,13 @@
               exec python3 -m nix_alpine_runtime.store_poc diagnose "$@"
             '';
           };
+          namespaceProbe = pkgs.writeShellApplication {
+            name = "nix-xd-proc-probe";
+            runtimeInputs = [ pkgs.util-linux pkgs.coreutils ];
+            text = ''
+              exec timeout 20 unshare --user --map-root-user --mount --pid --fork --mount-proc true
+            '';
+          };
           applicationRedis = pkgs.redis;
           composition-plan = pkgs.writeShellApplication {
             name = "nix-xd-composition-plan";
@@ -103,7 +110,7 @@
             name = "nix-xd-wisp-go-tools";
             paths = [ pkgs.go_1_26 pkgs.gcc pkgs.git pkgs.bash pkgs.cacert ];
           };
-          inherit chrootStoreDiagnose storePocTools storePocView chrootStorePoc runtimePrimitives runtimePython projectLauncher applicationRedis installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
+          inherit namespaceProbe chrootStoreDiagnose storePocTools storePocView chrootStorePoc runtimePrimitives runtimePython projectLauncher applicationRedis installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
       fatlinePlans = eachSystem (system: {
         host-link = import ./compositions/fatline-coreos.nix { inherit system; };

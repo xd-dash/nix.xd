@@ -13,7 +13,7 @@ class Attach(unittest.TestCase):
         tools=home/'bin';tools.mkdir()
         unit=home/'.config/containers/systemd/fixture.container';unit.parent.mkdir(parents=True)
         unit.write_text('[Container]\nContainerName=fixture\nVolume=authoritative:/nix\n')
-        (home/'state').write_text(json.dumps({'attached':False,'conflict':conflict,'restarts':0,'profile':False}))
+        (home/'state').write_text(json.dumps({'attached':False,'conflict':conflict,'restarts':0,'profile':False,'labelDisabled':False,'probeExit':0}))
         mock=tools/'podman';mock.write_text('''#!/usr/bin/env python3
 import json,os,sys
 from pathlib import Path
@@ -22,12 +22,15 @@ if a[0]=='info':print('true')
 elif a[:2]==['ps','-aq']:print('owner')
 elif a[0]=='inspect':
  f=a[-1]
- if 'Privileged' in f:print('false')
+ if 'ProcessLabel' in f:
+  if not state['labelDisabled']:print('system_u:system_r:container_t:s0:c1,c2')
+ elif 'Privileged' in f:print('false')
  elif 'MaskedPaths' in f:
   if not state['profile']:print('/proc/kcore\\n/proc/sys')
  elif 'State.Running' in f:print('true')
  elif '.Image' in f:print('sha256:fixture')
  elif '.Name'==f.strip('{}'):print('fixture')
+ elif 'if eq .Destination' in f:print('authoritative')
  elif '.RW' in f:
   if state['attached']:print('isolated /stores/grumble true')
  else:
@@ -36,8 +39,11 @@ elif a[0]=='inspect':
   elif state['attached']:print('isolated|/stores/grumble')
 elif a[0]=='volume':sys.exit(0)
 elif a[0]=='exec':
+ if 'build' in a:print('/nix/store/'+'a'*32+'-nix-xd-proc-probe')
  if a[-1]=='/proc/self/mountinfo' and not state['profile']:print('/proc/sys')
-elif a[0]=='run':pass
+elif a[0]=='run':
+ if any('/bin/nix-xd-proc-probe' in arg for arg in a):
+  sys.exit(state['probeExit'] if 'label=disable' in a else 1)
 else:raise SystemExit('Unexpected '+repr(a))
 ''');mock.chmod(0o755)
         mock=tools/'systemctl';mock.write_text('''#!/usr/bin/env python3
@@ -46,7 +52,7 @@ from pathlib import Path
 p=Path(os.environ['HOME'])/'state';s=json.loads(p.read_text())
 if 'show' in sys.argv:print('loaded')
 if 'restart' in sys.argv:
- s.update(attached=True,restarts=s['restarts']+1,profile=(Path(os.environ['HOME'])/'.config/containers/systemd/fixture.container.d/30-nix-chroot-profile.conf').exists());p.write_text(json.dumps(s))
+ s.update(labelDisabled=(Path(os.environ['HOME'])/'.config/containers/systemd/fixture.container.d/31-nix-chroot-selinux.conf').exists(),attached=True,restarts=s['restarts']+1,profile=(Path(os.environ['HOME'])/'.config/containers/systemd/fixture.container.d/30-nix-chroot-profile.conf').exists());p.write_text(json.dumps(s))
 ''');mock.chmod(0o755)
         return dict(os.environ,HOME=str(home),PATH=str(tools)+':'+os.environ['PATH']),unit
 
@@ -69,6 +75,19 @@ if 'restart' in sys.argv:
             self.assertNotIn('Privileged',text)
             self.assertNotIn('seccomp=unconfined',text)
             self.assertNotIn('SYS_ADMIN',text)
+
+    def test_selinux_profile_requires_successful_controlled_comparison(self):
+        for probe_exit in (0,1):
+            with self.subTest(probe_exit=probe_exit),tempfile.TemporaryDirectory() as directory:
+                home=Path(directory);env,unit=self.fixture(home)
+                state=json.loads((home/'state').read_text());state.update(attached=True,profile=True,probeExit=probe_exit);(home/'state').write_text(json.dumps(state))
+                result=subprocess.run(['bash',str(ROOT/'runtime/builder-chroot-profile.sh'),'fixture','/workspaces/runtime','disabled'],env=env,capture_output=True,text=True)
+                changed=probe_exit==0
+                self.assertEqual(result.returncode==0,changed,result.stderr)
+                file=Path(str(unit)+'.d')/'31-nix-chroot-selinux.conf'
+                self.assertEqual(file.exists(),changed)
+                self.assertEqual(json.loads((home/'state').read_text())['restarts'],int(changed))
+                if changed:self.assertEqual(file.read_text(),'[Container]\nSecurityLabelDisable=true\n')
 
     def test_conflicting_destination_is_rejected_before_restart(self):
         with tempfile.TemporaryDirectory() as directory:
