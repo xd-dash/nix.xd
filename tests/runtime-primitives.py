@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'lib'))
 from nix_alpine_runtime import run,scoped_lock,write_json
-from nix_alpine_runtime.launch import command, selected_store
+from nix_alpine_runtime.launch import command, selected_store, store_options
 
 
 class RuntimePrimitives(unittest.TestCase):
@@ -49,6 +49,12 @@ class RuntimePrimitives(unittest.TestCase):
         argv=command('/workspaces/project','startup','aarch64-linux',json.dumps(args))
         self.assertEqual(argv[-len(args):],args)
         self.assertIn('/workspaces/project#apps.aarch64-linux.startup',argv)
+
+    def test_chroot_requires_sandbox_without_changing_normal_store_policy(self):
+        self.assertEqual(store_options('local'),['--store','local'])
+        options=store_options('/stores/grumble')
+        self.assertEqual(options,['--store','/stores/grumble','--option','sandbox','true','--option','sandbox-fallback','false'])
+        self.assertIn('sandbox',command('/project','check','aarch64-linux','[]','/stores/grumble'))
 
     def test_store_selection_is_explicit_and_scoped(self):
         argv=command('/project','check','aarch64-linux','[]','/stores/grumble')

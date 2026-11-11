@@ -14,6 +14,13 @@ def selected_store(value):
     return value
 
 
+def store_options(store):
+    store=selected_store(store)
+    options=['--store',store]
+    if store!='local':options+=['--option','sandbox','true','--option','sandbox-fallback','false']
+    return options
+
+
 def command(flake, app, system, arguments, store='local'):
     if not flake or flake.startswith('-') or '#' in flake or any(c in flake for c in ('\n','\r','\x00')):
         raise ValueError('Expected a project flake reference without an output fragment')
@@ -22,7 +29,7 @@ def command(flake, app, system, arguments, store='local'):
     values=json.loads(arguments)
     if not isinstance(values,list) or not all(isinstance(value,str) and '\x00' not in value for value in values):
         raise ValueError('PROJECT_ARGS_JSON must be a JSON array of strings')
-    return ['nix','run','--store',selected_store(store),'--no-write-lock-file',flake+'#apps.'+system+'.'+app,'--',*values]
+    return ['nix','run',*store_options(store),'--no-write-lock-file',flake+'#apps.'+system+'.'+app,'--',*values]
 
 
 def main():
@@ -42,6 +49,8 @@ def main():
     argv=command(args.flake,args.app,args.system,args.args_json,store)
     # In the executed chroot view, local means this selected store, not the outer one.
     os.environ['NIX_REMOTE']='local'
+    if store!='local':
+        os.environ['NIX_CONFIG']=os.environ.get('NIX_CONFIG','')+'\nsandbox = true\nsandbox-fallback = false\n'
     os.environ['NIX_XD_PROJECT_PHYSICAL_STORE']=store
     print('PROJECT_EXECUTOR=linux app='+args.app+' system='+args.system,flush=True)
     os.execvp(argv[0],argv)

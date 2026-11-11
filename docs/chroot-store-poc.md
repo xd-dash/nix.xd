@@ -12,7 +12,8 @@ conflicting destinations, and volumes attached to another container are rejected
 Initialization uses a short-lived rootless Podman helper to set only the new
 volume root's ownership. It never recursively changes existing store ownership.
 
-The first attach restarts the Nix-Alpine owner once to apply the mount; do not run
+The first attach restarts the Nix-Alpine owner once to apply the mount.
+Stage committed workspaces after this restart because `/workspaces` is ephemeral. Do not run
 it during other owner builds. CoreOS VM runners are separate and are not restarted.
 A repeat attach validates/reuses the mount. The independent volume persists across
 owner recreation while the managed declaration remains present. There is no
@@ -21,8 +22,8 @@ automatic volume deletion or migration.
 Using the existing `fatline` Make function (only as a generic runtime selector):
 
 ```bash
-fatline stage &&
 fatline chroot-store-attach CHROOT_NAME=grumble &&
+fatline stage &&
 fatline chroot-store-qualify CHROOT_NAME=grumble
 ```
 
@@ -72,3 +73,12 @@ runtime default, not a security isolation policy between same-user projects.
 This POC does not qualify arbitrary mount paths, overlay stores, hostile workloads,
 Grml ISO production, or the separate VM-local/guest-only store domains. It does
 not modify Agni or Fatline application policy.
+
+
+Chroot builds explicitly require `sandbox=true` and `sandbox-fallback=false`.
+The normal owner runtime sets `sandbox=false`; inheriting that setting caused the
+first chroot build to miss its physical output location. The launcher applies the
+sandbox requirement to selected chroot invocations and carries it into their
+child Nix processes through process-scoped configuration. Normal-store policy and
+the owner's global configuration are unchanged. Missing sandbox capability is a
+failure, not permission to build outside the selected store view.

@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 from . import scoped_lock, write_json
-from .launch import selected_store
+from .launch import selected_store, store_options
 
 
 def call(argv, *, check=True):
@@ -77,7 +77,7 @@ def qualify(root,flake,system):
             roots={role:state/(token+'-'+role+'-root') for role in stores}
             print('CHROOT_POC_BUILDS=concurrent',flush=True)
             def build(role):
-                call(['nix-store','--store',stores[role],'--realise',drvs[role],'--add-root',str(roots[role]),'--indirect'])
+                call(['nix-store',*store_options(stores[role]),'--realise',drvs[role],'--add-root',str(roots[role]),'--indirect'])
                 return call(['nix-store','--store',stores[role],'--query','--outputs',drvs[role]]).stdout.strip()
             with ThreadPoolExecutor(max_workers=2) as pool:
                 futures={role:pool.submit(build,role) for role in stores}
