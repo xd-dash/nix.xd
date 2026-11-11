@@ -7,7 +7,7 @@ scope=${NIX_XD_QUALIFY_SCOPE:-nix-xd-arm-chroot-qualify}
 image=${NIX_XD_QUALIFY_IMAGE:-localhost/nix-xd:arm64-chroot-qualify}
 [[ $machine =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
 [[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ && $scope == *-qualify ]] || exit 2
-[[ $image =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ && $image == *chroot-qualify ]] || exit 2
+[[ $image =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ && $image == localhost/nix-xd:arm64-*-qualify ]] || exit 2
 [[ ${NIX_XD_PROVIDER:-podman} == podman ]] || exit 2
 podman_cmd=(podman)
 if [[ $(uname -s) == Darwin ]]; then
