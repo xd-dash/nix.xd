@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-action="\${1:-}"
-kind="\${2:-}"
-name="\${3:-}"
-machine="\${NIX_XD_MACHINE:-coreos-arm64}"
-image="\${NIX_XD_STATE_EXPORT_IMAGE:-docker.io/library/alpine:3.23}"
+action="${1:-}"
+kind="${2:-}"
+name="${3:-}"
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+image="${NIX_XD_STATE_EXPORT_IMAGE:-docker.io/library/alpine:3.23}"
 fail() { printf 'error: %s\n' "$*" >&2; exit 2; }
 
 [[ "$action" =~ ^(plan|provision|inspect|export)$ ]] || fail 'Usage: nix-xd-state-volume plan|provision|inspect|export control|vm|application NAME [EXPORT_PATH]'
@@ -16,9 +16,9 @@ command -v podman >/dev/null 2>&1 || fail 'Podman is required'
 volume="nix-xd-state-$kind-$name"
 p=(podman --connection "$machine")
 
-exists() { "\${p[@]}" volume exists "$volume"; }
+exists() { "${p[@]}" volume exists "$volume"; }
 labels_valid() {
-  "\${p[@]}" volume inspect "$volume" --format '{{json .Labels}}' |
+  "${p[@]}" volume inspect "$volume" --format '{{json .Labels}}' |
     python3 -c 'import json,sys
 labels=json.load(sys.stdin) or {}
 sys.exit(0 if labels.get("io.nix-xd.state.version")=="1" and
@@ -41,7 +41,7 @@ case "$action" in
     if exists; then
       labels_valid || fail 'Volume exists without matching ownership labels; refusing adoption'
     else
-      "\${p[@]}" volume create \
+      "${p[@]}" volume create \
         --label io.nix-xd.state.version=1 \
         --label "io.nix-xd.state.kind=$kind" \
         --label "io.nix-xd.state.name=$name" \
@@ -53,7 +53,7 @@ case "$action" in
   inspect)
     exists || fail 'Volume not found'
     labels_valid || fail 'Volume ownership does not match request'
-    "\${p[@]}" volume inspect "$volume"
+    "${p[@]}" volume inspect "$volume"
     printf 'STATE_VOLUME_INSPECT=passed volume=%s\n' "$volume"
     ;;
   export)
@@ -66,9 +66,9 @@ case "$action" in
     [[ -d "$(dirname "$destination")" ]] || fail 'Export parent directory does not exist'
     [[ ! -L "$(dirname "$destination")" ]] || fail 'Export parent must not be a symlink'
     umask 077
-    tmp="$(mktemp "\${destination}.tmp.XXXXXX")"
+    tmp="$(mktemp "${destination}.tmp.XXXXXX")"
     trap 'rm -f "$tmp"' EXIT
-    "\${p[@]}" run --rm --pull=never --network none --read-only \
+    "${p[@]}" run --rm --pull=never --network none --read-only \
       --mount "type=volume,src=$volume,dst=/state,ro" \
       --entrypoint /bin/tar "$image" -C /state -cf - . > "$tmp"
     mv -n "$tmp" "$destination"
