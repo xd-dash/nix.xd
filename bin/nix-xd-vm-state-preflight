@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+container="${1:?Runner container name required}"
+instance="${2:?Logical VM instance name required}"
+fail() { printf 'error: %s\n' "$*" >&2; exit 2; }
+
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Invalid Podman Machine name'
+[[ "$container" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || fail 'Invalid container name'
+[[ "$instance" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid VM instance name'
+command -v python3 >/dev/null || fail 'Python 3 is required'
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] ||
+  fail "Podman Machine $machine is not running"
+
+p=(podman --connection "$machine")
+volume="nix-xd-state-vm-$instance"
+"${p[@]}" volume exists "$volume" || fail "Target state volume missing: $volume"
+"${p[@]}" volume inspect "$volume" --format '{{json .}}' |
+  python3 -c 'import json,sys
+v=json.load(sys.stdin)
+expected={"io.nix-xd.state.kind":"vm","io.nix-xd.state.name":sys.argv[1],"io.nix-xd.state.version":"1"}
+if any((v.get("Labels") or {}).get(k)!=value for k,value in expected.items()):
+    raise SystemExit("Target volume ownership labels differ")
+if v.get("MountCount",0)!=0:
+    raise SystemExit("Target volume is already mounted; refusing migration planning")
+print("TARGET_VOLUME name={} mount_count={}".format(v.get("Name"),v.get("MountCount")))
+' "$instance"
+
+"${p[@]}" inspect "$container" --format '{{json .}}' |
+  python3 -c 'import json,sys
+data=json.load(sys.stdin)
+status=(data.get("State") or {}).get("Status","unknown")
+mounts=data.get("Mounts") or []
+by_target={m.get("Destination"):m for m in mounts}
+state=by_target.get("/state")
+if not state or state.get("Type")!="bind" or not state.get("RW"):
+    raise SystemExit("Runner has no writable /state bind mount; cannot plan legacy migration")
+source=state.get("Source","")
+if not source or not source.startswith("/"):
+    raise SystemExit("Runner state source is not an absolute path")
+print("VM_RUNNER name={} status={} id={} image={}".format(
+    data.get("Name","").lstrip("/"),status,data.get("Id",""),data.get("Image","")))
+for target in ("/state","/artifacts","/host-nix"):
+    m=by_target.get(target)
+    if m:
+        print("VM_MOUNT target={} type={} source={} volume={} rw={}".format(
+            target,m.get("Type"),m.get("Source"),m.get("Name") or "none",str(m.get("RW")).lower()))
+    elif target=="/artifacts":
+        print("VM_MOUNT target=/artifacts absent=true")
+    elif target=="/host-nix":
+        print("VM_MOUNT target=/host-nix absent=true")
+print("VM_STATE_PREFLIGHT_RESULT=passed readonly=true migration=false")
+'
