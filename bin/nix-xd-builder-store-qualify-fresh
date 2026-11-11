@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+mode=${1:-fresh}
+[[ $mode == fresh || $mode == resume ]] || { echo 'Expected fresh or resume' >&2; exit 2; }
 scope=${NIX_XD_QUALIFY_SCOPE:-nix-xd-arm-chroot-qualify}
 machine=${NIX_XD_MACHINE:?Select the existing Podman Machine}
 system=${NIX_XD_SYSTEM:-aarch64-linux}
@@ -35,28 +37,51 @@ NIX_XD_SCOPE="$scope" NIX_XD_STORE_VOLUME="$authoritative" \
 [[ $(podman machine inspect "$machine" --format '{{.State}}') == running ]] ||
   fail 'selected-podman-machine-must-be-running'
 podman_cmd=(podman --connection "$machine")
-for volume in "$authoritative" "$chroot_a" "$chroot_b"; do
-  if "${podman_cmd[@]}" volume exists "$volume"; then
-    fail "qualification-volume-already-exists:$volume"
+if [[ $mode == fresh ]]; then
+  for volume in "$authoritative" "$chroot_a" "$chroot_b"; do
+    if "${podman_cmd[@]}" volume exists "$volume"; then
+      fail "qualification-volume-already-exists:$volume"
+    fi
+  done
+  if "${podman_cmd[@]}" container exists "$scope"; then
+    fail "qualification-container-already-exists:$scope"
   fi
-done
-if "${podman_cmd[@]}" container exists "$scope"; then
-  fail "qualification-container-already-exists:$scope"
+  if "${podman_cmd[@]}" image exists "$image"; then
+    fail "qualification-image-already-exists:$image"
+  fi
+  if podman machine ssh "$machine" "test -e \\$HOME/.config/containers/systemd/$scope.container"; then
+    fail "qualification-quadlet-already-exists:$scope"
+  fi
+  printf 'BUILDER_STORE_FRESH_PHASE=bootstrap scope=%s machine=%s image=%s\\n' "$scope" "$machine" "$image"
+else
+  printf 'BUILDER_STORE_FRESH_PHASE=resume scope=%s machine=%s\\n' "$scope" "$machine"
+  for volume in "$authoritative" "$chroot_a" "$chroot_b"; do
+    "${podman_cmd[@]}" volume exists "$volume" || fail "resume-missing-volume:$volume"
+  done
+  "${podman_cmd[@]}" container exists "$scope" || fail "resume-missing-container:$scope"
+  "${podman_cmd[@]}" image exists "$image" || fail "resume-missing-image:$image"
+  if ! podman machine ssh "$machine" "test -e \\$HOME/.config/containers/systemd/$scope.container"; then
+    fail "resume-missing-quadlet:$scope"
+  fi
+  [[ $("${podman_cmd[@]}" inspect "$scope" --format '{{.State.Running}}') == true ]] ||
+    fail 'resume-container-not-running'
+  current=$("${podman_cmd[@]}" inspect "$scope" --format '{{range .Mounts}}{{println .Name .Destination .RW}}{{end}}')
+  grep -Fxq "$authoritative /nix true" <<< "$current" || fail 'resume-authoritative-store-mismatch'
+  for entry in "$chroot_a /stores/grumble true" "$chroot_b /stores/experiments true"; do
+    grep -Fxq "$entry" <<< "$current" || fail "resume-chroot-mount-mismatch:$entry"
+  done
 fi
-if "${podman_cmd[@]}" image exists "$image"; then
-  fail "qualification-image-already-exists:$image"
-fi
-if podman machine ssh "$machine" "test -e \$HOME/.config/containers/systemd/$scope.container"; then
-  fail "qualification-quadlet-already-exists:$scope"
-fi
-printf 'BUILDER_STORE_FRESH_PHASE=bootstrap scope=%s machine=%s image=%s\n' "$scope" "$machine" "$image"
 common=(PROVIDER=podman ARCH=arm64 "MACHINE=$machine" "SCOPE=$scope"
   "STORE_VOLUME=$authoritative" "BUILDER_CHROOT_STORES=$specs"
   "PEER_STORES=" "IMAGE=$image" MACHINE_BOOTSTRAP=0
   "WORKSPACES=$workspace_parent" "CHECKOUT=$checkout" "WORKLOAD_FLAKE=$workload_flake"
   BUILDER_CHROOT_NAMESPACE=1 BUILDER_CHROOT_SYSCALLS=1 CHROOT_SELINUX=keep)
 
-make -C "$repo" --no-print-directory bootstrap-builder-profile "${common[@]}"
+if [[ $mode == fresh ]]; then
+  make -C "$repo" --no-print-directory bootstrap-builder-profile "${common[@]}"
+else
+  make -C "$repo" --no-print-directory builder-store-profile-complete "${common[@]}"
+fi
 before=$("${podman_cmd[@]}" inspect "$scope" --format '{{.Id}}')
 [[ -n $before ]] || fail 'missing-container-after-bootstrap'
 
