@@ -28,7 +28,9 @@ def render(profile):
 
 def main():
     try:
-        result = render(json.load(sys.stdin))
+        document = json.load(sys.stdin)
+        profile = document.get("linux", {}).get("seccomp") if "linux" in document else document
+        result = render(profile)
         json.dump(result, sys.stdout, indent=2, sort_keys=True)
         print()
     except (ValueError, KeyError, TypeError) as exc:
