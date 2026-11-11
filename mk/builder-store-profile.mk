@@ -124,6 +124,19 @@ builder-store-profile-qualify-atomic:
 	  bash bin/nix-xd-log "$(ATOMIC_STORE_SCOPE)" "$@" \
 	    bash bin/nix-xd-builder-store-qualify-atomic
 
+# Resume only the pre-container atomic bootstrap after an interrupted prestart.
+.PHONY: builder-store-profile-qualify-atomic-resume
+builder-store-profile-qualify-atomic-resume:
+	@test "$(PROVIDER)" = podman && test "$(ARCH)" = arm64 || { echo 'Atomic resume requires ARM64 Podman' >&2; exit 2; }
+	@NIX_XD_QUALIFY_SCOPE='$(ATOMIC_STORE_SCOPE)' \
+	  NIX_XD_QUALIFY_IMAGE='$(ATOMIC_STORE_IMAGE)' \
+	  NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' \
+	  NIX_XD_MACHINE='$(MACHINE)' NIX_XD_PEER_STORES='$(PEER_STORES)' \
+	  BUILDER_CHROOT_NAMESPACE=1 BUILDER_CHROOT_SYSCALLS=1 \
+	  NIX_XD_CHROOT_SELINUX=keep \
+	  bash bin/nix-xd-log "$(ATOMIC_STORE_SCOPE)" "$@" \
+	    bash bin/nix-xd-builder-store-qualify-atomic resume
+
 # A different isolated scope than the already qualified chroot bootstrap.
 .PHONY: builder-store-profile-atomic-clean
 builder-store-profile-atomic-clean:
