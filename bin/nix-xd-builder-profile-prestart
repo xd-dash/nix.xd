@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+machine=${1:?machine} scope=${2:?scope} image=${3:?image} authoritative=${4:?store}
+specs=${5:?chroot stores}
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
+[[ $authoritative =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ $image =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || exit 2
+[[ $specs != *$'\n'* ]] || exit 2
+names=' ' volumes=' '
+read -r -a entries <<< "$specs"
+for spec in ${entries[@]+"${entries[@]}"}; do
+  [[ $spec == *=* ]] || exit 2
+  name=${spec%%=*}; volume=${spec#*=}
+  [[ $name =~ ^[a-z][a-z0-9-]{0,39}$ && $volume =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+  [[ $volume != "$authoritative" && $names != *" $name "* && $volumes != *" $volume "* ]] || exit 2
+  names="$names$name "; volumes="$volumes$volume "
+  for id in $(podman --connection "$machine" ps -aq); do
+    mounted=$(podman --connection "$machine" inspect "$id" --format '{{range .Mounts}}{{println .Name}}{{end}}')
+    ! grep -Fxq "$volume" <<< "$mounted" || { echo "Store already attached: $volume" >&2;exit 1; }
+  done
+done
+# Resolve the configured Podman default profile before allocating resources.
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+podman machine ssh "$machine" 'p=$(podman info --format "{{.Host.Security.SeccompProfilePath}}"); test -n "$p" && test -r "$p" && cat "$p"' |
+  python3 "$repo/bin/nix-xd-builder-seccomp.py" > "$tmp"
+remote=".config/nix-xd/seccomp/$scope-nix-chroot.json"
+if podman machine ssh "$machine" "test -e \$HOME/$remote"; then
+  podman machine ssh "$machine" "cat \$HOME/$remote" | cmp -s "$tmp" - ||
+    { echo 'Existing prestart seccomp profile differs' >&2;exit 1; }
+else
+  podman machine ssh "$machine" "mkdir -p \$HOME/.config/nix-xd/seccomp && cat > \$HOME/$remote" < "$tmp"
+fi
+read -r -a entries <<< "$specs"
+for spec in ${entries[@]+"${entries[@]}"}; do
+  volume=${spec#*=}
+  if ! podman --connection "$machine" volume exists "$volume"; then
+    podman --connection "$machine" volume create "$volume" >/dev/null
+  fi
+  podman --connection "$machine" run --rm --pull=never --network none --read-only \
+    --user 0:0 --cap-drop all --cap-add CHOWN --cap-add DAC_OVERRIDE \
+    --mount "type=volume,src=$volume,dst=/target" --entrypoint /bin/sh "$image" -ec '
+    if [ -e /target/.nix-xd-chroot-v1 ]; then
+      test "$(stat -c %u:%g /target)" = 1000:1000; exit
+    fi
+    test -z "$(find /target -mindepth 1 -maxdepth 1 -print -quit)" || exit 1
+    chown 1000:1000 /target
+    touch /target/.nix-xd-chroot-v1
+  '
+done
+printf 'BUILDER_PRESTART_PROFILE=passed scope=%s chroots=%s\n' "$scope" "${#entries[@]}"
