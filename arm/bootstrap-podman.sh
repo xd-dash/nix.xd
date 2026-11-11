@@ -67,10 +67,18 @@ podman --connection "$machine" run --rm --pull=never --user 0:0 \
     fi
     chown 1000:1000 /nix
   '
+# Optional complete first-start profile, separate from legacy post-bootstrap apply.
+initial_chroots="${NIX_XD_INITIAL_CHROOT_STORES:-}"
+if [[ -n "$initial_chroots" ]]; then
+  [[ ${NIX_XD_INITIAL_PROFILE:-0} == 1 ]] || die 'Initial chroots require INITIAL_PROFILE=1'
+  NIX_XD_PEER_STORES='' bash "$repo/bin/nix-xd-builder-profile-prestart" \
+    "$machine" "$scope" "$image" "$builder_store_volume" "$initial_chroots"
+fi
+
 # First Nix installation occurs only after the final volume is mounted.
 
 say "Installing rootless Quadlet"
-printf -v builder_remote_args '%q ' "$scope" "$image" "$builder_store_volume" "${NIX_XD_PEER_STORES:-}"
+printf -v builder_remote_args '%q ' "$scope" "$image" "$builder_store_volume" "${NIX_XD_PEER_STORES:-}" "$initial_chroots"
 # The VM's user service manager supervises the container; no macOS daemon needed.
 {
 cat "$repo/lib/builder-stores.sh"
@@ -79,6 +87,10 @@ set -euo pipefail
 scope="$1"
 image="$2"
 NIX_XD_STORE_VOLUME="$3" NIX_XD_PEER_STORES="$4"
+NIX_XD_INITIAL_CHROOT_STORES="${5:-}"
+if [[ -n "$NIX_XD_INITIAL_CHROOT_STORES" ]]; then
+  NIX_XD_INITIAL_SECCOMP_PATH="$HOME/.config/nix-xd/seccomp/$scope-nix-chroot.json"
+fi
 builder_stores_init "$scope"
 builder_stores_check podman
 dir="$HOME/.config/containers/systemd"
