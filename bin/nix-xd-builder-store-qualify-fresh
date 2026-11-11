@@ -10,6 +10,9 @@ authoritative="$scope-store"
 chroot_a="$scope-grumble-chroot"
 chroot_b="$scope-experiments-chroot"
 specs="grumble=$chroot_a experiments=$chroot_b"
+workspace_parent="$(dirname "$repo")"
+checkout="$(basename "$repo")"
+workload_flake="/workspaces/$checkout"
 
 fail() { printf 'BUILDER_STORE_FRESH_RESULT=failed reason=%s\n' "$*" >&2; exit 1; }
 [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || fail 'requires-macos-arm64'
@@ -50,6 +53,7 @@ printf 'BUILDER_STORE_FRESH_PHASE=bootstrap scope=%s machine=%s image=%s\n' "$sc
 common=(PROVIDER=podman ARCH=arm64 "MACHINE=$machine" "SCOPE=$scope"
   "STORE_VOLUME=$authoritative" "BUILDER_CHROOT_STORES=$specs"
   "PEER_STORES=" "IMAGE=$image" MACHINE_BOOTSTRAP=0
+  "WORKSPACES=$workspace_parent" "CHECKOUT=$checkout" "WORKLOAD_FLAKE=$workload_flake"
   BUILDER_CHROOT_NAMESPACE=1 BUILDER_CHROOT_SYSCALLS=1 CHROOT_SELINUX=keep)
 
 make -C "$repo" --no-print-directory bootstrap-builder-profile "${common[@]}"
