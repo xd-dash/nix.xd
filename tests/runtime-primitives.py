@@ -12,8 +12,8 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'lib'))
 from nix_alpine_runtime import run,scoped_lock,write_json
 from nix_alpine_runtime.builder_policy import render as render_policy
-from nix_alpine_runtime.store_poc import policy_diagnostics, view_command
-from nix_alpine_runtime.launch import command, selected_store, store_options
+from nix_alpine_runtime.store_poc import policy_diagnostics, view_command, view
+from nix_alpine_runtime.launch import command, selected_store, store_options, project_environment
 
 
 class RuntimePrimitives(unittest.TestCase):
@@ -95,6 +95,21 @@ class RuntimePrimitives(unittest.TestCase):
         self.assertIn('/workspaces/project#apps.aarch64-linux.store-poc-view',argv)
         self.assertEqual(argv[argv.index('--store')+1],'/stores/grumble')
         self.assertEqual(argv[argv.index('--')+1:],['view','--path','/nix/store/own','--foreign','/nix/store/foreign'])
+
+    def test_child_nix_keeps_selected_metadata_store_and_existing_configuration(self):
+        original={'NIX_REMOTE':'local','NIX_CONFIG':'experimental-features = nix-command flakes'}
+        env=project_environment(original,'/stores/grumble')
+        self.assertEqual(env['NIX_REMOTE'],'/stores/grumble')
+        self.assertTrue(env['NIX_CONFIG'].startswith(original['NIX_CONFIG']))
+        self.assertIn('sandbox = true',env['NIX_CONFIG'])
+        self.assertEqual(original['NIX_REMOTE'],'local')
+
+    def test_execution_view_queries_the_selected_metadata_explicitly(self):
+        from types import SimpleNamespace
+        with patch.dict(os.environ,{'NIX_REMOTE':'/stores/grumble'}),patch('nix_alpine_runtime.store_poc.valid',side_effect=[True,False]) as valid,patch('nix_alpine_runtime.store_poc.Path.read_text',return_value='identity'),patch('nix_alpine_runtime.store_poc.Path.stat',return_value=SimpleNamespace(st_dev=1,st_ino=2)),contextlib.redirect_stdout(io.StringIO()):
+            view('/nix/store/own','/nix/store/foreign')
+        self.assertEqual(valid.call_args_list[0].args,('/stores/grumble','/nix/store/own'))
+        self.assertEqual(valid.call_args_list[1].args,('/stores/grumble','/nix/store/foreign'))
 
     def test_invalid_arguments_are_rejected(self):
         for arguments in ('{}','[1]','[null]'):

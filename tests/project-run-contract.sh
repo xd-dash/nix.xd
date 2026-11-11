@@ -20,3 +20,17 @@ for expected in '<exec>' '<fixture>' '</workspaces/runtime#project-launch>' '<--
 done
 [[ $(find "$tmp/logs" -name 'fixture-project-run-*.log' | wc -l) -eq 1 ]]
 echo 'PASS: Make launches the selected project through Nix-Alpine and the shared logger'
+
+cat > "$tmp/local.mk" <<'CONFIG'
+ARCH = arm64
+PROVIDER = podman
+MACHINE = selected
+SCOPE = fixture
+WORKLOAD_FLAKE = /workspaces/runtime
+PROJECT_FLAKE = /workspaces/project
+PROJECT_APP = startup
+CONFIG
+PATH="$tmp/bin:$PATH" NIX_XD_LOG_DIR="$tmp/config-logs" make -s -C "$repo" \
+  NIX_XD_CONFIG="$tmp/local.mk" project-run
+grep -Fxq '</workspaces/runtime#project-launch>' "$PROJECT_TEST_RECORD"
+echo 'PASS: plain Make uses the selected generic local runtime configuration'

@@ -9,11 +9,11 @@ import subprocess
 import sys
 
 from . import scoped_lock, write_json
-from .launch import selected_store, store_options
+from .launch import selected_store, store_options, project_environment
 
 
-def call(argv, *, check=True):
-    result=subprocess.run(argv,text=True,stdout=subprocess.PIPE,timeout=300)
+def call(argv, *, check=True, env=None):
+    result=subprocess.run(argv,text=True,stdout=subprocess.PIPE,timeout=300,env=env)
     if result.stderr:print(result.stderr,end='',file=sys.stderr,flush=True)
     if check and result.returncode:
         if result.stdout:print(result.stdout,end='',flush=True)
@@ -26,10 +26,15 @@ def valid(store,path):
 
 
 def view(path,foreign):
-    # Explicit local access here must refer to the selected execution view.
-    if not valid('local',path) or valid('local',foreign):raise ValueError('Selected execution view has the wrong metadata')
-    db=Path('/nix/var/nix/db/db.sqlite').stat()
-    print(json.dumps({'db':[db.st_dev,db.st_ino],'path':path,'foreignValid':False}))
+    store=selected_store(os.environ.get('NIX_REMOTE','local'))
+    if not valid(store,path) or valid(store,foreign):raise ValueError('Selected execution view has the wrong metadata')
+    # The logical store view must expose the unique output, not just its database.
+    identity=(Path(path)/'identity').read_text().strip()
+    db_path=Path(('' if store=='local' else store)+'/nix/var/nix/db/db.sqlite')
+    db=db_path.stat()
+    print(json.dumps({'db':[db.st_dev,db.st_ino],'databasePath':str(db_path),
+        'path':path,'identity':identity,'foreignValid':False}))
+
 
 
 def fixture(bash,tools,system,name):
@@ -144,9 +149,10 @@ def qualify(root,flake,system):
             dbs={role:Path(prefix+'/nix/var/nix/db/db.sqlite').stat() for role,prefix in {'normal':'','chroot':root}.items()}
             identities={role:[stat.st_dev,stat.st_ino] for role,stat in dbs.items()}
             if identities['normal']==identities['chroot']:raise ValueError('Stores use the same database')
-            views={role:json.loads(call(view_command(store,flake,system,outputs[role],outputs['chroot' if role=='normal' else 'normal'])).stdout) for role,store in stores.items()}
+            views={role:json.loads(call(view_command(store,flake,system,outputs[role],outputs['chroot' if role=='normal' else 'normal']),env=project_environment(os.environ,store)).stdout) for role,store in stores.items()}
             for role in stores:
-                if views[role]['db']!=identities[role]:raise ValueError('Execution used the wrong /nix metadata view')
+                if views[role]['db']!=identities[role]:raise ValueError('Execution queried the wrong metadata database')
+                if views[role]['identity']!='nix-xd-poc-'+role+'-'+token:raise ValueError('Execution read the wrong logical output')
             print('CHROOT_POC_VIEW=passed metadata=separate nested_nix=selected',flush=True)
             print('CHROOT_POC_ROOTS=check_protected_output',flush=True)
             if call(['nix-store','--store',root,'--delete',outputs['chroot']],check=False).returncode==0:

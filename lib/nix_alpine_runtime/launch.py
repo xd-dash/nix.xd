@@ -32,6 +32,14 @@ def command(flake, app, system, arguments, store='local'):
     return ['nix','run',*store_options(store),'--no-write-lock-file',flake+'#apps.'+system+'.'+app,'--',*values]
 
 
+
+def project_environment(base,store):
+    store=selected_store(store)
+    env=dict(base,NIX_REMOTE=store,NIX_XD_PROJECT_PHYSICAL_STORE=store)
+    if store!='local':env['NIX_CONFIG']=env.get('NIX_CONFIG','')+'\nsandbox = true\nsandbox-fallback = false\n'
+    return env
+
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--flake',required=True)
@@ -47,11 +55,8 @@ def main():
         if not Path(store).is_mount() or not (Path(store)/'.nix-xd-chroot-v1').is_file():
             raise ValueError('Selected chroot store must be an attached persistent volume')
     argv=command(args.flake,args.app,args.system,args.args_json,store)
-    # In the executed chroot view, local means this selected store, not the outer one.
-    os.environ['NIX_REMOTE']='local'
-    if store!='local':
-        os.environ['NIX_CONFIG']=os.environ.get('NIX_CONFIG','')+'\nsandbox = true\nsandbox-fallback = false\n'
-    os.environ['NIX_XD_PROJECT_PHYSICAL_STORE']=store
+    # Nix's runtime store mount does not redirect its metadata directories.
+    os.environ.update(project_environment(os.environ,store))
     print('PROJECT_EXECUTOR=linux app='+args.app+' system='+args.system,flush=True)
     os.execvp(argv[0],argv)
 

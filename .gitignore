@@ -1,3 +1,5 @@
 result
 result-*
 .state/
+
+nix-xd.local.mk

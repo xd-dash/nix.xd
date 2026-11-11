@@ -2,6 +2,9 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
+NIX_XD_CONFIG ?= $(CURDIR)/nix-xd.local.mk
+-include $(NIX_XD_CONFIG)
+
 PROVIDER ?= podman
 # Architecture is selected at orchestration time, independent of provider.
 # Native x86_64 runtime bootstrap is a separate adapter and is not yet qualified.
