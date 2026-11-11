@@ -20,6 +20,8 @@ for spec in ${entries[@]+"${entries[@]}"}; do
     if grep -Fxq "$volume" <<< "$mounted"; then
       owner=$(podman --connection "$machine" inspect "$id" --format '{{.Name}}')
       [[ ${owner#/} == "$scope" ]] || { echo "Store already attached to another owner: $volume" >&2;exit 1; }
+      destination=$(podman --connection "$machine" inspect "$id" --format '{{range .Mounts}}{{if eq .Name "'$volume'"}}{{println .Destination}}{{end}}{{end}}')
+      [[ $destination == "/stores/$name" ]] || { echo "Same owner mounted store at unexpected destination: $volume" >&2;exit 1; }
     fi
   done
 done
