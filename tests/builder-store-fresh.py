@@ -46,6 +46,27 @@ esac
             self.assertIn("qualification-volume-already-exists", result.stderr)
             self.assertNotIn("bootstrap-builder-profile", record.read_text())
 
+    def test_resume_requires_existing_builder_before_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env, record = self.fixture(directory)
+            result = subprocess.run(["bash", str(SCRIPT), "resume"], cwd=ROOT,
+                                    env=env, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("resume-missing-container", result.stderr)
+            self.assertNotIn("builder-store-profile-complete", record.read_text())
+
+    def test_bootstrap_stages_after_namespace_and_after_syscall_profile(self):
+        makefile = (ROOT / "mk/builder-store-profile.mk").read_text()
+        target = makefile.split("builder-store-profile-complete:", 1)[1].split(
+            "\\n\\n", 1)[0]
+        lines = [line.strip() for line in target.splitlines()
+                 if line.lstrip().startswith("@$(MAKE)")]
+        self.assertEqual(len(lines), 4)
+        self.assertIn("BUILDER_CHROOT_SYSCALLS=0", lines[0])
+        self.assertTrue(lines[1].endswith(" stage"))
+        self.assertTrue(lines[2].endswith(" builder-store-profile-apply"))
+        self.assertTrue(lines[3].endswith(" stage"))
+
     def test_cleanup_needs_exact_confirmation(self):
         with tempfile.TemporaryDirectory() as directory:
             env, record = self.fixture(directory)
