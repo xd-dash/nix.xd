@@ -60,6 +60,7 @@ exit 99
         getenforce.chmod(0o755)
         self.environment = dict(os.environ, PATH=str(self.directory) + ':' + os.environ['PATH'],
                                 NIX_XD_PROVIDER="podman", NIX_XD_SCOPE="owner",
+                                NIX_XD_CHROOT_SELINUX="keep",
                                 NIX_XD_STORE_VOLUME="owner-store", NIX_XD_SYSTEM="aarch64-linux",
                                 NIX_XD_BUILDER_RUNTIME_FLAKE="/workspaces/nix.xd20261111",
                                 NIX_XD_PEER_STORES="peer=peer-store", BUILDER_CHROOT_STORES="aux=aux-store",
