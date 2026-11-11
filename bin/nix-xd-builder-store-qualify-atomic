@@ -73,6 +73,17 @@ done
   grep -Eq "^Seccomp:[[:space:]]+2$" /proc/self/status
 ' || fail 'container-security-or-store-readiness'
 
+# Confirm the complete declaration is in the original Quadlet, not in
+# incrementally generated post-start drop-ins.
+unit_text=$(podman machine ssh "$machine" "cat \$HOME/.config/containers/systemd/$scope.container")
+for declaration in "Volume=$authoritative:/nix" \
+  "Volume=$chroot_a:/stores/grumble" "Volume=$chroot_b:/stores/experiments" \
+  "Unmask=/proc/*" "SeccompProfile="; do
+  grep -Fq "$declaration" <<< "$unit_text" || fail "missing-initial-quadlet:$declaration"
+done
+if podman machine ssh "$machine" "test -d \$HOME/.config/containers/systemd/$scope.container.d"; then
+  fail 'atomic-bootstrap-must-not-require-profile-dropins'
+fi
 printf 'BUILDER_ATOMIC_PHASE=security\n'
 "${podman_cmd[@]}" exec "$scope" sh -ec '
   test "$(id -u)" -eq 1000
