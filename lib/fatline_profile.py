@@ -41,9 +41,11 @@ def invoke(link, record, action, incoming=None):
     body+='test "$(sha256sum '+shlex.quote(script)+' | cut -d " " -f 1)" = '+shlex.quote(record['sha256'])+'\n'
     if incoming:
         body+='test "$(sha256sum '+shlex.quote(incoming+'/manifest.json')+' | cut -d " " -f 1)" = '+shlex.quote(record['manifestDigest'])+'\n'
-    output=run(link.command,link.env,True,body+shlex.join(command)+'\n',timeout=600)
+    output=run(link.command,link.env,True,body+shlex.join(command)+'\n',timeout=1200)
     print(output,end='',flush=True)
-    expected='FATLINE_STARTUP_PROFILE=passed' if action=='install' else 'FATLINE_STARTUP_PROFILE_STATUS=passed'
+    expected={'install':'FATLINE_STARTUP_PROFILE=passed','status':'FATLINE_STARTUP_PROFILE_STATUS=passed',
+        'qualify-reliability':'FATLINE_PROFILE_RELIABILITY=passed bootstrap_failure=blocked redis_crash=automatic boot=unchanged',
+        'recover':'FATLINE_PROFILE_RECOVERY=passed'}[action]
     require(expected in output.splitlines(),'Startup profile acknowledgement missing; edit and rerun, roots retained')
 
 
@@ -164,8 +166,48 @@ def run_profile(original,peer):
     print('FATLINE_PROFILE_RESULT=passed reboot=not_run peer_vm=unchanged',flush=True)
 
 
+
+def run_reliability(link,peer,action):
+    services=Services(link)
+    path=services.root/'startup-profile.json'
+    require(path.exists(),'Apply fatline-profile-local first')
+    record=json.loads(path.read_text())
+    require(record['status']=='installed' and record['source']==selected(link),'Apply the selected startup profile first')
+    require(record['boot']==link.state['boot'],'Reconcile the guest boot before service recovery')
+    peer_before=observe(peer)
+    before_boot=run(link.command,link.env,True,'cat /proc/sys/kernel/random/boot_id\n',timeout=30).strip()
+    require(before_boot==link.state['boot'],'Guest boot record changed')
+    credential_hashes=credentials(link.root)
+    services.retain();Services(peer).retain()
+    evidence=services.root/('reliability-qualification.json' if action=='qualify-reliability' else 'profile-recovery.json')
+    receipt={'result':'running','source':record['source'],'boot':before_boot,'fullFatline':False,
+        'persistence':'ephemeral','rebootQualified':False,'parentVmReplacementQualified':False}
+    write_json(evidence,receipt)
+    try:
+        invoke(link,record,action)
+        services.execute('qualify')
+        qualify_subscriber(link,resource=True)
+        after=observe(link)
+        require(after['boot']==before_boot,'Guest rebooted during application reliability gate')
+        require(observe(peer)==peer_before,'VM2 changed during application reliability gate')
+        require(credentials(link.root)==credential_hashes,'Application reliability gate changed credentials')
+        receipt.update(result='passed',observation=after,peerUnchanged=True,
+            bootstrapFailureQualified=action=='qualify-reliability',redisCrashQualified=action=='qualify-reliability')
+    except (ValueError,OSError,subprocess.SubprocessError):
+        receipt['result']='failed'
+        from fatline_recovery import diagnose
+        try:diagnose(services)
+        except (OSError,subprocess.SubprocessError) as error:print('Diagnostics unavailable: '+str(error),file=sys.stderr)
+        raise
+    finally:write_json(evidence,receipt)
+    print('FATLINE_PROFILE_'+('RELIABILITY' if action=='qualify-reliability' else 'RECOVERY')+'_RESULT=passed peer_vm=unchanged',flush=True)
+
+
 def main():
-    print('FATLINE_PROFILE_START=local',flush=True)
+    parser=argparse.ArgumentParser()
+    parser.add_argument('action',nargs='?',default='apply',choices=('apply','qualify-reliability','recover'))
+    action=parser.parse_args().action
+    print('FATLINE_PROFILE_START='+action,flush=True)
     require(os.environ.get('NIX_XD_FATLINE_PROFILE','vm1')=='vm1','Qualify VM1 startup profile first')
     os.umask(0o077)
     with ExitStack() as locks:
@@ -175,7 +217,8 @@ def main():
                 os.environ.update(NIX_XD_FATLINE_PROFILE=profile,NIX_XD_FATLINE_SCOPE='fatline-arm-'+profile)
                 link=HostLink();lock=locks.enter_context(link.lock_path.open('a'));fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);links.append(link)
         finally:os.environ.clear();os.environ.update(saved)
-        run_profile(*links)
+        if action=='apply':run_profile(*links)
+        else:run_reliability(*links,action)
 
 
 if __name__=='__main__':

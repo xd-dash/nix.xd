@@ -77,9 +77,9 @@ migration architecture. Logs remain in `logs/`.
 
 ## Remaining work
 
-* Consolidate the historical activate/configure/recovery setup steps into Agni's
-  complete startup profile. The resolved manifest now makes their inputs explicit;
-  this bootstrap adapter should shrink rather than gain application policy.
+* The historical activation/configuration/recovery steps now share one Agni
+  startup profile. Qualify its service-failure and reboot contracts independently
+  using the gates in [Fatline reliability](fatline-reliability.md).
 * Qualify bootstrap failure injection, production publisher reconciliation, and two
   tenants in one Redis process. The resource dispatch still uses a finite fixture
   producer and is not production publisher orchestration.

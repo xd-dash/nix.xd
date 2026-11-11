@@ -551,3 +551,9 @@ fatline-sandbox-status:
 .PHONY: fatline-profile-local
 fatline-profile-local:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_profile.py
+
+.PHONY: fatline-profile-reliability fatline-profile-recover
+fatline-profile-reliability:
+	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_profile.py qualify-reliability
+fatline-profile-recover:
+	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_profile.py recover

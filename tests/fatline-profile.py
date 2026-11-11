@@ -27,6 +27,20 @@ class SimpleApply(unittest.TestCase):
                 activate.assert_not_called()
             self.assertEqual(json.loads((root/'profile-operation.json').read_text())['phase'],'applying')
 
+    def test_failed_reliability_gate_records_failure_without_selecting_generation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);source={'revision':'selected'}
+            (root/'startup-profile.json').write_text(json.dumps({'status':'installed','source':source,'boot':'boot'}))
+            link=SimpleNamespace(root=root,state={'boot':'boot'},command=['ssh'],env={})
+            services=SimpleNamespace(root=root,retain=lambda:None)
+            with patch.object(profile,'Services',return_value=services),patch.object(profile,'selected',return_value=source),patch.object(profile,'observe',return_value={'boot':'peer'}),patch.object(profile,'run',return_value='boot'),patch.object(profile,'credentials',return_value={}),patch.object(profile,'invoke',side_effect=ValueError('recovery failed')),patch('fatline_recovery.diagnose'),patch.object(profile,'activate') as activate:
+                with self.assertRaisesRegex(ValueError,'recovery failed'):profile.run_reliability(link,SimpleNamespace(),'qualify-reliability')
+                activate.assert_not_called()
+            receipt=json.loads((root/'reliability-qualification.json').read_text())
+            self.assertEqual(receipt['result'],'failed')
+            self.assertFalse(receipt['rebootQualified'])
+            self.assertFalse(receipt['parentVmReplacementQualified'])
+
     def test_zero_exit_without_profile_ack_is_not_success(self):
         link=SimpleNamespace(scope='scope',state={'boot':'boot'},command=['ssh'],env={})
         record={'bundle':'/nix/store/'+'a'*32+'-profile','probe':'/nix/store/probe','sha256':'digest'}

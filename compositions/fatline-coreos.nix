@@ -34,7 +34,7 @@ let vm2 = profile == "vm2"; in
   };
   startupProfile = {
     repository = "dash-xd/agni";
-    revision = "71f16b841c50d785e7c56a27ce5ae5126a9d9cb2";
+    revision = "27e009f2588370fd8efa31f31e381875f9786cf4";
     package = "coreos-startup-profile";
     contract = "coreos-startup-profile-v1";
   };

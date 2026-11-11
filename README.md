@@ -1632,6 +1632,26 @@ This restarts VM1's application group, clearing its ephemeral Redis data. It doe
 not rebuild Nix-Alpine or reboot CoreOS. The gate checks service readiness and
 host subscriber delivery while verifying VM2 remains unchanged. A failed apply
 retains logs and roots: edit the declaration, stage, and rerun the same command.
-No fault-injection or Nix-Alpine qualification is required. Full Fatline
+Nix-Alpine qualification is outside this gate. Application failure handling has
+a separate `fatline-profile-reliability` gate. Full Fatline
 qualification remains incomplete; this gate does not qualify the new boot graph
 across reboot, production publisher reconciliation, tenant isolation or durability.
+
+
+### Fatline service reliability
+
+After staging and applying the selected startup profile, run:
+
+```bash
+fatline fatline-profile-local &&
+fatline fatline-profile-reliability &&
+fatline fatline-sandbox-status
+```
+
+This gate tests failed bootstrap blocking, managed recovery and automatic Redis
+crash recovery, then checks applications, ACLs and host delivery. VM1 is not
+rebooted; VM2 must remain unchanged. Ephemeral Redis data is cleared. If interrupted,
+use `fatline fatline-profile-recover`, then rerun the gate. For the independent
+CoreOS boot gate use `fatline fatline-reboot-local`. Do not conflate either with
+Nix-Alpine bootstrap qualification. See [the reliability review](docs/fatline-reliability.md)
+for the GCP parent/guest boundaries and remaining qualification.
