@@ -193,3 +193,28 @@ To remove a workspace, select an exact path and run `git worktree remove`
 only after ensuring it has no uncommitted changes and is not serving active
 qualification or application source. Delete obsolete worktree metadata only
 after its linked checkout is no longer needed.
+
+## Interrupted first bootstrap: resuming the scoped qualifier
+
+A Podman Quadlet restart recreates the container writable layer, including
+the staged `/workspaces/<checkout>` tree. This was discovered when the first
+fresh qualification successfully bootstrapped and mounted both chroots, but
+the namespace restart removed the staged flake before `#builderPolicy` was built.
+
+`bootstrap-builder-profile` now stages after mounting and namespace changes,
+then applies the syscall policy, then stages again after any seccomp restart.
+This preserves the final flake for application execution.
+
+The dedicated qualifier can recover without touching the store volumes:
+
+```sh
+make builder-store-profile-qualify-resume MACHINE=coreos-arm64
+```
+
+The resume gate requires the expected qualification Podman container, Quadlet,
+image tag, authoritative volume, and two correctly mounted chroot volumes
+to already exist. It does **not** run bootstrap, delete volumes, or reset GC
+roots. It finishes the staged-policy sequence, verifies security and mounts,
+and checks idempotence. It logs the result under the resume target name.
+This does not qualify full atomic initial Quadlet generation; post-bootstrap
+restarts remain part of the current profile design.
