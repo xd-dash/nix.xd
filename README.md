@@ -11,6 +11,17 @@ This does not install NixOS or change host packages.
 The separate `nix-alpine` flake source is pinned to upstream commit 80a2821b7571edd09507f9b4349e2f1ed3daf900. Its Dockerfile is not used for the direct-volume runtime bootstrap.
 
 
+## Multiple Nix stores per Nix-Alpine owner
+
+The Podman builder may keep its authoritative writable `/nix` store alongside
+separately writable chroot stores under `/stores/<name>`, and independently
+mount read-only peer stores under `/peer/<name>`. The Mac ARM64 two-store
+chroot POC passed concurrent builds, independent metadata and GC-root retention.
+An opt-in declarative builder profile provides volume and namespace selection
+for future instances without a Fatline-specific wrapper. See
+[builder store profiles](docs/builder-store-profiles.md) for the Make interface,
+security restrictions, and the targeted static gate.
+
 ## Generic Make orchestration on Apple Silicon
 
 The ARM Makefile follows the developing x86-64 Nix-Alpine interface at
