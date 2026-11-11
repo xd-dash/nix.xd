@@ -79,6 +79,8 @@ help:
 	  'make qualify-plan FLAKE=path PLAN_TARGET=\x23app (application-owned plan)' \
 	  'make start|stop|restart|status|logs|shell|exec|ps|inspect|store-info' \
 	  'make store-diagnose MACHINE=... SCOPE=...  Log read-only Nix store inventory' \
+	  'make builder-store-profile-plan|builder-store-profile-check  Validate alternate store profile without touching the VM' \
+	  'make bootstrap-builder-profile  Bootstrap an opt-in multi-chroot Nix-Alpine owner' \
 	  'make workload-prepare|workload-inspect|workload-activate|workload-stop WORKLOAD=starwisp-probe' \
 	  'make store-roots-inspect|store-roots-apply MACHINE=... SCOPE=...  Inspect or pin Starwisp closures' \
 	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
