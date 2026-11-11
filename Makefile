@@ -81,6 +81,8 @@ help:
 	  'make store-diagnose MACHINE=... SCOPE=...  Log read-only Nix store inventory' \
 	  'make builder-store-profile-plan|builder-store-profile-check  Validate alternate store profile without touching the VM' \
 	  'make bootstrap-builder-profile  Bootstrap an opt-in multi-chroot Nix-Alpine owner' \
+	  'make builder-store-profile-qualify-fresh  One-shot isolated fresh bootstrap + idempotence' \
+	  'make builder-runtime-inventory|builder-store-profile-qualify-clean  Inventory and scoped cleanup' \
 	  'make workload-prepare|workload-inspect|workload-activate|workload-stop WORKLOAD=starwisp-probe' \
 	  'make store-roots-inspect|store-roots-apply MACHINE=... SCOPE=...  Inspect or pin Starwisp closures' \
 	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
@@ -265,7 +267,7 @@ check-static-internal:
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
-	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence
+	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence bin/nix-xd-builder-store-qualify-fresh bin/nix-xd-builder-store-maintenance
 	@python3 tests/wisp-go-owner.py
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
