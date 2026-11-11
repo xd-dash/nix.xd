@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-bash -n "$repo/bin/nix-xd-state-volume" "$repo/bin/nix-xd-log" "$repo/bin/nix-xd-task"
+for script in "$repo/bin/nix-xd-state-volume" "$repo/bin/nix-xd-log" "$repo/bin/nix-xd-task"; do
+  bash -n "$script"
+done
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/podman" <<'MOCK'
