@@ -17,6 +17,8 @@ run() { bash "$repo_root/bin/nix-xd-workspace" "$@"; }
 run plan > "$tmp/plan"
 [[ ! -e $NIX_XD_WORKSPACE_ROOT ]]
 run open > "$tmp/first"
+# macOS /var is an alias of /private/var; cleanup reports physical paths.
+NIX_XD_WORKSPACE_ROOT=$(cd "$NIX_XD_WORKSPACE_ROOT" && pwd -P)
 target="$NIX_XD_WORKSPACE_ROOT/source20261111"
 [[ $(git -C "$target" branch --show-current) == v20261111 ]]
 [[ $(run path) == "$target" ]]
@@ -54,6 +56,9 @@ chmod 0555 "$cache" "$cache/nested" "$tmp/outside-cache"
 git -C "$tmp/source" worktree add --quiet --detach "$NIX_XD_WORKSPACE_ROOT/source20261110" HEAD
 if (cd "$NIX_XD_WORKSPACE_ROOT/source"; NIX_XD_WORKSPACE_VERSION=20261113 run clean-plan > /dev/null 2>&1); then exit 1; fi
 NIX_XD_WORKSPACE_VERSION=20261113 run clean-plan > "$tmp/cleanup-plan"
+ln -s "$NIX_XD_WORKSPACE_ROOT" "$tmp/workspace-alias"
+NIX_XD_WORKSPACE_ROOT="$tmp/workspace-alias" NIX_XD_WORKSPACE_VERSION=20261113 run clean-plan > "$tmp/alias-plan"
+cmp "$tmp/cleanup-plan" "$tmp/alias-plan"
 [[ -f "$NIX_XD_WORKSPACE_ROOT/source/file" ]]
 [[ ! -w $cache && ! -w $cache/nested ]]
 grep -qx "WORKSPACE_REMOVE=$NIX_XD_WORKSPACE_ROOT/source" "$tmp/cleanup-plan"
