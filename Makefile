@@ -262,6 +262,7 @@ check-static-internal:
 	@python3 tests/wisp-go-owner.py
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
+	@python3 tests/runtime-primitives.py
 	@python3 tests/compositions.py
 	@python3 tests/guest-executor.py
 	@python3 tests/coreos-managed-start.py
@@ -557,3 +558,16 @@ fatline-profile-reliability:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_profile.py qualify-reliability
 fatline-profile-recover:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_profile.py recover
+
+# Make selects the runtime and project; orchestration executes in Nix-Alpine.
+PROJECT_FLAKE ?=
+PROJECT_APP ?= default
+PROJECT_ARGS_JSON ?= []
+PROJECT_RUNTIME_FLAKE ?= $(WORKLOAD_FLAKE)
+export NIX_XD_PROJECT_FLAKE = $(PROJECT_FLAKE)
+export NIX_XD_PROJECT_APP = $(PROJECT_APP)
+export NIX_XD_PROJECT_ARGS_JSON = $(PROJECT_ARGS_JSON)
+export NIX_XD_PROJECT_RUNTIME_FLAKE = $(PROJECT_RUNTIME_FLAKE)
+.PHONY: project-run
+project-run:
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-task project-run

@@ -112,10 +112,16 @@ nix_task() {
 }
 
 case "$action" in
-  stage|show|check|build|path-info|run|qualify|develop|shell|exec|store-info|store-diagnose) validate_runtime_arch ;;
+  project-run|stage|show|check|build|path-info|run|qualify|develop|shell|exec|store-info|store-diagnose) validate_runtime_arch ;;
 esac
 
 case "$action" in
+  project-run)
+    [[ -n "${NIX_XD_PROJECT_FLAKE:-}" && -n "${NIX_XD_PROJECT_RUNTIME_FLAKE:-}" ]] || fail 'Select PROJECT_FLAKE and PROJECT_RUNTIME_FLAKE'
+    inside nix run --no-write-lock-file "$NIX_XD_PROJECT_RUNTIME_FLAKE#project-launch" -- \
+      --flake "$NIX_XD_PROJECT_FLAKE" --app "${NIX_XD_PROJECT_APP:-default}" \
+      --system "$system" --args-json "${NIX_XD_PROJECT_ARGS_JSON:-[]}"
+    ;;
   stage) stage ;;
   show|check|build|path-info|run|qualify|develop) nix_task ;;
   shell) interactive bash -l ;;

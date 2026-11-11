@@ -33,6 +33,15 @@
           nestedAlpine = import ./guest/nix-alpine/package.nix { inherit pkgs system; };
           storeProbeDynamic = pkgs.hello;
           storeProbeNix = pkgs.nix;
+          runtimePrimitives = import ./runtime { inherit pkgs; };
+          runtimePython = pkgs.python3.withPackages (_: [ runtimePrimitives ]);
+          projectLauncher = pkgs.writeShellApplication {
+            name = "nix-xd-project-launch";
+            runtimeInputs = [ runtimePython pkgs.nix ];
+            text = ''
+              exec python3 -m nix_alpine_runtime.launch "$@"
+            '';
+          };
           applicationRedis = pkgs.redis;
           composition-plan = pkgs.writeShellApplication {
             name = "nix-xd-composition-plan";
@@ -68,7 +77,7 @@
             name = "nix-xd-wisp-go-tools";
             paths = [ pkgs.go_1_26 pkgs.gcc pkgs.git pkgs.bash pkgs.cacert ];
           };
-          inherit applicationRedis installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
+          inherit runtimePrimitives runtimePython projectLauncher applicationRedis installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
       fatlinePlans = eachSystem (system: {
         host-link = import ./compositions/fatline-coreos.nix { inherit system; };
@@ -145,6 +154,10 @@
         };
       });
       apps = eachSystem (system: {
+        project-launch = {
+          type = "app";
+          program = "${self.packages.${system}.projectLauncher}/bin/nix-xd-project-launch";
+        };
         composition-plan = {
           type = "app";
           program = "${self.packages.${system}.composition-plan}/bin/nix-xd-composition-plan";
