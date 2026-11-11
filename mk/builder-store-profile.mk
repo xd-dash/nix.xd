@@ -53,6 +53,7 @@ builder-store-profile-check-internal:
 	  runtime/chroot-attach.sh runtime/builder-chroot-profile.sh runtime/builder-chroot-syscalls.sh
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
+	@python3 tests/builder-store-fresh.py
 	@python3 tests/chroot-attach.py
 	@echo 'BUILDER_STORE_PROFILE_STATIC_RESULT=passed'
 
