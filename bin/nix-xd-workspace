@@ -45,11 +45,14 @@ if [[ $action == clean || $action == clean-plan ]]; then
     [[ ! -e $candidate.lock ]] || die "Workspace operation holds $candidate.lock"
     printf 'WORKSPACE_REMOVE=%s\n' "$candidate"
     if [[ $action == clean ]]; then
+      # Read-only dependency cache directories prevent unlinking their contents.
+      find "$candidate" -type d -exec chmod u+rwx {} \;
       if [[ -f $candidate/.git ]]; then
         git -C "$candidate" worktree remove --force "$candidate"
       else
         rm -rf -- "$candidate"
       fi
+      [[ ! -e $candidate && ! -L $candidate ]] || die "Cleanup left a directory behind: $candidate"
     fi
     count=$((count+1))
   done

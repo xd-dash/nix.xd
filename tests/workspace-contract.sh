@@ -2,7 +2,7 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp=$(mktemp -d)
-trap 'rm -rf -- "$tmp"' EXIT
+trap 'find "$tmp" -type d -exec chmod u+rwx {} \; ; rm -rf -- "$tmp"' EXIT
 git init -q "$tmp/source"
 git -C "$tmp/source" config user.name Fixture
 git -C "$tmp/source" config user.email fixture@example.invalid
@@ -44,12 +44,21 @@ NIX_XD_WORKSPACE_VERSION=20261113 NIX_XD_WORKSPACE_BASE=v20261113 run open > /de
 mkdir -p "$NIX_XD_WORKSPACE_ROOT/source" "$NIX_XD_WORKSPACE_ROOT/source-fresh" "$NIX_XD_WORKSPACE_ROOT/source-consolidated"
 mkdir -p "$NIX_XD_WORKSPACE_ROOT/grumble" "$NIX_XD_WORKSPACE_ROOT/source-tools" "$NIX_XD_WORKSPACE_ROOT/source20261201"
 echo stale > "$NIX_XD_WORKSPACE_ROOT/source/file"
+cache="$NIX_XD_WORKSPACE_ROOT/source/.cache/go/mod/example.invalid/module@v1.0.0"
+mkdir -p "$cache/nested" "$tmp/outside-cache"
+echo cached > "$cache/nested/file.go"
+echo outside > "$tmp/outside-cache/file"
+ln -s "$tmp/outside-cache" "$NIX_XD_WORKSPACE_ROOT/source/outside-link"
+chmod 0444 "$cache/nested/file.go"
+chmod 0555 "$cache" "$cache/nested" "$tmp/outside-cache"
 git -C "$tmp/source" worktree add --quiet --detach "$NIX_XD_WORKSPACE_ROOT/source20261110" HEAD
 if (cd "$NIX_XD_WORKSPACE_ROOT/source"; NIX_XD_WORKSPACE_VERSION=20261113 run clean-plan > /dev/null 2>&1); then exit 1; fi
 NIX_XD_WORKSPACE_VERSION=20261113 run clean-plan > "$tmp/cleanup-plan"
 [[ -f "$NIX_XD_WORKSPACE_ROOT/source/file" ]]
+[[ ! -w $cache && ! -w $cache/nested ]]
 grep -qx "WORKSPACE_REMOVE=$NIX_XD_WORKSPACE_ROOT/source" "$tmp/cleanup-plan"
 NIX_XD_WORKSPACE_VERSION=20261113 run clean > "$tmp/cleanup"
+[[ ! -w $tmp/outside-cache && -f $tmp/outside-cache/file ]]
 for stale in source source-fresh source-consolidated source20261110 source20261111 source20261112; do
   [[ ! -e $NIX_XD_WORKSPACE_ROOT/$stale ]]
 done

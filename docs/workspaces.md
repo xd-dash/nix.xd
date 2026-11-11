@@ -51,6 +51,10 @@ repositories, the retained version and future versions alone. Symlinks are not
 followed. A retained dated checkout must already exist. Run cleanup from that
 checkout, not from a directory being removed. No dirty-work preservation or
 additional confirmation is required: workspace-clean explicitly requests deletion.
+Before removal, cleanup restores owner read/write/search permission on directories
+inside each selected stale checkout. This handles read-only Go module-cache
+directories without changing file contents or following symlinks. The plan does
+not change permissions. Cleanup verifies that each selected path was removed.
 
 ```sh
 export NIX_XD_LOG_DIR="$HOME/.local/nix.xd/logs"
