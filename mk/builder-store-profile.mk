@@ -36,6 +36,8 @@ bootstrap-builder-profile:
 	@test "$(PROVIDER)" = podman || { echo 'Builder chroot bootstrap currently requires PROVIDER=podman' >&2; exit 2; }
 	@if [[ '$(INITIAL_PROFILE)' == 1 ]]; then \
 	  test -n '$(INITIAL_CHROOT_STORES)' || { echo 'Missing INITIAL_CHROOT_STORES' >&2; exit 2; }; \
+	  test '$(INITIAL_CHROOT_STORES)' = '$(BUILDER_CHROOT_STORES)' || { echo 'Initial and planned stores must match' >&2; exit 2; }; \
+	  test '$(BUILDER_CHROOT_NAMESPACE)' = 1 && test '$(BUILDER_CHROOT_SYSCALLS)' = 1 && test '$(CHROOT_SELINUX)' = keep || { echo 'Atomic profile requires namespace, seccomp and retained SELinux separation' >&2; exit 2; }; \
 	  $(MAKE) --no-print-directory bootstrap; \
 	  $(MAKE) --no-print-directory stage; \
 	else \
@@ -121,6 +123,16 @@ builder-store-profile-qualify-atomic:
 	  NIX_XD_CHROOT_SELINUX=keep \
 	  bash bin/nix-xd-log "$(ATOMIC_STORE_SCOPE)" "$@" \
 	    bash bin/nix-xd-builder-store-qualify-atomic
+
+# A different isolated scope than the already qualified chroot bootstrap.
+.PHONY: builder-store-profile-atomic-clean
+builder-store-profile-atomic-clean:
+	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' \
+	  NIX_XD_QUALIFY_SCOPE='$(ATOMIC_STORE_SCOPE)' \
+	  NIX_XD_QUALIFY_IMAGE='$(ATOMIC_STORE_IMAGE)' \
+	  NIX_XD_QUALIFY_RESET_CONFIRM='$(QUALIFY_RESET_CONFIRM)' \
+	  bash bin/nix-xd-log "$(ATOMIC_STORE_SCOPE)" "$@" \
+	    bash bin/nix-xd-builder-store-maintenance clean-qualify
 
 # Inventory is read-only. Cleanup is limited to the explicit *-qualify scope.
 .PHONY: builder-runtime-inventory builder-store-profile-qualify-clean
