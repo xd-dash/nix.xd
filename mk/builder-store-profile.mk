@@ -89,3 +89,13 @@ builder-store-profile-qualify-clean:
 	  NIX_XD_QUALIFY_IMAGE='$(QUALIFY_STORE_IMAGE)' \
 	  NIX_XD_QUALIFY_RESET_CONFIRM='$(QUALIFY_RESET_CONFIRM)' \
 	  bash bin/nix-xd-log "$(QUALIFY_STORE_SCOPE)" "$@" bash bin/nix-xd-builder-store-maintenance clean-qualify
+
+# Explicit cleanup of dangling Podman images only; does not touch volumes.
+DANGLING_PRUNE_CONFIRM ?=
+.PHONY: builder-image-prune-dangling
+builder-image-prune-dangling:
+	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' \
+	  NIX_XD_QUALIFY_SCOPE='$(QUALIFY_STORE_SCOPE)' \
+	  NIX_XD_QUALIFY_IMAGE='$(QUALIFY_STORE_IMAGE)' \
+	  NIX_XD_DANGLING_PRUNE_CONFIRM='$(DANGLING_PRUNE_CONFIRM)' \
+	  bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-store-maintenance prune-dangling
