@@ -42,3 +42,10 @@ if __name__=='__main__':
     try:main()
     except (ValueError,OSError,subprocess.SubprocessError) as error:
         print('Builder policy error: '+str(error),file=sys.stderr);sys.exit(1)
+
+
+With the proc and UTS profiles applied, both concurrent fixture builds completed
+and metadata isolation checks proceeded. The next failure was the POC attempting
+`nix run` on a bare output path; Nix rejected it as not a language value. Execution
+now selects the explicit `store-poc-view` flake app under each chosen store. This
+is a qualifier invocation correction, not another container security change.

@@ -12,7 +12,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'lib'))
 from nix_alpine_runtime import run,scoped_lock,write_json
 from nix_alpine_runtime.builder_policy import render as render_policy
-from nix_alpine_runtime.store_poc import policy_diagnostics
+from nix_alpine_runtime.store_poc import policy_diagnostics, view_command
 from nix_alpine_runtime.launch import command, selected_store, store_options
 
 
@@ -89,6 +89,12 @@ class RuntimePrimitives(unittest.TestCase):
         self.assertEqual(render_policy({'linux':{'seccomp':result}}),result)
         for invalid in ({},{'linux':{'seccomp':{'defaultAction':'SCMP_ACT_ALLOW'}}}):
             with self.assertRaises(ValueError):render_policy(invalid)
+
+    def test_store_view_runs_a_named_app_in_the_selected_store(self):
+        argv=view_command('/stores/grumble','/workspaces/project','aarch64-linux','/nix/store/own','/nix/store/foreign')
+        self.assertIn('/workspaces/project#apps.aarch64-linux.store-poc-view',argv)
+        self.assertEqual(argv[argv.index('--store')+1],'/stores/grumble')
+        self.assertEqual(argv[argv.index('--')+1:],['view','--path','/nix/store/own','--foreign','/nix/store/foreign'])
 
     def test_invalid_arguments_are_rejected(self):
         for arguments in ('{}','[1]','[null]'):

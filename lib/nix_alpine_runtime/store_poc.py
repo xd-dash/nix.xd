@@ -95,6 +95,12 @@ def namespace_diagnostics():
     return result
 
 
+
+def view_command(store,flake,system,path,foreign):
+    return ['nix','run',*store_options(store),'--no-write-lock-file',
+        flake+'#apps.'+system+'.store-poc-view','--','view','--path',path,'--foreign',foreign]
+
+
 def qualify(root,flake,system):
     selected_store(root)
     if root=='local':raise ValueError('Select an isolated chroot store for this POC')
@@ -138,7 +144,7 @@ def qualify(root,flake,system):
             dbs={role:Path(prefix+'/nix/var/nix/db/db.sqlite').stat() for role,prefix in {'normal':'','chroot':root}.items()}
             identities={role:[stat.st_dev,stat.st_ino] for role,stat in dbs.items()}
             if identities['normal']==identities['chroot']:raise ValueError('Stores use the same database')
-            views={role:json.loads(call(['nix','run','--store',store,tools_meta['view'],'--','view','--path',outputs[role],'--foreign',outputs['chroot' if role=='normal' else 'normal']]).stdout) for role,store in stores.items()}
+            views={role:json.loads(call(view_command(store,flake,system,outputs[role],outputs['chroot' if role=='normal' else 'normal'])).stdout) for role,store in stores.items()}
             for role in stores:
                 if views[role]['db']!=identities[role]:raise ValueError('Execution used the wrong /nix metadata view')
             print('CHROOT_POC_VIEW=passed metadata=separate nested_nix=selected',flush=True)

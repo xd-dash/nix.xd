@@ -198,6 +198,10 @@
           type = "app";
           program = "${self.packages.${system}.chrootStoreDiagnose}/bin/nix-xd-chroot-store-diagnose";
         };
+        store-poc-view = {
+          type = "app";
+          program = "${self.packages.${system}.storePocView}/bin/nix-xd-store-poc-view";
+        };
         chroot-store-poc = {
           type = "app";
           program = "${self.packages.${system}.chrootStorePoc}/bin/nix-xd-chroot-store-poc";
