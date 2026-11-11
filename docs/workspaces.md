@@ -39,6 +39,29 @@ Targets:
 - `workspace-path`: print only the path, suitable for shell substitution.
 - `workspace-check`: exercise checkout reuse, version-only branches, next-day separation
   and invalid/colliding destinations using a temporary local Git repository.
+- `workspace-clean-plan`: list stale directories for the selected repository.
+- `workspace-clean`: delete those directories, including uncommitted and untracked
+  contents. Keep the selected dated checkout. Linked Git worktrees are removed
+  through Git so their registration is also cleaned up.
+
+Cleanup selects only direct children of WORKSPACE_ROOT named exactly like the
+repository, `<repository>-fresh`, `<repository>-consolidated`, or
+`<repository>YYYYMMDD` with a date older than WORKSPACE_VERSION. It leaves other
+repositories, the retained version and future versions alone. Symlinks are not
+followed. A retained dated checkout must already exist. Run cleanup from that
+checkout, not from a directory being removed. No dirty-work preservation or
+additional confirmation is required: workspace-clean explicitly requests deletion.
+
+```sh
+export NIX_XD_LOG_DIR="$HOME/.local/nix.xd/logs"
+make workspace-clean-plan
+make workspace-clean
+```
+
+Use the shared log override before cleanup; an old shell override pointing into
+an obsolete checkout can otherwise recreate that directory on later commands.
+Runtime containers and volumes have separate lifecycles and are not removed by
+source-checkout cleanup.
 
 WORKSPACE_ROOT defaults to `$HOME/workspace`. WORKSPACE_REPO accepts owner/repo,
 HTTPS or SSH Git URLs. Ordinary Git authentication is reused. Branches outside the checkout's date are rejected by this interface. Direct Git commands remain under the developer's control.

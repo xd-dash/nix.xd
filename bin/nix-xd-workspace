@@ -6,7 +6,7 @@ root=${NIX_XD_WORKSPACE_ROOT:-$HOME/workspace}
 repo=${NIX_XD_WORKSPACE_REPO:-xd-dash/nix.xd}
 version=${NIX_XD_WORKSPACE_VERSION:-$(date +%Y%m%d)}
 base=${NIX_XD_WORKSPACE_BASE:-}
-[[ $action == open || $action == plan || $action == path ]] || die 'Expected open, plan or path'
+[[ $action == open || $action == plan || $action == path || $action == clean || $action == clean-plan ]] || die 'Expected open, plan, path, clean or clean-plan'
 [[ $root == /* && $root != / ]] || die 'Root must be an absolute workspace directory'
 [[ $version =~ ^[0-9]{8}$ ]] || die 'Version must be YYYYMMDD'
 year=$((10#${version:0:4})); month=$((10#${version:4:2})); day=$((10#${version:6:2}))
@@ -23,6 +23,39 @@ name=${repo##*/}; name=${name##*:}; name=${name%.git}
 [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || die 'Invalid repository name'
 target="${root%/}/$name$version"
 branch="v$version"
+if [[ $action == clean || $action == clean-plan ]]; then
+  [[ -d $root ]] || die 'Workspace root does not exist'
+  root=$(cd "$root" && pwd -P)
+  target="$root/$name$version"
+  [[ -d $target/.git && ! -L $target ]] || die "Create the retained checkout first: $target"
+  count=0
+  current=$(pwd -P)
+  for candidate in "$root/$name"*; do
+    [[ -d $candidate && ! -L $candidate ]] || continue
+    leaf=${candidate##*/}
+    [[ $candidate != "$target" ]] || continue
+    selected=0
+    case "$leaf" in
+      "$name"|"$name-fresh"|"$name-consolidated") selected=1 ;;
+      *) suffix=${leaf#"$name"}
+         if [[ $suffix =~ ^[0-9]{8}$ && $suffix < $version ]]; then selected=1; fi ;;
+    esac
+    [[ $selected == 1 ]] || continue
+    case "$current/" in "$candidate/"*) die "Run cleanup from the retained checkout, not $candidate" ;; esac
+    [[ ! -e $candidate.lock ]] || die "Workspace operation holds $candidate.lock"
+    printf 'WORKSPACE_REMOVE=%s\n' "$candidate"
+    if [[ $action == clean ]]; then
+      if [[ -f $candidate/.git ]]; then
+        git -C "$candidate" worktree remove --force "$candidate"
+      else
+        rm -rf -- "$candidate"
+      fi
+    fi
+    count=$((count+1))
+  done
+  printf 'WORKSPACE_CLEAN_RESULT=passed action=%s count=%s retained=%s\n' "$action" "$count" "$target"
+  exit 0
+fi
 git check-ref-format --branch "$branch" >/dev/null
 if [[ -n $base ]]; then git check-ref-format "refs/heads/$base" >/dev/null; fi
 if [[ $action == path ]]; then printf '%s\n' "$target"; exit; fi

@@ -7,7 +7,7 @@ export NIX_XD_WORKSPACE_ROOT = $(WORKSPACE_ROOT)
 export NIX_XD_WORKSPACE_REPO = $(WORKSPACE_REPO)
 export NIX_XD_WORKSPACE_VERSION = $(WORKSPACE_VERSION)
 export NIX_XD_WORKSPACE_BASE = $(WORKSPACE_BASE)
-.PHONY: workspace workspace-plan workspace-path workspace-check
+.PHONY: workspace workspace-plan workspace-path workspace-check workspace-clean workspace-clean-plan
 workspace:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workspace open
 workspace-plan:
@@ -16,3 +16,7 @@ workspace-path:
 	@bash bin/nix-xd-workspace path
 workspace-check:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash tests/workspace-contract.sh
+workspace-clean-plan:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workspace clean-plan
+workspace-clean:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workspace clean
