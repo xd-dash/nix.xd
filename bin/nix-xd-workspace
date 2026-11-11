@@ -5,7 +5,6 @@ action=${1:-open}
 root=${NIX_XD_WORKSPACE_ROOT:-$HOME/workspace}
 repo=${NIX_XD_WORKSPACE_REPO:-xd-dash/nix.xd}
 version=${NIX_XD_WORKSPACE_VERSION:-$(date +%Y%m%d)}
-topic=${NIX_XD_WORKSPACE_TOPIC:-work}
 base=${NIX_XD_WORKSPACE_BASE:-}
 [[ $action == open || $action == plan || $action == path ]] || die 'Expected open, plan or path'
 [[ $root == /* && $root != / ]] || die 'Root must be an absolute workspace directory'
@@ -15,7 +14,6 @@ year=$((10#${version:0:4})); month=$((10#${version:4:2})); day=$((10#${version:6
 days=(31 28 31 30 31 30 31 31 30 31 30 31)
 if (( year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) )); then days[1]=29; fi
 (( day >= 1 && day <= days[month-1] )) || die 'Invalid calendar date'
-[[ $topic =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$ ]] || die 'Invalid topic'
 case "$repo" in
   https://*|ssh://*|git@*:*|file://*) url=$repo ;;
   *) [[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die 'Use owner/repo or a Git URL'
@@ -24,7 +22,7 @@ esac
 name=${repo##*/}; name=${name##*:}; name=${name%.git}
 [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || die 'Invalid repository name'
 target="${root%/}/$name$version"
-branch="work/$version/$topic"
+branch="work/$version"
 git check-ref-format --branch "$branch" >/dev/null
 if [[ -n $base ]]; then git check-ref-format "refs/heads/$base" >/dev/null; fi
 if [[ $action == path ]]; then printf '%s\n' "$target"; exit; fi
@@ -41,15 +39,7 @@ if [[ -e $target || -L $target ]]; then
   actual=$(git -C "$target" remote get-url origin)
   [[ $actual == "$url" ]] || die 'Existing checkout has a different origin'
   current=$(git -C "$target" symbolic-ref --short HEAD) || die 'Checkout has detached HEAD'
-  [[ $current == "work/$version/"* ]] || die 'Existing branch is outside this workspace date'
-  if [[ $current != "$branch" ]]; then
-    [[ -z $(git -C "$target" status --porcelain) ]] || die 'Commit or stash changes before switching topics'
-    if git -C "$target" show-ref --verify --quiet "refs/heads/$branch"; then
-      git -C "$target" switch "$branch"
-    else
-      git -C "$target" switch -c "$branch"
-    fi
-  fi
+  [[ $current == "$branch" ]] || die "Expected version branch $branch; current branch is $current"
   echo WORKSPACE_RESULT=reused
 else
   tmp=$(mktemp -d "$root/.$name$version.XXXXXX")
@@ -57,7 +47,11 @@ else
   [[ -z $base ]] || args+=(--branch "$base")
   git "${args[@]}" -- "$url" "$tmp"
   if [[ -n $base ]]; then start="refs/remotes/origin/$base"; else start=refs/remotes/origin/HEAD; fi
-  git -C "$tmp" switch --no-track -c "$branch" "$start"
+  if git -C "$tmp" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$tmp" switch "$branch"
+  else
+    git -C "$tmp" switch --no-track -c "$branch" "$start"
+  fi
   mv "$tmp" "$target"
   tmp=
   echo WORKSPACE_RESULT=created
