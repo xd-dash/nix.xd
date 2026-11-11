@@ -218,3 +218,64 @@ roots. It finishes the staged-policy sequence, verifies security and mounts,
 and checks idempotence. It logs the result under the resume target name.
 This does not qualify full atomic initial Quadlet generation; post-bootstrap
 restarts remain part of the current profile design.
+
+## First-start Quadlet profile (new, awaiting live qualification)
+
+The opt-in `INITIAL_PROFILE=1` bootstrap now takes its chroot volumes and
+security profile from a single declared set of stores. Before starting the
+managed container, it initializes the two scoped writable chroot volumes,
+reads the selected Podman Machine's configured restrictive default seccomp
+JSON, derives a profile allowing only the needed UTS calls in addition to
+default rules, and installs the result into the VM's user configuration.
+The initial Quadlet contains `Volume=...` for all three stores,
+`Unmask=/proc/*`, and `SeccompProfile=...`. The ordinary bootstrap remains
+unchanged without the opt-in flag. The profile keeps SELinux labeling
+and never requests privileged mode or unconfined seccomp. Profile derivation
+fails closed if the VM default is not a restrictive `SCMP_ACT_ERRNO` policy.
+
+A separate controlled gate qualifies a brand-new builder:
+
+```sh
+make nix-store-check
+make builder-store-profile-qualify-atomic MACHINE=coreos-arm64
+```
+
+Its dedicated scope is `nix-xd-arm-atomic-qualify` and its image tag is
+`localhost/nix-xd:arm64-atomic-qualify`. It must report
+`BUILDER_ATOMIC_PROFILE_RESULT=passed` only after mount, security,
+private-UTS probe, and second-bootstrap container identity checks. This
+is distinct from the previously qualified resume-based profile; do not
+reset that builder to run the new gate. No new live gate has been executed
+by the repository changes alone.
+
+If an incomplete *atomic* test genuinely requires destructive reset, review
+the resources first and use only the dedicated scope:
+
+```sh
+make builder-runtime-inventory MACHINE=coreos-arm64 \
+  QUALIFY_STORE_SCOPE=nix-xd-arm-atomic-qualify \
+  QUALIFY_STORE_IMAGE=localhost/nix-xd:arm64-atomic-qualify
+
+make builder-store-profile-atomic-clean MACHINE=coreos-arm64 \
+  QUALIFY_RESET_CONFIRM=ERASE:nix-xd-arm-atomic-qualify
+```
+
+Do not invoke this cleanup for the retained
+`nix-xd-arm-chroot-qualify` environment.
+
+### Historical resource cleanup
+
+The prior inventory showed a detached `nix-xd-fatline` Git worktree
+and two live named Nix-Alpine writers; presence of a detached HEAD
+does not establish that the worktree is stale. Use
+`make maintenance-review MACHINE=coreos-arm64` to inspect all roots.
+`make builder-image-prune-dangling MACHINE=coreos-arm64
+DANGLING_PRUNE_CONFIRM=YES` removes only dangling Podman images
+that Podman considers unused. It does not remove tagged images,
+container records, named volumes or worktree directories.
+
+For a truly retired Git worktree, check its status and ownership first,
+then remove it by exact path using `git worktree remove` from the
+primary checkout. Do not run wholesale `git worktree prune`,
+`podman system prune`, `podman volume prune`, or delete Nix stores
+as part of generic maintenance.
