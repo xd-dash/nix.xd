@@ -36,7 +36,7 @@ bootstrap-profile-preflight:
 	@$(MAKE) --no-print-directory builder-store-profile-plan
 	@test "$(PROVIDER):$(ARCH):$(OS)" = podman:arm64:Darwin || { echo 'First-start profile currently requires ARM64 macOS with Podman' >&2; exit 2; }
 	@test "$(BUILDER_CHROOT_NAMESPACE):$(BUILDER_CHROOT_SYSCALLS)" = 1:1 || { echo 'Profile requires namespaces and restricted seccomp' >&2; exit 2; }
-	@case "$(CHROOT_SELINUX)" in keep|disabled) ;; *) exit 2 ;; esac
+	@case "$(CHROOT_SELINUX)" in keep|userns|disabled) ;; *) exit 2 ;; esac
 bootstrap-builder-profile:
 	@$(MAKE) --no-print-directory bootstrap-profile-preflight
 	@$(MAKE) --no-print-directory bootstrap INITIAL_PROFILE=1 INITIAL_CHROOT_STORES="$$BUILDER_CHROOT_STORES"
@@ -53,13 +53,16 @@ bootstrap-profile-check:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory bootstrap-profile-check-internal
 .PHONY: bootstrap-profile-check-internal
 bootstrap-profile-check-internal:
-	@bash -n bin/nix-xd-bootstrap-profile runtime/bootstrap-ready.sh bin/nix-xd-bootstrap-profile-compare runtime/bootstrap-profile-compare.sh runtime/bootstrap-profile-recreate.sh
+	@bash -n bin/nix-xd-bootstrap-profile runtime/bootstrap-ready.sh bin/nix-xd-bootstrap-profile-compare runtime/bootstrap-profile-compare.sh runtime/bootstrap-profile-recreate.sh runtime/bootstrap-profile-userns.sh
 	@python3 tests/bootstrap-profile.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
 	@python3 tests/builder-atomic.py
 bootstrap-profile-qualify:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-bootstrap-profile qualify
+.PHONY: bootstrap-profile-policy-check
+bootstrap-profile-policy-check:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-bootstrap-profile policy-check
 .PHONY: bootstrap-profile-compare
 bootstrap-profile-compare:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-bootstrap-profile-compare

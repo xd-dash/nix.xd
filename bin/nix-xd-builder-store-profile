@@ -17,7 +17,7 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 2; }
 [[ $authoritative =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Invalid authoritative volume'
 [[ $namespace == 0 || $namespace == 1 ]] || fail 'BUILDER_CHROOT_NAMESPACE must be 0 or 1'
 [[ $syscalls == 0 || $syscalls == 1 ]] || fail 'BUILDER_CHROOT_SYSCALLS must be 0 or 1'
-[[ $selinux == keep || $selinux == disabled ]] || fail 'CHROOT_SELINUX must be keep or disabled'
+[[ $selinux == keep || $selinux == userns || $selinux == disabled ]] || fail 'CHROOT_SELINUX must be keep, userns or disabled'
 [[ $namespace == 1 || $syscalls == 0 ]] || fail 'Syscall profile requires the namespace profile'
 [[ $namespace == 1 || $selinux == keep ]] || fail 'SELinux comparison requires the namespace profile'
 [[ $specs != *$'\n'* && $peers != *$'\n'* ]] || fail 'Store selections must be single-line lists'
@@ -60,6 +60,7 @@ if [[ $action == plan ]]; then
 fi
 
 [[ ${NIX_XD_PROVIDER:-podman} == podman ]] || fail 'Chroot builder profile requires Podman'
+[[ $selinux != userns ]] || fail 'The userns policy requires bootstrap-profile or bootstrap-profile-recreate, not post-start apply'
 for ((i=0;i<${#names[@]};i++)); do
   NIX_XD_CHROOT_NAME="${names[i]}" NIX_XD_CHROOT_VOLUME="${volumes[i]}" bash "$repo/bin/nix-xd-chroot-attach"
 done

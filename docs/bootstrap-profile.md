@@ -11,8 +11,14 @@ Declare them in the untracked nix-xd.local.mk or pass them to Make. For example:
 include examples/runtime-arm64-podman.mk
 STORE_VOLUME = nix-xd-arm-store
 BUILDER_CHROOT_STORES = grumble=nix-xd-grumble-store
-CHROOT_SELINUX = disabled
+CHROOT_SELINUX = userns
 ```
+
+The chroot-store list is optional: `make bootstrap` with no alternate stores
+keeps the ordinary single-store builder. The chroot profile accepts one or more
+slots, for example `grumble=nix-xd-grumble-store scratch=nix-xd-scratch-store`.
+Add or remove slots by recreating the builder from the declaration; store volumes
+are not erased by that operation.
 
 The identity `grumble` selects a generic store slot. It does not install Grumble,
 build a Grml image, or embed project orchestration in Nix-Alpine.
@@ -28,9 +34,23 @@ It never switches the builder's global `/nix` mount.
 
 The seccomp policy retains the machine's restrictive default and adds the two
 UTS calls required by nested Nix sandboxes. The profile explicitly unmasks proc
-paths for the trusted builder. CHROOT_SELINUX defaults to keep; disabled explicitly
-adds SecurityLabelDisable=true to this builder's initial Quadlet. It does not
-change the machine's SELinux enforcement or other containers. The profile does
+paths for the trusted builder. SELinux selection is explicit:
+
+| CHROOT_SELINUX | Builder process policy | Use |
+| --- | --- | --- |
+| keep | Podman default container domain | Baseline; private proc failed on the ARM machine |
+| userns | container_userns_t, labeling retained | Confined nested-namespace candidate; qualification pending |
+| disabled | SecurityLabelDisable=true | Previously qualified compatibility setting |
+
+The userns choice composes the upstream container-selinux user-namespace domain
+with our restricted seccomp profile and declared mounts. Upstream grants this
+domain proc/tmpfs mount permissions and includes it in container MCS constraints.
+It is a general user-namespace policy, not a hand-written least-privilege Nix
+module. It grants no extra outer Linux capabilities and does not install policy
+modules, toggle machine-wide booleans, disable enforcement, or change other
+containers. Readiness requires Enforcing mode, container_userns_t and an assigned
+MCS level. A missing or insufficient installed policy fails closed.
+The profile does
 not use privileged mode or an unconfined seccomp profile. This is a capability
 profile for trusted build workloads, not a hostile-tenant isolation boundary.
 
@@ -47,7 +67,7 @@ bootstrap, readiness and the generic isolated-store qualification.
 
 ```sh
 make bootstrap-profile-local \
-  BUILDER_CHROOT_STORES="grumble=nix-xd-grumble-store" CHROOT_SELINUX=disabled
+  BUILDER_CHROOT_STORES="grumble=nix-xd-grumble-store" CHROOT_SELINUX=userns
 ```
 
 For each declared alternate store, qualification reuses the bounded runtime POC:
@@ -64,20 +84,35 @@ This first-start adapter is currently available for ARM64 macOS with Podman.
 The first ARM run installed and staged successfully, but its private proc check
 failed with permission denied while retaining SELinux labeling. The subsequent
 read-only comparison isolated SELinux: baseline=1, label_disabled=0, owner unchanged.
-Full qualification with the explicit disabled setting remains pending.
+Recreation with disabled labeling subsequently passed private namespaces,
+concurrent builds, separate metadata, execution views and per-store retention.
+The userns alternative is implemented but still needs ARM runtime qualification.
 Run `make bootstrap-profile-compare` to compare
 two temporary, read-only-store probes differing only in their SELinux labeling.
 The comparison reuses the built readiness tools and restricted seccomp policy,
 checks that the owner remained running with the same ID, and never rewrites its
 Quadlet or changes its label. Each namespace probe has a 20-second timeout.
 The comparison does not automatically change the running builder's configuration.
-To replace the failed first-start builder using the corrected declaration, run:
+For userns, first run the read-only-store check through Make:
+
+```sh
+make bootstrap-profile-policy-check \
+  BUILDER_CHROOT_STORES="grumble=nix-xd-grumble-store" CHROOT_SELINUX=userns
+```
+
+It launches one temporary probe using the existing tools and a read-only primary
+store, reuses that store's label level without relabeling files, and verifies
+private proc/UTS under the confined domain. No builder restart is required.
+
+To recreate the builder from the confined declaration and qualify it, run:
 
 ```sh
 make bootstrap-profile-recreate \
-  BUILDER_CHROOT_STORES="grumble=nix-xd-grumble-store" CHROOT_SELINUX=disabled
+  BUILDER_CHROOT_STORES="grumble=nix-xd-grumble-store" CHROOT_SELINUX=userns
 ```
 
+For userns this command requires the read-only policy check to pass before
+stopping the owner. There is no automatic fallback to disabled labeling.
 This explicitly stops the selected managed builder, removes its container and
 generated Quadlet, then performs first-start bootstrap, readiness and isolated-store
 qualification. It retains every named volume and its contents, including roots
@@ -111,3 +146,9 @@ The earlier apply/complete/diagnose targets remain legacy maintenance interfaces
 Neither bootstrap-profile nor its local gate uses those retrofit paths. Fresh
 development should use the first-start declaration above, without INITIAL_PROFILE
 flags, isolated qualification builders, migration steps or application controllers.
+
+Policy sources:
+
+- https://github.com/containers/container-selinux/blob/main/container.te
+- https://github.com/containers/container-selinux/blob/main/container.if
+- https://docs.podman.io/en/latest/markdown/podman-container.unit.5.html

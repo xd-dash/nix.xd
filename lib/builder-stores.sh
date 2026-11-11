@@ -65,6 +65,7 @@ builder_quadlet() {
   if [[ -n ${NIX_XD_INITIAL_CHROOT_STORES:-} ]]; then
     case "${NIX_XD_CHROOT_SELINUX:-keep}" in
       keep) ;;
+      userns) printf 'SecurityLabelType=container_userns_t\n' ;;
       disabled) printf 'SecurityLabelDisable=true\n' ;;
       *) return 2 ;;
     esac

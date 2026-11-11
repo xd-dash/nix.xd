@@ -17,6 +17,10 @@ class BootstrapProfile(unittest.TestCase):
         mock = self.directory / "podman"
         mock.write_text('''#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$PROFILE_TEST_RECORD"
+if [[ $1 == machine && $2 == ssh ]]; then
+  cat > "$PROFILE_TEST_STDIN"
+  exit "${PROFILE_TEST_SSH_STATUS:-0}"
+fi
 if [[ ${PROFILE_TEST_COMPARISON:-0} == 1 ]]; then
   if [[ $1 == info ]]; then echo true; exit; fi
   if [[ $1 == container && $2 == exists ]]; then exit 0; fi
@@ -25,9 +29,11 @@ if [[ ${PROFILE_TEST_COMPARISON:-0} == 1 ]]; then
     *'{{.ProcessLabel}}'*) echo 'system_u:system_r:container_t:s0:c1,c2'; exit ;;
     *'{{.Id}}'*) echo fixture-id; exit ;;
     *'{{.Image}}'*) echo fixture-image; exit ;;
+    *'{{.Mountpoint}}'*) echo /fixture/volume; exit ;;
     *'.Mounts'*) echo owner-store; exit ;;
   esac
   if [[ $1 == run ]]; then
+    if [[ $* == *'label=type:container_userns_t '* ]]; then exit "${PROFILE_TEST_USERNS_STATUS:-0}"; fi
     if [[ $* == *'label=disable '* ]]; then exit "${PROFILE_TEST_DISABLED_STATUS:-0}"; fi
     echo 'unshare: mount /proc failed: Permission denied' >&2
     exit "${PROFILE_TEST_BASELINE_STATUS:-1}"
@@ -49,6 +55,9 @@ exit 99
         uname = self.directory / "uname"
         uname.write_text('#!/usr/bin/env bash\necho Linux\n')
         uname.chmod(0o755)
+        getenforce = self.directory / 'getenforce'
+        getenforce.write_text('#!/usr/bin/env bash\necho "${PROFILE_TEST_ENFORCEMENT:-Enforcing}"\n')
+        getenforce.chmod(0o755)
         self.environment = dict(os.environ, PATH=str(self.directory) + ':' + os.environ['PATH'],
                                 NIX_XD_PROVIDER="podman", NIX_XD_SCOPE="owner",
                                 NIX_XD_STORE_VOLUME="owner-store", NIX_XD_SYSTEM="aarch64-linux",
@@ -164,17 +173,85 @@ NIX_XD_INITIAL_CHROOT_STORES=aux=aux-store
 NIX_XD_INITIAL_SECCOMP_PATH="$HOME/.config/nix-xd/seccomp/owner-nix-chroot.json"
 builder_quadlet owner localhost/nix-xd:arm64 Fixture
 '''
-        for policy in ('keep', 'disabled'):
+        for policy in ('keep', 'userns', 'disabled'):
             result = subprocess.run(['bash', '-eu', '-c', script], cwd=ROOT,
                                     env=dict(self.environment, NIX_XD_CHROOT_SELINUX=policy),
                                     text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual('SecurityLabelDisable=true' in result.stdout, policy == 'disabled')
+            self.assertEqual('SecurityLabelType=container_userns_t' in result.stdout, policy == 'userns')
             self.assertIn('SeccompProfile=', result.stdout)
             self.assertNotIn('Privileged=true', result.stdout)
         result = self.run_profile(NIX_XD_CHROOT_SELINUX='disabled', PROFILE_TEST_LABEL='container_t')
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn('BOOTSTRAP_PROFILE_RESULT=ready', result.stdout)
+
+    def test_userns_readiness_requires_expected_type_and_enforcement(self):
+        label = 'system_u:system_r:container_userns_t:s0:c1,c2'
+        result = self.run_profile(NIX_XD_CHROOT_SELINUX='userns', PROFILE_TEST_LABEL=label)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for values in ({'PROFILE_TEST_LABEL': 'system_u:system_r:container_t:s0:c1,c2'},
+                       {'PROFILE_TEST_LABEL': label, 'PROFILE_TEST_ENFORCEMENT': 'Permissive'}):
+            result = self.run_profile(NIX_XD_CHROOT_SELINUX='userns', **values)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('BOOTSTRAP_PROFILE_RESULT=ready', result.stdout)
+
+    def test_userns_policy_check_is_read_only_and_has_no_disabled_fallback(self):
+        policy = self.directory / '.config/nix-xd/seccomp/owner-nix-chroot.json'
+        policy.parent.mkdir(parents=True, exist_ok=True)
+        policy.write_text('{}')
+        stat = self.directory / 'stat'
+        stat.write_text('#!/usr/bin/env bash\necho system_u:object_r:container_file_t:s0\n')
+        stat.chmod(0o755)
+        env = dict(self.environment, HOME=str(self.directory), PROFILE_TEST_COMPARISON='1')
+        result = subprocess.run(['bash', str(ROOT / 'runtime/bootstrap-profile-userns.sh'),
+                                 'owner', 'owner-store'], env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.record.read_text()
+        self.assertIn('--security-opt label=type:container_userns_t', calls)
+        self.assertIn('type=volume,src=owner-store,dst=/nix,ro', calls)
+        self.assertNotIn('label=disable', calls)
+        self.assertNotIn('setsebool', calls)
+        self.assertNotIn('systemctl', calls)
+        result = subprocess.run(['bash', str(ROOT / 'runtime/bootstrap-profile-userns.sh'),
+                                 'owner', 'owner-store'],
+                                env=dict(env, PROFILE_TEST_USERNS_STATUS='7'),
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 7)
+        self.assertNotIn('BOOTSTRAP_USERNS_POLICY_CHECK=passed', result.stdout)
+        self.record.unlink()
+        result = subprocess.run(['bash', str(ROOT / 'runtime/bootstrap-profile-userns.sh'),
+                                 'owner', 'owner-store'],
+                                env=dict(env, PROFILE_TEST_ENFORCEMENT='Permissive'),
+                                text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.record.exists())
+
+    def test_failed_userns_policy_check_prevents_builder_recreation(self):
+        uname = self.directory / 'uname'
+        uname.write_text('#!/usr/bin/env bash\necho Darwin\n')
+        result = self.run_profile('recreate', NIX_XD_CHROOT_SELINUX='userns',
+                                  NIX_XD_MACHINE='fixture', PROFILE_TEST_SSH_STATUS='7')
+        self.assertEqual(result.returncode, 7)
+        calls = self.record.read_text().splitlines()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual((self.directory / 'stdin').read_text(),
+                         (ROOT / 'runtime/bootstrap-profile-userns.sh').read_text())
+
+    def test_userns_profile_accepts_multiple_independent_store_slots(self):
+        env = dict(self.environment, NIX_XD_CHROOT_SELINUX='userns',
+                   BUILDER_CHROOT_STORES='aux=aux-store scratch=scratch-store')
+        result = subprocess.run(['bash', str(ROOT / 'bin/nix-xd-builder-store-profile'), 'plan'],
+                                env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('selinux=userns', result.stdout)
+        self.assertIn('path=/stores/aux rw=true', result.stdout)
+        self.assertIn('path=/stores/scratch rw=true', result.stdout)
+        result = subprocess.run(['bash', str(ROOT / 'bin/nix-xd-builder-store-profile'), 'apply'],
+                                env=env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('not post-start apply', result.stderr)
+        self.assertFalse(self.record.exists())
 
     def test_recreation_retains_stores_and_removes_only_managed_builder(self):
         unit = self.directory / '.config/containers/systemd/owner.container'

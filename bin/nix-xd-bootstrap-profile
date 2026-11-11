@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-action=${1:?Expected ready or qualify}
-[[ $action == ready || $action == qualify || $action == recreate ]] || exit 2
+action=${1:?Expected ready, qualify, policy-check or recreate}
+[[ $action == ready || $action == qualify || $action == policy-check || $action == recreate ]] || exit 2
 [[ ${NIX_XD_PROVIDER:-podman} == podman ]] || { echo 'Profile requires Podman' >&2; exit 2; }
 scope=${NIX_XD_SCOPE:?Select a builder scope}
 system=${NIX_XD_SYSTEM:?Select the builder system}
@@ -12,8 +12,21 @@ flake=${NIX_XD_BUILDER_RUNTIME_FLAKE:?Select the staged runtime flake}
 # Validate the same declaration before checking or qualifying it.
 BUILDER_CHROOT_NAMESPACE=1 BUILDER_CHROOT_SYSCALLS=1 \
   bash "$repo/bin/nix-xd-builder-store-profile" plan
+if [[ $action == policy-check ]]; then
+  [[ $(uname -s) == Darwin && ${NIX_XD_CHROOT_SELINUX:-keep} == userns ]] || {
+    echo 'Select CHROOT_SELINUX=userns on the macOS Podman Machine adapter' >&2; exit 2;
+  }
+  source "$repo/lib/builder-stores.sh"
+  builder_stores_init "$scope"
+  printf -v remote_args '%q ' "$scope" "$builder_store_volume"
+  podman machine ssh "${NIX_XD_MACHINE:?Select a Podman Machine}" "bash -se -- $remote_args" < "$repo/runtime/bootstrap-profile-userns.sh"
+  exit
+fi
 if [[ $action == recreate ]]; then
   [[ $(uname -s) == Darwin ]] || exit 2
+  if [[ ${NIX_XD_CHROOT_SELINUX:-keep} == userns ]]; then
+    bash "$repo/bin/nix-xd-bootstrap-profile" policy-check
+  fi
   printf -v remote_args '%q ' "$scope"
   podman machine ssh "${NIX_XD_MACHINE:?Select a Podman Machine}" "bash -se -- $remote_args" < "$repo/runtime/bootstrap-profile-recreate.sh"
   exit
@@ -38,6 +51,18 @@ if [[ ${NIX_XD_CHROOT_SELINUX:-keep} == disabled ]]; then
   [[ -z $("${p[@]}" inspect "$scope" --format '{{.ProcessLabel}}') ]] || {
     echo 'Running builder does not match declared SELinux setting' >&2; exit 1;
   }
+fi
+if [[ ${NIX_XD_CHROOT_SELINUX:-keep} == userns ]]; then
+  label=$("${p[@]}" inspect "$scope" --format '{{.ProcessLabel}}')
+  [[ $label == *:container_userns_t:s0:* ]] || { echo "Unexpected builder process label: $label" >&2; exit 1; }
+  if [[ $(uname -s) == Darwin ]]; then
+    [[ $(podman machine ssh "$NIX_XD_MACHINE" getenforce) == Enforcing ]] || {
+      echo 'SELinux must be enforcing for the userns profile' >&2; exit 1;
+    }
+  else
+    [[ $(getenforce) == Enforcing ]] || { echo 'SELinux must be enforcing for the userns profile' >&2; exit 1; }
+  fi
+  printf 'BOOTSTRAP_SELINUX=confined type=container_userns_t mcs=assigned\n'
 fi
 mounts=$("${p[@]}" inspect "$scope" --format '{{range .Mounts}}{{println .Name .Destination .RW}}{{end}}')
 for expected in "${mounts_expected[@]}"; do
