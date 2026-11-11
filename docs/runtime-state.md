@@ -37,6 +37,17 @@ The exported archive can contain private application state. Access to it must be
 
 **Provisioned volumes are not mounted automatically.** A new control volume is empty, and a new VM volume does not contain an existing CoreOS guest disk. Do not switch any running instance to one of these volumes before an offline migration and verification.
 
+## Read-only migration preflight
+
+Use the actual existing runner name, not a guessed mapping. This command verifies the new VM target volume exists with the correct ownership labels and is not mounted, then prints the current container image identity, state, writable `/state` bind source, read-only `/artifacts` source (if any), and shared-store mount. It performs no writes, stops, or guest disk operations.
+
+```sh
+make vm-state-preflight MACHINE=coreos-arm64 VM_CONTAINER=coreos-starwisp-r977b354c1cb8 VM_INSTANCE=vm1
+make vm-state-preflight MACHINE=coreos-arm64 VM_CONTAINER=coreos-store-matrix-vm2 VM_INSTANCE=vm2
+```
+
+The preflight does **not** inspect the QCOW2 backing chain or prove guest readiness. It is deliberately not the migration operation. Check backing paths and quiesce the guest before any disk copy. If the current runner mounts the same location at both `/state` and `/artifacts`, preserve that identity or explicitly rebase and validate the disk chain.
+
 ## Default host paths
 
 Host-side command logs default to `${XDG_STATE_HOME:-$HOME/.local/state}/nix-xd/logs` (overridden with `NIX_XD_LOG_DIR`). Generic source staging resolves relative to the parent workspace directory, not inside the `nix.xd` repository.
