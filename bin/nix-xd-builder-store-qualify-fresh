@@ -49,18 +49,18 @@ if [[ $mode == fresh ]]; then
   if "${podman_cmd[@]}" image exists "$image"; then
     fail "qualification-image-already-exists:$image"
   fi
-  if podman machine ssh "$machine" "test -e \\$HOME/.config/containers/systemd/$scope.container"; then
+  if podman machine ssh "$machine" "test -e \$HOME/.config/containers/systemd/$scope.container"; then
     fail "qualification-quadlet-already-exists:$scope"
   fi
-  printf 'BUILDER_STORE_FRESH_PHASE=bootstrap scope=%s machine=%s image=%s\\n' "$scope" "$machine" "$image"
+  printf 'BUILDER_STORE_FRESH_PHASE=bootstrap scope=%s machine=%s image=%s\n' "$scope" "$machine" "$image"
 else
-  printf 'BUILDER_STORE_FRESH_PHASE=resume scope=%s machine=%s\\n' "$scope" "$machine"
+  printf 'BUILDER_STORE_FRESH_PHASE=resume scope=%s machine=%s\n' "$scope" "$machine"
   for volume in "$authoritative" "$chroot_a" "$chroot_b"; do
     "${podman_cmd[@]}" volume exists "$volume" || fail "resume-missing-volume:$volume"
   done
   "${podman_cmd[@]}" container exists "$scope" || fail "resume-missing-container:$scope"
   "${podman_cmd[@]}" image exists "$image" || fail "resume-missing-image:$image"
-  if ! podman machine ssh "$machine" "test -e \\$HOME/.config/containers/systemd/$scope.container"; then
+  if ! podman machine ssh "$machine" "test -e \$HOME/.config/containers/systemd/$scope.container"; then
     fail "resume-missing-quadlet:$scope"
   fi
   [[ $("${podman_cmd[@]}" inspect "$scope" --format '{{.State.Running}}') == true ]] ||
