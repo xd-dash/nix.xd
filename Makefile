@@ -262,6 +262,7 @@ check-static-internal:
 	@python3 tests/wisp-go-owner.py
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
+	@bash tests/project-run-contract.sh
 	@python3 tests/runtime-primitives.py
 	@python3 tests/compositions.py
 	@python3 tests/guest-executor.py
