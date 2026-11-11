@@ -1,3 +1,12 @@
+# Current first-start interface
+
+Use [bootstrap-profile](bootstrap-profile.md) for fresh deployments. Its complete
+declaration is applied before first start and includes capability readiness.
+The apply/complete and migration procedures below describe the older maintenance
+interfaces; they are not required by the first-start path.
+
+---
+
 # Declarative Nix-Alpine builder store profiles
 
 The authoritative store and alternate chroot stores have different ownership and metadata.

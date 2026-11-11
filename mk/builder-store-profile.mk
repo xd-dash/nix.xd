@@ -5,13 +5,13 @@ BUILDER_CHROOT_NAMESPACE ?= 1
 BUILDER_CHROOT_SYSCALLS ?= 1
 INITIAL_PROFILE ?= 0
 INITIAL_CHROOT_STORES ?=
+export BUILDER_CHROOT_STORES
+export BUILDER_CHROOT_NAMESPACE
+export BUILDER_CHROOT_SYSCALLS
 
 .PHONY: builder-store-profile-plan builder-store-profile-apply bootstrap-builder-profile
 builder-store-profile-plan:
-	@BUILDER_CHROOT_STORES='$(BUILDER_CHROOT_STORES)' \
-	  BUILDER_CHROOT_NAMESPACE='$(BUILDER_CHROOT_NAMESPACE)' \
-	  BUILDER_CHROOT_SYSCALLS='$(BUILDER_CHROOT_SYSCALLS)' \
-	  bash bin/nix-xd-builder-store-profile plan
+	@bash bin/nix-xd-builder-store-profile plan
 
 builder-store-profile-apply:
 	@BUILDER_CHROOT_STORES='$(BUILDER_CHROOT_STORES)' \
@@ -30,20 +30,38 @@ builder-store-profile-complete:
 	@$(MAKE) --no-print-directory builder-store-profile-apply
 	@$(MAKE) --no-print-directory stage
 
-# Explicit opt-in: existing builder bootstraps and Quadlets are unchanged.
+# All mounts and security settings are installed before the first builder start.
 bootstrap-builder-profile:
 	@$(MAKE) --no-print-directory builder-store-profile-plan
-	@test "$(PROVIDER)" = podman || { echo 'Builder chroot bootstrap currently requires PROVIDER=podman' >&2; exit 2; }
-	@set -e; if [[ '$(INITIAL_PROFILE)' == 1 ]]; then \
-	  test -n '$(INITIAL_CHROOT_STORES)' || { echo 'Missing INITIAL_CHROOT_STORES' >&2; exit 2; }; \
-	  test '$(INITIAL_CHROOT_STORES)' = '$(BUILDER_CHROOT_STORES)' || { echo 'Initial and planned stores must match' >&2; exit 2; }; \
-	  test '$(BUILDER_CHROOT_NAMESPACE)' = 1 && test '$(BUILDER_CHROOT_SYSCALLS)' = 1 && test '$(CHROOT_SELINUX)' = keep || { echo 'Atomic profile requires namespace, seccomp and retained SELinux separation' >&2; exit 2; }; \
-	  $(MAKE) --no-print-directory bootstrap; \
-	  $(MAKE) --no-print-directory stage; \
-	else \
-	  $(MAKE) --no-print-directory bootstrap; \
-	  $(MAKE) --no-print-directory builder-store-profile-complete; \
-	fi
+	@test "$(PROVIDER):$(ARCH):$(OS)" = podman:arm64:Darwin || { echo 'First-start profile currently requires ARM64 macOS with Podman' >&2; exit 2; }
+	@test "$(BUILDER_CHROOT_NAMESPACE):$(BUILDER_CHROOT_SYSCALLS):$(CHROOT_SELINUX)" = 1:1:keep || { echo 'Profile requires namespaces, restricted seccomp and retained SELinux settings' >&2; exit 2; }
+	@$(MAKE) --no-print-directory bootstrap INITIAL_PROFILE=1 INITIAL_CHROOT_STORES="$$BUILDER_CHROOT_STORES"
+	@$(MAKE) --no-print-directory stage WORKSPACES="$(abspath $(CURDIR)/..)" CHECKOUT="$(notdir $(CURDIR))"
+
+export NIX_XD_BUILDER_RUNTIME_FLAKE = /workspaces/$(notdir $(CURDIR))
+.PHONY: bootstrap-profile bootstrap-profile-internal bootstrap-profile-check bootstrap-profile-qualify bootstrap-profile-local bootstrap-profile-local-internal
+bootstrap-profile:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory bootstrap-profile-internal
+bootstrap-profile-internal:
+	@$(MAKE) --no-print-directory bootstrap-builder-profile
+	@bash bin/nix-xd-bootstrap-profile ready
+bootstrap-profile-check:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory bootstrap-profile-check-internal
+.PHONY: bootstrap-profile-check-internal
+bootstrap-profile-check-internal:
+	@bash -n bin/nix-xd-bootstrap-profile runtime/bootstrap-ready.sh
+	@python3 tests/bootstrap-profile.py
+	@python3 tests/builder-stores.py
+	@python3 tests/builder-store-profile.py
+	@python3 tests/builder-atomic.py
+bootstrap-profile-qualify:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-bootstrap-profile qualify
+bootstrap-profile-local:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory bootstrap-profile-local-internal
+bootstrap-profile-local-internal:
+	@$(MAKE) --no-print-directory bootstrap-profile-check-internal
+	@$(MAKE) --no-print-directory bootstrap-profile-internal
+	@bash bin/nix-xd-bootstrap-profile qualify
 
 # Run only on a disposable, freshly bootstrapped builder scope.
 # The first application may restart the builder; the second must not.

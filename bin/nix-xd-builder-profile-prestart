@@ -17,15 +17,7 @@ for spec in ${entries[@]+"${entries[@]}"}; do
   [[ $name =~ ^[a-z][a-z0-9-]{0,39}$ && $volume =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
   [[ $volume != "$authoritative" && $names != *" $name "* && $volumes != *" $volume "* ]] || exit 2
   names="$names$name "; volumes="$volumes$volume "
-  for id in $(podman --connection "$machine" ps -aq); do
-    mounted=$(podman --connection "$machine" inspect "$id" --format '{{range .Mounts}}{{println .Name}}{{end}}')
-    if grep -Fxq "$volume" <<< "$mounted"; then
-      owner=$(podman --connection "$machine" inspect "$id" --format '{{.Name}}')
-      [[ ${owner#/} == "$scope" ]] || { echo "Store already attached to another owner: $volume" >&2;exit 1; }
-      destination=$(podman --connection "$machine" inspect "$id" --format '{{range .Mounts}}{{if eq .Name "'$volume'"}}{{println .Destination}}{{end}}{{end}}')
-      [[ $destination == "/stores/$name" ]] || { echo "Same owner mounted store at unexpected destination: $volume" >&2;exit 1; }
-    fi
-  done
+  builder_store_assert_owner "$scope" "$volume" "/stores/$name" podman --connection "$machine"
 done
 # Inspect the effective OCI seccomp policy of a disposable probe on this VM.
 # The managed builder has not started. Do not guess a default profile file path.

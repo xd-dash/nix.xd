@@ -34,6 +34,24 @@ builder_store_mounts() {
     printf 'Volume=%s:/peer/%s:ro\n' "${builder_peer_volumes[i]}" "${builder_peer_apps[i]}"
   done
 }
+builder_store_assert_owner() {
+  local scope="$1" volume="$2" destination="$3"
+  shift 3
+  local ids id mounts mounted writable owner
+  [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ && "$volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || return 2
+  ids=$("$@" ps -aq) || return
+  for id in $ids; do
+    mounts=$("$@" inspect "$id" --format '{{range .Mounts}}{{if eq .Name "'"$volume"'"}}{{println .Destination .RW}}{{end}}{{end}}') || return
+    while read -r mounted writable; do
+      [[ "$writable" == true ]] || continue
+      owner=$("$@" inspect "$id" --format '{{.Name}}') || return
+      [[ "${owner#/}" == "$scope" && "$mounted" == "$destination" ]] || {
+        echo "Writable store already attached: volume=$volume owner=$owner path=$mounted" >&2
+        return 1
+      }
+    done <<< "$mounts"
+  done
+}
 builder_quadlet() {
   local scope="$1" image="$2" description="$3" volume i
   [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ && "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || return 1

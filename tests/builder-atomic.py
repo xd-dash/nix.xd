@@ -32,7 +32,7 @@ class AtomicProfile(unittest.TestCase):
         self.assertNotIn("SeccompProfilePath", prestart)
         self.assertIn("trap cleanup EXIT", prestart)
         makefile = (ROOT / "mk/builder-store-profile.mk").read_text()
-        self.assertIn("@set -e; if [[ '$(INITIAL_PROFILE)' == 1 ]]", makefile)
+        self.assertIn('bootstrap INITIAL_PROFILE=1 INITIAL_CHROOT_STORES="$$BUILDER_CHROOT_STORES"', makefile)
 
     def test_quadlet_generated_before_first_start(self):
         env = dict(os.environ, NIX_XD_STORE_VOLUME="fixture-store",

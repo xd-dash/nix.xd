@@ -1,5 +1,10 @@
 # Nix.xd / Nix-Alpine
 
+Use the [persistent builder bootstrap profile](docs/bootstrap-profile.md) to
+prepare the primary and alternate chroot stores before the builder first starts.
+`make bootstrap-profile-local BUILDER_CHROOT_STORES="name=volume"` validates,
+bootstraps and qualifies that generic environment as one logged operation.
+
 Use [daily workspaces](docs/workspaces.md) through `make workspace` to create
 `~/workspace/nix.xdYYYYMMDD` and date-scoped development branches.
 

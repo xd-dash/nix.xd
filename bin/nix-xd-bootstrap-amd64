@@ -27,6 +27,7 @@ if ! podman volume exists "$volume"; then
   printf 'X86_BOOTSTRAP_STEP=create-authoritative-volume\n'
   builder_volume_create "$scope" "$volume" nix-store podman >/dev/null
 fi
+builder_store_assert_owner "$scope" "$volume" /nix podman
 podman run --rm --pull=never --user 0:0 \
   --mount "type=volume,src=$volume,dst=/nix" \
   --entrypoint /bin/sh "$image" -ec '

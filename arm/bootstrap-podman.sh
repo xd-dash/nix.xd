@@ -54,6 +54,7 @@ if ! podman --connection "$machine" volume exists "$builder_store_volume"; then
   builder_volume_create "$scope" "$builder_store_volume" nix-store podman --connection "$machine" >/dev/null
 fi
 # Set ownership of the volume root only, never recurse through store contents.
+builder_store_assert_owner "$scope" "$builder_store_volume" /nix podman --connection "$machine"
 # Existing stores are not migrated or repaired and fail closed if unmarked.
 podman --connection "$machine" run --rm --pull=never --user 0:0 \
   --mount "type=volume,src=$builder_store_volume,dst=/nix" \

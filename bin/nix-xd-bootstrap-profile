@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+action=${1:?Expected ready or qualify}
+[[ $action == ready || $action == qualify ]] || exit 2
+[[ ${NIX_XD_PROVIDER:-podman} == podman ]] || { echo 'Profile requires Podman' >&2; exit 2; }
+scope=${NIX_XD_SCOPE:?Select a builder scope}
+system=${NIX_XD_SYSTEM:?Select the builder system}
+flake=${NIX_XD_BUILDER_RUNTIME_FLAKE:?Select the staged runtime flake}
+[[ $system == aarch64-linux || $system == x86_64-linux ]] || exit 2
+[[ $flake =~ ^/workspaces/[A-Za-z0-9_.-]+$ && $flake != *..* ]] || exit 2
+# Validate the same declaration before checking or qualifying it.
+BUILDER_CHROOT_NAMESPACE=1 BUILDER_CHROOT_SYSCALLS=1 NIX_XD_CHROOT_SELINUX=keep \
+  bash "$repo/bin/nix-xd-builder-store-profile" plan
+source "$repo/lib/builder-stores.sh"
+builder_stores_init "$scope"
+read -r -a specs <<< "$BUILDER_CHROOT_STORES"
+paths=()
+mounts_expected=("$builder_store_volume /nix true")
+for spec in "${specs[@]}"; do
+  name=${spec%%=*}; volume=${spec#*=}
+  paths+=("/stores/$name")
+  mounts_expected+=("$volume /stores/$name true")
+done
+for ((i=0;i<builder_peer_count;i++)); do
+  mounts_expected+=("${builder_peer_volumes[i]} /peer/${builder_peer_apps[i]} false")
+done
+p=(podman)
+if [[ $(uname -s) == Darwin ]]; then p+=(--connection "${NIX_XD_MACHINE:?Select a Podman Machine}"); fi
+[[ $("${p[@]}" inspect "$scope" --format '{{.State.Running}}') == true ]] || { echo 'Builder is not running' >&2; exit 1; }
+mounts=$("${p[@]}" inspect "$scope" --format '{{range .Mounts}}{{println .Name .Destination .RW}}{{end}}')
+for expected in "${mounts_expected[@]}"; do
+  grep -Fxq "$expected" <<< "$mounts" || { echo "Declared mount differs: $expected" >&2; exit 1; }
+done
+if [[ $action == ready ]]; then
+  "${p[@]}" exec -i "$scope" bash -se -- "$flake" "${paths[@]}" < "$repo/runtime/bootstrap-ready.sh"
+  printf 'BOOTSTRAP_PROFILE_RESULT=ready scope=%s stores=%s\n' "$scope" "$((1+${#paths[@]}))"
+else
+  for root in "${paths[@]}"; do
+    printf 'BOOTSTRAP_PROFILE_QUALIFY_START root=%s\n' "$root"
+    "${p[@]}" exec "$scope" nix run --store local --no-write-lock-file \
+      "$flake#apps.$system.chroot-store-poc" -- --root "$root" --flake "$flake" --system "$system"
+  done
+  printf 'BOOTSTRAP_PROFILE_QUALIFICATION=passed scope=%s stores=%s\n' "$scope" "$((1+${#paths[@]}))"
+fi

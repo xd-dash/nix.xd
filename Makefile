@@ -55,6 +55,7 @@ TASK = $(TASK_ENV) bash bin/nix-xd-task
 
 help:
 	@printf '%s\n' \
+	  'make bootstrap-profile-local BUILDER_CHROOT_STORES="name=volume ..."  First-start profile, readiness and isolated-store qualification' \
 	  'make bootstrap ARCH=arm64|amd64 PROVIDER=podman  Bootstrap selected host architecture' \
 	  'make bootstrap ARCH=amd64 PROVIDER=podman  Direct-volume native Linux x86_64 runtime' \
 	  'make qualify MODULES=store-recreation ARCH=arm64|amd64  Shared store recreation gate' \
@@ -289,6 +290,7 @@ check-static:
 	@bash bin/nix-xd-log "$(SCOPE)" check-static $(MAKE) --no-print-directory check-static-internal
 
 check-static-internal:
+	@python3 tests/bootstrap-profile.py
 	@bash tests/workspace-contract.sh
 	@python3 tests/fatline-host-link.py
 	@python3 tests/fatline-multivm.py

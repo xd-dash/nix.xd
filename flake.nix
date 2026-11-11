@@ -109,6 +109,10 @@
           };
         in {
           default = installer;
+          bootstrapProfileTools = pkgs.buildEnv {
+            name = "nix-xd-bootstrap-profile-tools";
+            paths = [ namespaceProbe builderPolicy ];
+          };
           nixAlpineRootfs = nestedAlpine.rootfs;
           nixAlpineCheck = nestedAlpine.check;
           nixAlpineRuntime = nestedAlpine.runtime;
