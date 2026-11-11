@@ -84,6 +84,8 @@ help:
 	  'make builder-store-profile-qualify-fresh  One-shot isolated fresh bootstrap + idempotence' \
 	  'make builder-runtime-inventory|builder-store-profile-qualify-clean  Inventory and scoped cleanup' \
 	  'make workspace-inventory  Read-only Git worktree and stale workspace metadata inspection' \
+	  'make nix-store-check|maintenance-review  Combined store contracts and read-only cleanup review' \
+	  'make builder-image-prune-dangling DANGLING_PRUNE_CONFIRM=YES  Remove dangling images only' \
 	  'make store-isolation-static|store-isolation-check  Independent Nix-Alpine writer checks' \
 	  'make workload-prepare|workload-inspect|workload-activate|workload-stop WORKLOAD=starwisp-probe' \
 	  'make store-roots-inspect|store-roots-apply MACHINE=... SCOPE=...  Inspect or pin Starwisp closures' \
@@ -632,3 +634,26 @@ store-isolation-static:
 .PHONY: workspace-inventory
 workspace-inventory:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-workspace-inventory
+
+# Consolidated store-contract check and maintenance inventory.
+.PHONY: nix-store-check maintenance-review
+nix-store-check:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory nix-store-check-internal
+
+.PHONY: nix-store-check-internal
+nix-store-check-internal:
+	@$(MAKE) --no-print-directory builder-store-profile-check-internal
+	@bash tests/store-isolation-contract.sh
+	@echo 'NIX_STORE_STATIC_RESULT=passed'
+
+maintenance-review:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory maintenance-review-internal
+
+.PHONY: maintenance-review-internal
+maintenance-review-internal:
+	@bash bin/nix-xd-workspace-inventory
+	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' \
+	  NIX_XD_QUALIFY_SCOPE='$(QUALIFY_STORE_SCOPE)' \
+	  NIX_XD_QUALIFY_IMAGE='$(QUALIFY_STORE_IMAGE)' \
+	  bash bin/nix-xd-builder-store-maintenance inventory
+	@echo 'MAINTENANCE_REVIEW_RESULT=passed mutations=false'
