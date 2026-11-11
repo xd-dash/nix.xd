@@ -61,6 +61,13 @@
               exec python3 -m nix_alpine_runtime.store_poc qualify "$@"
             '';
           };
+          chrootStoreDiagnose = pkgs.writeShellApplication {
+            name = "nix-xd-chroot-store-diagnose";
+            runtimeInputs = [ runtimePython pkgs.util-linux ];
+            text = ''
+              exec python3 -m nix_alpine_runtime.store_poc diagnose "$@"
+            '';
+          };
           applicationRedis = pkgs.redis;
           composition-plan = pkgs.writeShellApplication {
             name = "nix-xd-composition-plan";
@@ -96,7 +103,7 @@
             name = "nix-xd-wisp-go-tools";
             paths = [ pkgs.go_1_26 pkgs.gcc pkgs.git pkgs.bash pkgs.cacert ];
           };
-          inherit storePocTools storePocView chrootStorePoc runtimePrimitives runtimePython projectLauncher applicationRedis installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
+          inherit chrootStoreDiagnose storePocTools storePocView chrootStorePoc runtimePrimitives runtimePython projectLauncher applicationRedis installer workload-control composition-plan storeProbeRootfs storeProbeOciArchive storeProbeDynamic storeProbeNix;
         });
       fatlinePlans = eachSystem (system: {
         host-link = import ./compositions/fatline-coreos.nix { inherit system; };
@@ -173,6 +180,10 @@
         };
       });
       apps = eachSystem (system: {
+        chroot-store-diagnose = {
+          type = "app";
+          program = "${self.packages.${system}.chrootStoreDiagnose}/bin/nix-xd-chroot-store-diagnose";
+        };
         chroot-store-poc = {
           type = "app";
           program = "${self.packages.${system}.chrootStorePoc}/bin/nix-xd-chroot-store-poc";

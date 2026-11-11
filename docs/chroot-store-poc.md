@@ -82,3 +82,18 @@ sandbox requirement to selected chroot invocations and carries it into their
 child Nix processes through process-scoped configuration. Normal-store policy and
 the owner's global configuration are unchanged. Missing sandbox capability is a
 failure, not permission to build outside the selected store view.
+
+
+If Nix rejects sandbox support after the basic user/mount check, collect the
+small read-only namespace diagnostic before changing the builder profile:
+
+```bash
+fatline project-run PROJECT_FLAKE=/workspaces/nix-xd-fatline \
+  PROJECT_APP=chroot-store-diagnose
+```
+
+It separately probes user/mount, PID with a private proc mount, and combined
+namespace creation. It reports only capability/seccomp status and namespace
+limits. Each probe runs in a child namespace and times out after 15 seconds;
+no sysctl, mount policy, service, or security profile is changed. This diagnostic
+does not qualify the store and does not run builds.

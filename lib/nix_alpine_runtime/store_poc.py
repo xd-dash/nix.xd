@@ -49,6 +49,31 @@ printf '%s\\n' "$name" > "$out/identity"
     ])+' }'
 
 
+
+def namespace_diagnostics():
+    probes={
+        'user_mount':['--user','--map-root-user','--mount'],
+        'pid_proc':['--user','--map-root-user','--mount','--pid','--fork','--mount-proc'],
+        'all_namespaces':['--user','--map-root-user','--mount','--pid','--ipc','--uts','--net','--cgroup','--fork'],
+    }
+    results={}
+    for name,flags in probes.items():
+        result=subprocess.run(['unshare',*flags,'true'],text=True,capture_output=True,timeout=15)
+        results[name]={'exit':result.returncode,'error':result.stderr.strip()}
+    status={}
+    for line in Path('/proc/self/status').read_text().splitlines():
+        if line.split(':',1)[0] in ('Seccomp','NoNewPrivs','CapEff','CapBnd'):
+            key,value=line.split(':',1);status[key]=value.strip()
+    limits={}
+    for name in ('max_user_namespaces','max_mnt_namespaces','max_pid_namespaces','max_cgroup_namespaces'):
+        path=Path('/proc/sys/user')/name
+        if path.exists():limits[name]=path.read_text().strip()
+    result={'probes':results,'process':status,'limits':limits}
+    print(json.dumps(result,indent=2,sort_keys=True),flush=True)
+    print('CHROOT_NAMESPACE_DIAGNOSTIC=collected security_changes=false',flush=True)
+    return result
+
+
 def qualify(root,flake,system):
     selected_store(root)
     if root=='local':raise ValueError('Select an isolated chroot store for this POC')
@@ -58,8 +83,9 @@ def qualify(root,flake,system):
     if os.geteuid()==0:raise ValueError('Use the ordinary Nix-Alpine executor')
     os.environ['NIX_REMOTE']='local'
     # Never silently weaken seccomp or change kernel namespace policy.
-    probe=call(['unshare','--user','--map-root-user','--mount','--propagation','private','true'],check=False)
-    if probe.returncode:raise ValueError('Chroot namespaces unavailable; no builds or security changes performed')
+    capabilities=namespace_diagnostics()
+    if any(probe['exit'] for probe in capabilities['probes'].values()):
+        raise ValueError('Required sandbox namespace probes failed; no builds or security changes performed')
     state=target/'.poc';state.mkdir(mode=0o700,exist_ok=True)
     with scoped_lock(state/'controller.lock'):
         token=secrets.token_hex(8)
@@ -116,14 +142,15 @@ def qualify(root,flake,system):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('action',choices=('qualify','view'))
+    parser.add_argument('action',choices=('qualify','view','diagnose'))
     parser.add_argument('--root')
     parser.add_argument('--flake')
     parser.add_argument('--system')
     parser.add_argument('--path')
     parser.add_argument('--foreign')
     args=parser.parse_args()
-    if args.action=='view':view(args.path,args.foreign)
+    if args.action=='diagnose':namespace_diagnostics()
+    elif args.action=='view':view(args.path,args.foreign)
     else:
         if not args.root or not args.flake or args.system not in ('aarch64-linux','x86_64-linux'):
             raise ValueError('Provide root, flake and supported system')
