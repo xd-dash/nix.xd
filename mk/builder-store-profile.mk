@@ -48,6 +48,7 @@ builder-store-profile-check:
 .PHONY: builder-store-profile-check-internal
 builder-store-profile-check-internal:
 	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence \
+	  bin/nix-xd-builder-store-qualify-fresh bin/nix-xd-builder-store-maintenance \
 	  bin/nix-xd-chroot-attach bin/nix-xd-builder-profile \
 	  runtime/chroot-attach.sh runtime/builder-chroot-profile.sh runtime/builder-chroot-syscalls.sh
 	@python3 tests/builder-stores.py
