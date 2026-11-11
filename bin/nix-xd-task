@@ -55,7 +55,8 @@ validate_checkout() {
 stage() {
   validate_checkout
   local src="$root/$checkout"
-  [[ -d "$src/.git" ]] || fail "Missing Git checkout: $src"
+  [[ -e "$src/.git" ]] && git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+    fail "Missing Git checkout: $src"
   [[ -z "$(git -C "$src" status --porcelain --untracked-files=no)" ]] ||
     fail "Tracked changes in $src; commit before staging"
   tmp="$(mktemp -d)"

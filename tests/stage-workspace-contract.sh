@@ -32,3 +32,10 @@ grep -Fq -- "--connection selected-machine cp" "$tmp/record"
 grep -Fq -- "--connection selected-machine exec nix-xd-arm mkdir -p /workspaces/project" "$tmp/record"
 [[ "$(cat "$STAGE_TEST_REV")" == "$(git -C "$tmp/ws/project" rev-parse HEAD)" ]]
 echo "PASS: staging initializes the workspace root once and uses the selected Podman Machine"
+
+git -C "$tmp/ws/project" worktree add --detach -q "$tmp/ws/linked" HEAD
+NIX_XD_PROVIDER=podman NIX_XD_SCOPE=nix-xd-arm NIX_XD_MACHINE=selected-machine \
+  NIX_XD_WORKSPACES="$tmp/ws" NIX_XD_CHECKOUT=linked bash "$repo/bin/nix-xd-task" stage
+[[ "$(cat "$STAGE_TEST_REV")" == "$(git -C "$tmp/ws/linked" rev-parse HEAD)" ]]
+grep -Fq -- "exec nix-xd-arm mkdir -p /workspaces/linked" "$tmp/record"
+echo "PASS: staging accepts a linked Git worktree"
