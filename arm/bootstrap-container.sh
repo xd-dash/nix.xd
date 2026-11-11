@@ -14,6 +14,7 @@ scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
 volume="$scope-store"
 [[ -z "${NIX_XD_PEER_STORES:-}" && "${NIX_XD_STORE_VOLUME:-$volume}" == "$volume" ]] || die "Builder store overrides currently require PROVIDER=podman"
+[[ "${NIX_XD_LIFECYCLE:-reusable}" == reusable || "${NIX_XD_LIFECYCLE:-reusable}" == disposable ]] || die 'Invalid lifecycle'
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
 
 if ! command -v container >/dev/null 2>&1; then
@@ -48,7 +49,9 @@ if container inspect "$scope" >/dev/null 2>&1; then
   container exec "$scope" /bin/true >/dev/null 2>&1 || container start "$scope"
 else
   if ! container volume inspect "$volume" >/dev/null 2>&1; then
-    container volume create --opt size="${NIX_XD_STORE_SIZE:-40G}" "$volume"
+    container volume create --opt size="${NIX_XD_STORE_SIZE:-40G}" \
+      --label io.nix-xd.managed=true --label io.nix-xd.schema=1 --label io.nix-xd.role=nix-store \
+      --label "io.nix-xd.scope=$scope" --label "io.nix-xd.lifecycle=${NIX_XD_LIFECYCLE:-reusable}" "$volume"
   fi
   # Only prepare the mountpoint of a new/empty volume. No recursive changes.
   container run --rm --user 0 --volume "$volume:/nix" --entrypoint /bin/sh "$image" -ec '
@@ -62,7 +65,9 @@ else
     fi
   '
   say "Starting direct-volume ARM Nix-Alpine bootstrap"
-  container run -d --name "$scope" --volume "$volume:/nix" "$image" sleep infinity
+  container run -d --name "$scope" --label io.nix-xd.managed=true --label io.nix-xd.schema=1 \
+    --label io.nix-xd.role=builder --label "io.nix-xd.scope=$scope" \
+    --label "io.nix-xd.lifecycle=${NIX_XD_LIFECYCLE:-reusable}" --volume "$volume:/nix" "$image" sleep infinity
 fi
 ready=0
 for attempt in $(seq 1 120); do

@@ -1,5 +1,6 @@
 FROM docker.io/library/alpine:3.23
 ARG TARGETARCH
+LABEL io.nix-xd.managed="true" io.nix-xd.schema="1" io.nix-xd.component="nix-alpine" io.nix-xd.role="runtime-image"
 RUN case "$TARGETARCH:$(uname -m)" in arm64:aarch64|amd64:x86_64) ;; *) exit 1 ;; esac \
     && apk add --no-cache bash coreutils curl git xz tar ca-certificates
 RUN addgroup -g 1000 nixuser && adduser -D -u 1000 -G nixuser -s /bin/bash nixuser \

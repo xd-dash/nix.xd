@@ -25,7 +25,7 @@ printf 'X86_BOOTSTRAP_STEP=build-image\n'
 podman build --platform linux/amd64 -t "$image" "$repo/arm"
 if ! podman volume exists "$volume"; then
   printf 'X86_BOOTSTRAP_STEP=create-authoritative-volume\n'
-  podman volume create "$volume" >/dev/null
+  builder_volume_create "$scope" "$volume" nix-store podman >/dev/null
 fi
 podman run --rm --pull=never --user 0:0 \
   --mount "type=volume,src=$volume,dst=/nix" \

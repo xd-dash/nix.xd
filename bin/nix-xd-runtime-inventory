@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+status=0
+report() {
+  printf '\nINVENTORY_COMMAND='
+  printf '%q ' "$@"
+  printf '\n'
+  "$@" || { rc=$?;printf 'INVENTORY_UNAVAILABLE exit=%s\n' "$rc";status=1; }
+}
+if command -v podman >/dev/null 2>&1; then
+  if [[ "$(uname -s)" == Darwin ]]; then
+    report podman machine list
+    machines=$(podman machine list --format '{{.Name}}') || { machines=;status=1; }
+    for machine in $machines; do
+      state=$(podman machine inspect "$machine" --format '{{.State}}') || { status=1;continue; }
+      printf 'INVENTORY_MACHINE name=%s state=%s\n' "$machine" "$state"
+      if [[ "$state" != running ]]; then
+        printf 'INVENTORY_SKIPPED machine=%s reason=stopped-no-start-requested\n' "$machine"
+        continue
+      fi
+      report podman --connection "$machine" ps -a --format 'table {{.ID}} {{.Names}} {{.Image}} {{.Status}}'
+      report podman --connection "$machine" images --format 'table {{.ID}} {{.Repository}} {{.Tag}}'
+      report podman --connection "$machine" volume ls
+      report podman --connection "$machine" ps -a --filter label=io.nix-xd.managed=true --format 'table {{.ID}} {{.Names}} {{.Labels}}'
+      report podman --connection "$machine" volume ls --filter label=io.nix-xd.managed=true
+      ids=$(podman --connection "$machine" ps -aq) || { status=1;continue; }
+      for id in $ids; do
+        report podman --connection "$machine" inspect "$id" --format 'RESOURCE={{.Name}} IMAGE={{.Image}} MOUNTS={{range .Mounts}}{{.Type}}:{{.Name}}:{{.Source}}->{{.Destination}}:rw={{.RW}};{{end}}'
+      done
+    done
+  else
+    report podman ps -a --format 'table {{.ID}} {{.Names}} {{.Image}} {{.Status}}'
+    report podman images
+    report podman volume ls
+    report podman ps -a --filter label=io.nix-xd.managed=true --format 'table {{.ID}} {{.Names}} {{.Labels}}'
+  fi
+else
+  printf 'INVENTORY_PROVIDER podman=not-installed\n'
+fi
+if command -v container >/dev/null 2>&1; then
+  report container list --all
+  report container image list
+  report container volume list
+else
+  printf 'INVENTORY_PROVIDER apple-container=not-installed\n'
+fi
+printf 'RUNTIME_INVENTORY_RESULT exit=%s mutations=false legacy_unlabelled_resources=included\n' "$status"
+exit "$status"

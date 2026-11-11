@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+provider="${NIX_XD_PROVIDER:-podman}"
+scope="${NIX_XD_SCOPE:?Scope required}"
+composition="${NIX_XD_ARTIFACT_COMPOSITION:-infrastructure}"
+placement="${NIX_XD_ARTIFACT_PLACEMENT:-host}"
+system="${NIX_XD_SYSTEM:?System required}"
+image="${NIX_XD_IMAGE:?Image required}"
+root="${NIX_XD_ARTIFACT_ROOT:-$repo/.artifacts}"
+for token in "$scope" "$composition" "$placement"; do
+  [[ "$token" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || exit 2
+done
+[[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] || exit 2
+[[ "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ && "$root" == /* ]] || exit 2
+umask 077
+parent="$root/$composition/$placement/$scope/images/$system"
+mkdir -p "$parent"
+tmp="$(mktemp -d "$parent/.export.XXXXXX")"
+trap 'rm -rf -- "$tmp"' EXIT
+case "$provider" in
+  podman)
+    p=(podman)
+    if [[ "$(uname -s)" == Darwin ]]; then p+=(--connection "${NIX_XD_MACHINE:?Machine required}");fi
+    id=$("${p[@]}" image inspect "$image" --format '{{.Id}}')
+    [[ "$id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 2
+    arch=$("${p[@]}" image inspect "$image" --format '{{.Architecture}}')
+    [[ "$system:$arch" == aarch64-linux:arm64 || "$system:$arch" == x86_64-linux:amd64 ]] || { echo 'Image architecture differs' >&2;exit 1; }
+    "${p[@]}" save --format oci-archive "$id" | gzip -n > "$tmp/image.oci.tar.gz"
+    ;;
+  container)
+    platform=linux/arm64
+    [[ "$system" != x86_64-linux ]] || platform=linux/amd64
+    container image save --platform "$platform" --output "$tmp/image.tar" "$image"
+    gzip -n < "$tmp/image.tar" > "$tmp/image.oci.tar.gz"
+    rm "$tmp/image.tar"
+    id=unavailable
+    ;;
+  *) echo 'Unsupported provider' >&2;exit 2 ;;
+esac
+gzip -dc "$tmp/image.oci.tar.gz" | tar -tf - > "$tmp/members"
+grep -Eq '^(\./)?oci-layout$' "$tmp/members" && grep -Eq '^(\./)?index.json$' "$tmp/members" || {
+  echo 'Export is not an OCI image archive; refusing misleading format name' >&2;exit 1;
+}
+if command -v sha256sum >/dev/null 2>&1; then
+  sum=$(sha256sum "$tmp/image.oci.tar.gz")
+else
+  sum=$(shasum -a 256 "$tmp/image.oci.tar.gz")
+fi
+digest="${sum%% *}"
+[[ "$digest" =~ ^[a-f0-9]{64}$ ]] || exit 2
+printf '{"schema":1,"format":"oci-archive+gzip","archiveSha256":"%s","sourceRef":"%s","sourceImageId":"%s","system":"%s","scope":"%s","composition":"%s","placement":"%s"}\n' \
+  "$digest" "$image" "$id" "$system" "$scope" "$composition" "$placement" > "$tmp/manifest.json"
+rm "$tmp/members"
+destination="$parent/sha256-$digest"
+if [[ -d "$destination" ]]; then
+  cmp -s "$tmp/image.oci.tar.gz" "$destination/image.oci.tar.gz" || { echo 'Artifact digest collision' >&2;exit 1; }
+  printf 'IMAGE_EXPORT_RESULT=reused path=%s\n' "$destination"
+else
+  mv "$tmp" "$destination"
+  printf 'IMAGE_EXPORT_RESULT=passed path=%s\n' "$destination"
+fi

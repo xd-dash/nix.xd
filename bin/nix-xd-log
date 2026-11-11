@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-scope="${1:?Scope required}"
-action="${2:?Action required}"
+scope="${1:?Scope required}" action="${2:?Action required}"
 shift 2
-[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || { echo "Invalid log scope" >&2; exit 2; }
-[[ "$action" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "Invalid log action" >&2; exit 2; }
-(( $# > 0 )) || { echo "Command required" >&2; exit 2; }
-
-dir="${NIX_XD_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/nix-xd/logs}"
+composition="${NIX_XD_LOG_COMPOSITION:-${NIX_XD_COMPOSITION_ID:-infrastructure}}"
+machine="${NIX_XD_LOG_MACHINE:-${NIX_XD_MACHINE:-host}}"
+placement="${NIX_XD_LOG_PLACEMENT:-${NIX_XD_PLACEMENT_ID:-host}}"
+instance="${NIX_XD_LOG_CONTAINER:-$scope}"
+for token in "$scope" "$action" "$composition" "$machine" "$placement" "$instance"; do
+  [[ "$token" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,95}$ ]] || { echo 'Invalid log identity' >&2;exit 2; }
+done
+(( $# > 0 )) || { echo 'Command required' >&2;exit 2; }
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+dir="${NIX_XD_LOG_DIR:-$repo/.logs}"
+[[ "$dir" == /* ]] || { echo 'Log directory must be absolute' >&2;exit 2; }
 umask 077
 mkdir -p "$dir"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-log="$dir/$scope-$action-$stamp-$$.log"
+log="$dir/$scope-$action--$composition--$machine--$placement--$instance-$stamp-$$.log"
 printf 'Diagnostic log: %s\n' "$log"
 set +e
 "$@" 2>&1 | tee "$log"

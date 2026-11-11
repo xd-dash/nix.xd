@@ -38,6 +38,11 @@ builder_quadlet() {
   local scope="$1" image="$2" description="$3" volume i
   [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ && "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || return 1
   printf '[Unit]\nDescription=%s\n\n[Container]\nImage=%s\nContainerName=%s\nPull=never\n' "$description" "$image" "$scope"
+  local lifecycle="${NIX_XD_LIFECYCLE:-reusable}" composition="${NIX_XD_COMPOSITION_ID:-infrastructure}" placement="${NIX_XD_PLACEMENT_ID:-host}"
+  [[ "$lifecycle" == reusable || "$lifecycle" == disposable ]] || return 2
+  [[ "$composition" =~ ^[a-z][a-z0-9-]{0,39}$ && "$placement" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || return 2
+  printf 'Label=io.nix-xd.managed=true\nLabel=io.nix-xd.schema=1\nLabel=io.nix-xd.role=builder\n'
+  printf 'Label=io.nix-xd.scope=%s\nLabel=io.nix-xd.lifecycle=%s\nLabel=io.nix-xd.composition=%s\nLabel=io.nix-xd.placement=%s\n' "$scope" "$lifecycle" "$composition" "$placement"
   builder_store_mounts
   if [[ -n ${NIX_XD_INITIAL_CHROOT_STORES:-} ]]; then
     local specs=() spec name chroot_volume seen=' ' seen_volumes=' '
@@ -61,4 +66,16 @@ builder_quadlet() {
     printf 'ExecStartPre=/usr/bin/podman volume exists %s\n' "$volume"
   done
   printf 'Restart=on-failure\nTimeoutStartSec=300\n\n[Install]\nWantedBy=default.target\n'
+}
+
+# Provider-neutral CLI prefix: podman [--connection ...] or container.
+builder_volume_create() {
+  local scope="$1" name="$2" role="$3"
+  shift 3
+  local lifecycle="${NIX_XD_LIFECYCLE:-reusable}"
+  [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ && "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ && "$role" =~ ^[a-z][a-z0-9-]*$ ]] || return 2
+  [[ "$lifecycle" == reusable || "$lifecycle" == disposable ]] || return 2
+  "$@" volume create --label io.nix-xd.managed=true --label io.nix-xd.schema=1 \
+    --label "io.nix-xd.scope=$scope" --label "io.nix-xd.role=$role" \
+    --label "io.nix-xd.lifecycle=$lifecycle" "$name"
 }

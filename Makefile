@@ -307,6 +307,7 @@ check-static-internal:
 	@bash tests/project-run-contract.sh
 	@python3 tests/chroot-attach.py
 	@python3 tests/runtime-primitives.py
+	@bash tests/runtime-resource-contract.sh
 	@python3 tests/compositions.py
 	@python3 tests/guest-executor.py
 	@python3 tests/coreos-managed-start.py
@@ -689,3 +690,22 @@ maintenance-review-internal:
 	  NIX_XD_QUALIFY_IMAGE='$(QUALIFY_STORE_IMAGE)' \
 	  bash bin/nix-xd-builder-store-maintenance inventory
 	@echo 'MAINTENANCE_REVIEW_RESULT=passed mutations=false'
+
+# Generic resource identity and host artifacts; no application policy.
+LIFECYCLE ?= reusable
+COMPOSITION_ID ?= infrastructure
+PLACEMENT_ID ?= host
+ARTIFACT_ROOT ?= $(CURDIR)/.artifacts
+export NIX_XD_LIFECYCLE = $(LIFECYCLE)
+export NIX_XD_COMPOSITION_ID = $(COMPOSITION_ID)
+export NIX_XD_PLACEMENT_ID = $(PLACEMENT_ID)
+export NIX_XD_ARTIFACT_ROOT = $(ARTIFACT_ROOT)
+export NIX_XD_ARTIFACT_COMPOSITION = $(COMPOSITION_ID)
+export NIX_XD_ARTIFACT_PLACEMENT = $(PLACEMENT_ID)
+.PHONY: runtime-inventory image-export runtime-contract-check
+runtime-inventory:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-runtime-inventory
+image-export:
+	@$(TASK_ENV) NIX_XD_IMAGE='$(IMAGE)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-image-export
+runtime-contract-check:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash tests/runtime-resource-contract.sh

@@ -6,4 +6,6 @@ SCOPE = nix-xd-arm
 WORKSPACES = $(abspath $(CURDIR)/..)
 CHECKOUT = $(notdir $(CURDIR))
 WORKLOAD_FLAKE = /workspaces/$(CHECKOUT)
-export NIX_XD_LOG_DIR = $(HOME)/workspace/nix.xd/logs
+export NIX_XD_LOG_DIR = $(HOME)/.local/nix.xd/logs
+ARTIFACT_ROOT = $(HOME)/.local/nix.xd/artifacts
+LIFECYCLE = reusable

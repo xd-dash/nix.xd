@@ -1,3 +1,27 @@
+# Nix.xd / Nix-Alpine
+
+Generic Nix execution and bootstrap capabilities, selected through Make.
+
+The fresh development path is documented in [Fresh start](docs/fresh-start.md).
+It covers resource inventory, labels, scoped image archives, shared logs and
+removal of the known old sandbox. Agni and Grumble own their project flakes;
+application policy is not part of the intended runtime contract.
+
+Logs default to the untracked `.logs/` directory. Override with
+`NIX_XD_LOG_DIR="$HOME/.local/nix.xd/logs"`.
+
+```sh
+make runtime-inventory
+make runtime-contract-check
+make image-export
+```
+
+The branch still contains legacy application controllers and the historical
+instructions below. They are not the target architecture or a required
+fresh-start migration procedure.
+
+---
+
 # nix.xd
 
 A small host installer for a rootless Podman + systemd/Quadlet Nix-Alpine service.

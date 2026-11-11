@@ -2,7 +2,9 @@
 set -Eeuo pipefail
 machine=${1:?machine} scope=${2:?scope} image=${3:?image} authoritative=${4:?store}
 specs=${5:?chroot stores}
+
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo/lib/builder-stores.sh"
 [[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
 [[ $authoritative =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
 [[ $image =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || exit 2
@@ -39,6 +41,8 @@ if podman --connection "$machine" container exists "$probe"; then
 fi
 trap cleanup EXIT
 podman --connection "$machine" run -d --pull=never --name "$probe" \
+  --label io.nix-xd.managed=true --label io.nix-xd.role=bootstrap-probe \
+  --label "io.nix-xd.scope=$scope" --label io.nix-xd.lifecycle=disposable \
   --network none --read-only --user 1000:1000 \
   --entrypoint /bin/sleep "$image" 120 >/dev/null
 printf -v remote_probe '%q' "$probe"
@@ -57,7 +61,7 @@ read -r -a entries <<< "$specs"
 for spec in ${entries[@]+"${entries[@]}"}; do
   volume=${spec#*=}
   if ! podman --connection "$machine" volume exists "$volume"; then
-    podman --connection "$machine" volume create "$volume" >/dev/null
+    builder_volume_create "$scope" "$volume" chroot-store podman --connection "$machine" >/dev/null
   fi
   podman --connection "$machine" run --rm --pull=never --network none --read-only \
     --user 0:0 --cap-drop all --cap-add CHOWN --cap-add DAC_OVERRIDE \
