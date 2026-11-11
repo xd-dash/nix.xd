@@ -97,3 +97,28 @@ namespace creation. It reports only capability/seccomp status and namespace
 limits. Each probe runs in a child namespace and times out after 15 seconds;
 no sysctl, mount policy, service, or security profile is changed. This diagnostic
 does not qualify the store and does not run builds.
+
+
+## Explicit nested-build namespace profile
+
+The ARM diagnostic passed namespace creation but failed to mount a private proc
+filesystem. The next bounded fix is an opt-in builder Quadlet profile:
+`builder-chroot-profile` writes only `Unmask=/proc/*` into
+`30-nix-chroot-profile.conf`. This removes Podman's extra masked/read-only proc
+submount restrictions so a nested user/PID namespace can mount its own proc.
+It retains seccomp and rootless execution; it does not enable privileged mode,
+add SYS_ADMIN or change kernel sysctls. This is a deliberate builder-only change,
+not application guest policy. The helper verifies the live masked/readonly paths,
+non-root executor, zero effective capabilities and enabled seccomp filter.
+
+Pause owner builds before applying. It restarts only the owner when the live
+proc restrictions still require it. Then restage the ephemeral workspace:
+
+```bash
+fatline builder-chroot-profile &&
+fatline stage &&
+fatline chroot-store-qualify CHROOT_NAME=grumble
+```
+
+The profile's actual sandbox behaviour remains subject to the local POC result;
+a passed configuration helper is not a passed build/retention qualification.

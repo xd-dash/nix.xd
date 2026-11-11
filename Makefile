@@ -585,3 +585,7 @@ chroot-store-attach:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-chroot-attach
 chroot-store-qualify:
 	@$(MAKE) --no-print-directory project-run PROJECT_FLAKE="$(WORKLOAD_FLAKE)" PROJECT_APP=chroot-store-poc PROJECT_ARGS_JSON='["--root","/stores/$(CHROOT_NAME)","--flake","$(WORKLOAD_FLAKE)","--system","$(NIX_SYSTEM)"]' PROJECT_STORE=local
+
+.PHONY: builder-chroot-profile
+builder-chroot-profile:
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-profile
