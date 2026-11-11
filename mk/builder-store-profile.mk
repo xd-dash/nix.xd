@@ -3,6 +3,8 @@
 BUILDER_CHROOT_STORES ?=
 BUILDER_CHROOT_NAMESPACE ?= 1
 BUILDER_CHROOT_SYSCALLS ?= 1
+INITIAL_PROFILE ?= 0
+INITIAL_CHROOT_STORES ?=
 
 .PHONY: builder-store-profile-plan builder-store-profile-apply bootstrap-builder-profile
 builder-store-profile-plan:
@@ -32,8 +34,14 @@ builder-store-profile-complete:
 bootstrap-builder-profile:
 	@$(MAKE) --no-print-directory builder-store-profile-plan
 	@test "$(PROVIDER)" = podman || { echo 'Builder chroot bootstrap currently requires PROVIDER=podman' >&2; exit 2; }
-	@$(MAKE) --no-print-directory bootstrap
-	@$(MAKE) --no-print-directory builder-store-profile-complete
+	@if [[ '$(INITIAL_PROFILE)' == 1 ]]; then \
+	  test -n '$(INITIAL_CHROOT_STORES)' || { echo 'Missing INITIAL_CHROOT_STORES' >&2; exit 2; }; \
+	  $(MAKE) --no-print-directory bootstrap; \
+	  $(MAKE) --no-print-directory stage; \
+	else \
+	  $(MAKE) --no-print-directory bootstrap; \
+	  $(MAKE) --no-print-directory builder-store-profile-complete; \
+	fi
 
 # Run only on a disposable, freshly bootstrapped builder scope.
 # The first application may restart the builder; the second must not.
