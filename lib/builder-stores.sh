@@ -40,14 +40,15 @@ builder_quadlet() {
   printf '[Unit]\nDescription=%s\n\n[Container]\nImage=%s\nContainerName=%s\nPull=never\n' "$description" "$image" "$scope"
   builder_store_mounts
   if [[ -n ${NIX_XD_INITIAL_CHROOT_STORES:-} ]]; then
-    local specs=() spec name chroot_volume seen=' '
+    local specs=() spec name chroot_volume seen=' ' seen_volumes=' '
     read -r -a specs <<< "$NIX_XD_INITIAL_CHROOT_STORES"
     for spec in ${specs[@]+"${specs[@]}"}; do
       [[ $spec == *=* ]] || return 2
       name=${spec%%=*}; chroot_volume=${spec#*=}
       [[ $name =~ ^[a-z][a-z0-9-]{0,39}$ && $chroot_volume =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || return 2
-      [[ $chroot_volume != "$builder_store_volume" && $seen != *" $name "* ]] || return 2
+      [[ $chroot_volume != "$builder_store_volume" && $seen != *" $name "* && $seen_volumes != *" $chroot_volume "* ]] || return 2
       seen="$seen$name "
+      seen_volumes="$seen_volumes$chroot_volume "
       printf 'Volume=%s:/stores/%s\n' "$chroot_volume" "$name"
     done
     printf 'Unmask=/proc/*\n'
