@@ -15,6 +15,8 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 2; }
 command -v podman >/dev/null 2>&1 || fail 'Podman is required'
 volume="nix-xd-state-$kind-$name"
 p=(podman --connection "$machine")
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] ||
+  fail "Podman Machine $machine is not running; no resource inspection or mutation attempted"
 
 exists() { "${p[@]}" volume exists "$volume"; }
 labels_valid() {
