@@ -25,11 +25,27 @@ for spec in ${entries[@]+"${entries[@]}"}; do
     fi
   done
 done
-# Resolve the configured Podman default profile before allocating resources.
+# Inspect the effective OCI seccomp policy of a disposable probe on this VM.
+# The managed builder has not started. Do not guess a default profile file path.
 tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT
-podman machine ssh "$machine" 'p=$(podman info --format "{{.Host.Security.SeccompProfilePath}}"); test -n "$p" && test -r "$p" && cat "$p"' |
+probe="$scope-seccomp-probe"
+cleanup() {
+  podman --connection "$machine" rm -f "$probe" >/dev/null 2>&1 || true
+  rm -f "$tmp"
+}
+if podman --connection "$machine" container exists "$probe"; then
+  echo "Refusing existing security probe container: $probe" >&2
+  exit 1
+fi
+trap cleanup EXIT
+podman --connection "$machine" run -d --pull=never --name "$probe" \
+  --network none --read-only --user 1000:1000 \
+  --entrypoint /bin/sleep "$image" 120 >/dev/null
+printf -v remote_probe '%q' "$probe"
+podman machine ssh "$machine" "set -e; file=\$(podman inspect $remote_probe --format '{{.OCIConfigPath}}'); test -n \"\$file\" && test -r \"\$file\"; cat \"\$file\"" |
   python3 "$repo/bin/nix-xd-builder-seccomp.py" > "$tmp"
+podman --connection "$machine" rm -f "$probe" >/dev/null
+trap 'rm -f "$tmp"' EXIT
 remote=".config/nix-xd/seccomp/$scope-nix-chroot.json"
 if podman machine ssh "$machine" "test -e \$HOME/$remote"; then
   podman machine ssh "$machine" "cat \$HOME/$remote" | cmp -s "$tmp" - ||
