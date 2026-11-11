@@ -61,7 +61,7 @@ if 'restart' in sys.argv:
 ''');mock.chmod(0o755)
         # The runtime executes on Linux, where flock and sha256sum are present.
         # Static tests on macOS mock those platform tools without changing production policy.
-        mock=tools/'flock';mock.write_text('#!/usr/bin/env bash\\nexit 0\\n');mock.chmod(0o755)
+        mock=tools/'flock';mock.write_text('#!/usr/bin/env bash\nexit 0\n');mock.chmod(0o755)
         mock=tools/'sha256sum';mock.write_text('''#!/usr/bin/env python3
 import hashlib,sys
 for name in sys.argv[1:]:
