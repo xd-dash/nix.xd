@@ -63,6 +63,11 @@ builder_quadlet() {
   printf 'Label=io.nix-xd.scope=%s\nLabel=io.nix-xd.lifecycle=%s\nLabel=io.nix-xd.composition=%s\nLabel=io.nix-xd.placement=%s\n' "$scope" "$lifecycle" "$composition" "$placement"
   builder_store_mounts
   if [[ -n ${NIX_XD_INITIAL_CHROOT_STORES:-} ]]; then
+    case "${NIX_XD_CHROOT_SELINUX:-keep}" in
+      keep) ;;
+      disabled) printf 'SecurityLabelDisable=true\n' ;;
+      *) return 2 ;;
+    esac
     local specs=() spec name chroot_volume seen=' ' seen_volumes=' '
     read -r -a specs <<< "$NIX_XD_INITIAL_CHROOT_STORES"
     for spec in ${specs[@]+"${specs[@]}"}; do

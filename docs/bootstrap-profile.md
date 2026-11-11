@@ -11,6 +11,7 @@ Declare them in the untracked nix-xd.local.mk or pass them to Make. For example:
 include examples/runtime-arm64-podman.mk
 STORE_VOLUME = nix-xd-arm-store
 BUILDER_CHROOT_STORES = grumble=nix-xd-grumble-store
+CHROOT_SELINUX = disabled
 ```
 
 The identity `grumble` selects a generic store slot. It does not install Grumble,
@@ -27,7 +28,9 @@ It never switches the builder's global `/nix` mount.
 
 The seccomp policy retains the machine's restrictive default and adds the two
 UTS calls required by nested Nix sandboxes. The profile explicitly unmasks proc
-paths for the trusted builder, retains the default SELinux settings, and does
+paths for the trusted builder. CHROOT_SELINUX defaults to keep; disabled explicitly
+adds SecurityLabelDisable=true to this builder's initial Quadlet. It does not
+change the machine's SELinux enforcement or other containers. The profile does
 not use privileged mode or an unconfined seccomp profile. This is a capability
 profile for trusted build workloads, not a hostile-tenant isolation boundary.
 
@@ -44,7 +47,7 @@ bootstrap, readiness and the generic isolated-store qualification.
 
 ```sh
 make bootstrap-profile-local \
-  BUILDER_CHROOT_STORES="grumble=nix-xd-grumble-store"
+  BUILDER_CHROOT_STORES="grumble=nix-xd-grumble-store" CHROOT_SELINUX=disabled
 ```
 
 For each declared alternate store, qualification reuses the bounded runtime POC:
@@ -59,14 +62,27 @@ Run `make bootstrap-profile-qualify` to repeat only that store qualification.
 
 This first-start adapter is currently available for ARM64 macOS with Podman.
 The first ARM run installed and staged successfully, but its private proc check
-failed with permission denied while retaining SELinux labeling. This profile
-therefore remains unqualified. Run `make bootstrap-profile-compare` to compare
+failed with permission denied while retaining SELinux labeling. The subsequent
+read-only comparison isolated SELinux: baseline=1, label_disabled=0, owner unchanged.
+Full qualification with the explicit disabled setting remains pending.
+Run `make bootstrap-profile-compare` to compare
 two temporary, read-only-store probes differing only in their SELinux labeling.
 The comparison reuses the built readiness tools and restricted seccomp policy,
 checks that the owner remained running with the same ID, and never rewrites its
 Quadlet or changes its label. Each namespace probe has a 20-second timeout.
-An isolated result supplies evidence for revising the declarative bootstrap
-profile; it does not automatically weaken the running builder's configuration.
+The comparison does not automatically change the running builder's configuration.
+To replace the failed first-start builder using the corrected declaration, run:
+
+```sh
+make bootstrap-profile-recreate \
+  BUILDER_CHROOT_STORES="grumble=nix-xd-grumble-store" CHROOT_SELINUX=disabled
+```
+
+This explicitly stops the selected managed builder, removes its container and
+generated Quadlet, then performs first-start bootstrap, readiness and isolated-store
+qualification. It retains every named volume and its contents, including roots
+and built tools, and leaves the Podman Machine and other containers unchanged.
+It does not rewrite a running builder or copy stores. The full operation is logged.
 
 Declarations, packaged readiness tools and store selection support both Linux
 architectures; native AMD64 first-start provisioning still needs its adapter and

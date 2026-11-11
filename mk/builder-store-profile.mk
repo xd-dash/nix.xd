@@ -31,10 +31,14 @@ builder-store-profile-complete:
 	@$(MAKE) --no-print-directory stage
 
 # All mounts and security settings are installed before the first builder start.
-bootstrap-builder-profile:
+.PHONY: bootstrap-profile-preflight
+bootstrap-profile-preflight:
 	@$(MAKE) --no-print-directory builder-store-profile-plan
 	@test "$(PROVIDER):$(ARCH):$(OS)" = podman:arm64:Darwin || { echo 'First-start profile currently requires ARM64 macOS with Podman' >&2; exit 2; }
-	@test "$(BUILDER_CHROOT_NAMESPACE):$(BUILDER_CHROOT_SYSCALLS):$(CHROOT_SELINUX)" = 1:1:keep || { echo 'Profile requires namespaces, restricted seccomp and retained SELinux settings' >&2; exit 2; }
+	@test "$(BUILDER_CHROOT_NAMESPACE):$(BUILDER_CHROOT_SYSCALLS)" = 1:1 || { echo 'Profile requires namespaces and restricted seccomp' >&2; exit 2; }
+	@case "$(CHROOT_SELINUX)" in keep|disabled) ;; *) exit 2 ;; esac
+bootstrap-builder-profile:
+	@$(MAKE) --no-print-directory bootstrap-profile-preflight
 	@$(MAKE) --no-print-directory bootstrap INITIAL_PROFILE=1 INITIAL_CHROOT_STORES="$$BUILDER_CHROOT_STORES"
 	@$(MAKE) --no-print-directory stage WORKSPACES="$(abspath $(CURDIR)/..)" CHECKOUT="$(notdir $(CURDIR))"
 
@@ -49,7 +53,7 @@ bootstrap-profile-check:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory bootstrap-profile-check-internal
 .PHONY: bootstrap-profile-check-internal
 bootstrap-profile-check-internal:
-	@bash -n bin/nix-xd-bootstrap-profile runtime/bootstrap-ready.sh bin/nix-xd-bootstrap-profile-compare runtime/bootstrap-profile-compare.sh
+	@bash -n bin/nix-xd-bootstrap-profile runtime/bootstrap-ready.sh bin/nix-xd-bootstrap-profile-compare runtime/bootstrap-profile-compare.sh runtime/bootstrap-profile-recreate.sh
 	@python3 tests/bootstrap-profile.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
@@ -63,6 +67,15 @@ bootstrap-profile-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory bootstrap-profile-local-internal
 bootstrap-profile-local-internal:
 	@$(MAKE) --no-print-directory bootstrap-profile-check-internal
+	@$(MAKE) --no-print-directory bootstrap-profile-internal
+	@bash bin/nix-xd-bootstrap-profile qualify
+
+.PHONY: bootstrap-profile-recreate bootstrap-profile-recreate-internal
+bootstrap-profile-recreate:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory bootstrap-profile-recreate-internal
+bootstrap-profile-recreate-internal:
+	@$(MAKE) --no-print-directory bootstrap-profile-preflight bootstrap-profile-check-internal
+	@bash bin/nix-xd-bootstrap-profile recreate
 	@$(MAKE) --no-print-directory bootstrap-profile-internal
 	@bash bin/nix-xd-bootstrap-profile qualify
 

@@ -79,7 +79,7 @@ fi
 # First Nix installation occurs only after the final volume is mounted.
 
 say "Installing rootless Quadlet"
-printf -v builder_remote_args '%q ' "$scope" "$image" "$builder_store_volume" "${NIX_XD_PEER_STORES:-}" "$initial_chroots" "${NIX_XD_LIFECYCLE:-reusable}" "${NIX_XD_COMPOSITION_ID:-infrastructure}" "${NIX_XD_PLACEMENT_ID:-host}"
+printf -v builder_remote_args '%q ' "$scope" "$image" "$builder_store_volume" "${NIX_XD_PEER_STORES:-}" "$initial_chroots" "${NIX_XD_LIFECYCLE:-reusable}" "${NIX_XD_COMPOSITION_ID:-infrastructure}" "${NIX_XD_PLACEMENT_ID:-host}" "${NIX_XD_CHROOT_SELINUX:-keep}"
 # The VM's user service manager supervises the container; no macOS daemon needed.
 {
 cat "$repo/lib/builder-stores.sh"
@@ -90,6 +90,7 @@ image="$2"
 NIX_XD_STORE_VOLUME="$3" NIX_XD_PEER_STORES="$4"
 NIX_XD_INITIAL_CHROOT_STORES="${5:-}"
 NIX_XD_LIFECYCLE="${6:-reusable}" NIX_XD_COMPOSITION_ID="${7:-infrastructure}" NIX_XD_PLACEMENT_ID="${8:-host}"
+NIX_XD_CHROOT_SELINUX="${9:-keep}"
 if [[ -n "$NIX_XD_INITIAL_CHROOT_STORES" ]]; then
   NIX_XD_INITIAL_SECCOMP_PATH="$HOME/.config/nix-xd/seccomp/$scope-nix-chroot.json"
 fi

@@ -2,7 +2,7 @@
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 action=${1:?Expected ready or qualify}
-[[ $action == ready || $action == qualify ]] || exit 2
+[[ $action == ready || $action == qualify || $action == recreate ]] || exit 2
 [[ ${NIX_XD_PROVIDER:-podman} == podman ]] || { echo 'Profile requires Podman' >&2; exit 2; }
 scope=${NIX_XD_SCOPE:?Select a builder scope}
 system=${NIX_XD_SYSTEM:?Select the builder system}
@@ -10,8 +10,14 @@ flake=${NIX_XD_BUILDER_RUNTIME_FLAKE:?Select the staged runtime flake}
 [[ $system == aarch64-linux || $system == x86_64-linux ]] || exit 2
 [[ $flake =~ ^/workspaces/[A-Za-z0-9_.-]+$ && $flake != *..* ]] || exit 2
 # Validate the same declaration before checking or qualifying it.
-BUILDER_CHROOT_NAMESPACE=1 BUILDER_CHROOT_SYSCALLS=1 NIX_XD_CHROOT_SELINUX=keep \
+BUILDER_CHROOT_NAMESPACE=1 BUILDER_CHROOT_SYSCALLS=1 \
   bash "$repo/bin/nix-xd-builder-store-profile" plan
+if [[ $action == recreate ]]; then
+  [[ $(uname -s) == Darwin ]] || exit 2
+  printf -v remote_args '%q ' "$scope"
+  podman machine ssh "${NIX_XD_MACHINE:?Select a Podman Machine}" "bash -se -- $remote_args" < "$repo/runtime/bootstrap-profile-recreate.sh"
+  exit
+fi
 source "$repo/lib/builder-stores.sh"
 builder_stores_init "$scope"
 read -r -a specs <<< "$BUILDER_CHROOT_STORES"
@@ -28,6 +34,11 @@ done
 p=(podman)
 if [[ $(uname -s) == Darwin ]]; then p+=(--connection "${NIX_XD_MACHINE:?Select a Podman Machine}"); fi
 [[ $("${p[@]}" inspect "$scope" --format '{{.State.Running}}') == true ]] || { echo 'Builder is not running' >&2; exit 1; }
+if [[ ${NIX_XD_CHROOT_SELINUX:-keep} == disabled ]]; then
+  [[ -z $("${p[@]}" inspect "$scope" --format '{{.ProcessLabel}}') ]] || {
+    echo 'Running builder does not match declared SELinux setting' >&2; exit 1;
+  }
+fi
 mounts=$("${p[@]}" inspect "$scope" --format '{{range .Mounts}}{{println .Name .Destination .RW}}{{end}}')
 for expected in "${mounts_expected[@]}"; do
   grep -Fxq "$expected" <<< "$mounts" || { echo "Declared mount differs: $expected" >&2; exit 1; }

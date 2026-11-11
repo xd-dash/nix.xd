@@ -19,6 +19,8 @@ class BootstrapProfile(unittest.TestCase):
 printf '%s\\n' "$*" >> "$PROFILE_TEST_RECORD"
 if [[ ${PROFILE_TEST_COMPARISON:-0} == 1 ]]; then
   if [[ $1 == info ]]; then echo true; exit; fi
+  if [[ $1 == container && $2 == exists ]]; then exit 0; fi
+  if [[ $1 == rm ]]; then exit 0; fi
   case "$*" in
     *'{{.ProcessLabel}}'*) echo 'system_u:system_r:container_t:s0:c1,c2'; exit ;;
     *'{{.Id}}'*) echo fixture-id; exit ;;
@@ -32,6 +34,7 @@ if [[ ${PROFILE_TEST_COMPARISON:-0} == 1 ]]; then
   fi
 fi
 if [[ $* == *".State.Running"* ]]; then echo "${PROFILE_TEST_RUNNING:-true}"; exit; fi
+if [[ $* == *".ProcessLabel"* ]]; then echo "${PROFILE_TEST_LABEL:-}"; exit; fi
 if [[ $* == *".Mounts"* ]]; then
   printf 'owner-store /nix true\\naux-store /stores/aux %s\\npeer-store /peer/peer false\\n' "${PROFILE_TEST_WRITABLE:-true}"
   exit
@@ -153,6 +156,45 @@ builder_store_assert_owner owner store /nix fake
                 result = self.run_comparison(**setting)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('BOOTSTRAP_PROFILE_COMPARISON_RESULT=not-isolated', result.stdout)
+
+    def test_disabled_label_is_explicit_in_initial_quadlet_and_readiness(self):
+        script = '''source lib/builder-stores.sh
+builder_stores_init owner
+NIX_XD_INITIAL_CHROOT_STORES=aux=aux-store
+NIX_XD_INITIAL_SECCOMP_PATH="$HOME/.config/nix-xd/seccomp/owner-nix-chroot.json"
+builder_quadlet owner localhost/nix-xd:arm64 Fixture
+'''
+        for policy in ('keep', 'disabled'):
+            result = subprocess.run(['bash', '-eu', '-c', script], cwd=ROOT,
+                                    env=dict(self.environment, NIX_XD_CHROOT_SELINUX=policy),
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual('SecurityLabelDisable=true' in result.stdout, policy == 'disabled')
+            self.assertIn('SeccompProfile=', result.stdout)
+            self.assertNotIn('Privileged=true', result.stdout)
+        result = self.run_profile(NIX_XD_CHROOT_SELINUX='disabled', PROFILE_TEST_LABEL='container_t')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('BOOTSTRAP_PROFILE_RESULT=ready', result.stdout)
+
+    def test_recreation_retains_stores_and_removes_only_managed_builder(self):
+        unit = self.directory / '.config/containers/systemd/owner.container'
+        unit.parent.mkdir(parents=True)
+        unit.write_text('ContainerName=owner\nLabel=io.nix-xd.managed=true\nLabel=io.nix-xd.role=builder\n')
+        mock = self.directory / 'systemctl'
+        mock.write_text('#!/usr/bin/env bash\nprintf "systemctl %s\\n" "$*" >> "$PROFILE_TEST_RECORD"\n')
+        mock.chmod(0o755)
+        result = subprocess.run(['bash', str(ROOT / 'runtime/bootstrap-profile-recreate.sh'), 'owner'],
+                                env=dict(self.environment, HOME=str(self.directory),
+                                         PROFILE_TEST_COMPARISON='1', PROFILE_TEST_RUNNING='false'),
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(unit.exists())
+        calls = self.record.read_text()
+        self.assertIn('systemctl --user stop owner.service', calls)
+        self.assertIn('rm owner', calls)
+        self.assertNotIn('volume rm', calls)
+        self.assertNotIn('image rm', calls)
+        self.assertNotIn('volume create', calls)
 
 
 if __name__ == '__main__':
