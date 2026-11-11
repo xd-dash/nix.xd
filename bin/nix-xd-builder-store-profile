@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+action=${1:-plan}
+[[ "$action" == plan || "$action" == apply ]] || exit 2
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+specs=${BUILDER_CHROOT_STORES:-}
+namespace=${BUILDER_CHROOT_NAMESPACE:-1}
+syscalls=${BUILDER_CHROOT_SYSCALLS:-1}
+selinux=${NIX_XD_CHROOT_SELINUX:-keep}
+[[ "$namespace" == 0 || "$namespace" == 1 ]] || { echo 'BUILDER_CHROOT_NAMESPACE must be 0 or 1' >&2; exit 2; }
+[[ "$syscalls" == 0 || "$syscalls" == 1 ]] || { echo 'BUILDER_CHROOT_SYSCALLS must be 0 or 1' >&2; exit 2; }
+[[ "$selinux" == keep || "$selinux" == disabled ]] || exit 2
+[[ "$specs" != *$'\n'* ]] || { echo 'BUILDER_CHROOT_STORES must be a single line' >&2; exit 2; }
+declare -a names=() volumes=()
+declare -A seen_names=() seen_volumes=()
+for spec in $specs; do
+  [[ "$spec" == *=* ]] || { echo "Expected name=volume: $spec" >&2; exit 2; }
+  name=${spec%%=*}; volume=${spec#*=}
+  [[ "$name" =~ ^[a-z][a-z0-9-]{0,39}$ && "$volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo "Invalid chroot store: $spec" >&2; exit 2; }
+  [[ -z "${seen_names[$name]:-}" && -z "${seen_volumes[$volume]:-}" ]] || { echo "Duplicate chroot name or volume: $spec" >&2; exit 2; }
+  [[ "$volume" != "${NIX_XD_STORE_VOLUME:-${NIX_XD_SCOPE:-nix-xd-arm}-store}" ]] || { echo 'Chroot volume cannot equal the authoritative store' >&2; exit 2; }
+  seen_names[$name]=1; seen_volumes[$volume]=1
+  names+=("$name"); volumes+=("$volume")
+done
+if [[ "$action" == plan ]]; then
+  printf 'BUILDER_STORE_PROFILE owner=%s authoritative=%s namespace=%s syscalls=%s selinux=%s\n' "${NIX_XD_SCOPE:-nix-xd-arm}" "${NIX_XD_STORE_VOLUME:-${NIX_XD_SCOPE:-nix-xd-arm}-store}" "$namespace" "$syscalls" "$selinux"
+  for ((i=0;i<${#names[@]};i++)); do printf 'CHROOT_STORE name=%s volume=%s path=/stores/%s rw=true\n' "${names[i]}" "${volumes[i]}" "${names[i]}"; done
+  exit 0
+fi
+[[ "${NIX_XD_PROVIDER:-podman}" == podman ]] || { echo 'Chroot builder profile currently requires Podman' >&2; exit 2; }
+[[ ${#names[@]} -gt 0 ]] || { echo 'No BUILDER_CHROOT_STORES configured; refusing empty profile apply' >&2; exit 2; }
+for ((i=0;i<${#names[@]};i++)); do
+  NIX_XD_CHROOT_NAME="${names[i]}" NIX_XD_CHROOT_VOLUME="${volumes[i]}" bash "$repo/bin/nix-xd-chroot-attach"
+done
+if [[ "$namespace" == 1 ]]; then
+  NIX_XD_CHROOT_SELINUX="$selinux" bash "$repo/bin/nix-xd-builder-profile" apply
+fi
+if [[ "$syscalls" == 1 ]]; then
+  bash "$repo/bin/nix-xd-builder-profile" syscalls
+fi
+printf 'BUILDER_STORE_PROFILE_RESULT=passed stores=%s\n' "${#names[@]}"
