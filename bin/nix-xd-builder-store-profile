@@ -12,14 +12,14 @@ selinux=${NIX_XD_CHROOT_SELINUX:-keep}
 [[ "$selinux" == keep || "$selinux" == disabled ]] || exit 2
 [[ "$specs" != *$'\n'* ]] || { echo 'BUILDER_CHROOT_STORES must be a single line' >&2; exit 2; }
 declare -a names=() volumes=()
-declare -A seen_names=() seen_volumes=()
+seen_names=' ' seen_volumes=' '
 for spec in $specs; do
   [[ "$spec" == *=* ]] || { echo "Expected name=volume: $spec" >&2; exit 2; }
   name=${spec%%=*}; volume=${spec#*=}
   [[ "$name" =~ ^[a-z][a-z0-9-]{0,39}$ && "$volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo "Invalid chroot store: $spec" >&2; exit 2; }
-  [[ -z "${seen_names[$name]:-}" && -z "${seen_volumes[$volume]:-}" ]] || { echo "Duplicate chroot name or volume: $spec" >&2; exit 2; }
+  [[ "$seen_names" != *" $name "* && "$seen_volumes" != *" $volume "* ]] || { echo "Duplicate chroot name or volume: $spec" >&2; exit 2; }
   [[ "$volume" != "${NIX_XD_STORE_VOLUME:-${NIX_XD_SCOPE:-nix-xd-arm}-store}" ]] || { echo 'Chroot volume cannot equal the authoritative store' >&2; exit 2; }
-  seen_names[$name]=1; seen_volumes[$volume]=1
+  seen_names="$seen_names$name "; seen_volumes="$seen_volumes$volume "
   names+=("$name"); volumes+=("$volume")
 done
 if [[ "$action" == plan ]]; then
