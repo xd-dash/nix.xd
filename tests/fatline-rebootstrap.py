@@ -31,8 +31,8 @@ class ReplacementContract(unittest.TestCase):
                 'vm2':{'kind':'coreos','container':'coreos-store-matrix-vm2','sshPort':2223,'reusePrimary':False}},
                 'workloads':{'one':{'placement':'vm1'},'two':{'placement':'vm2'}}}
             runtime.binding_overrides['vm1']={'schema':1,'logical':'vm1','baseContainer':'coreos-starwisp','container':'replacement','sshPort':2224,'stateRoot':directory+'/replacement'}
-            self.assertEqual(runtime.environment('one')['COREOS_STATE_ROOT'],directory+'/replacement')
-            self.assertEqual(runtime.environment('two')['COREOS_ARTIFACT_STATE'],directory+'/original/starwisp')
+            self.assertEqual(Path(runtime.environment('one')['COREOS_STATE_ROOT']).resolve(),(Path(directory)/'replacement').resolve())
+            self.assertEqual(Path(runtime.environment('two')['COREOS_ARTIFACT_STATE']).resolve(),(Path(directory)/'original/starwisp').resolve())
             runtime.binding_overrides['vm1']['baseContainer']='different'
             with self.assertRaisesRegex(ValueError,'differs from declared'):runtime.environment('one')
 
