@@ -16,6 +16,13 @@ fi
 volumes=("$scope-store" "$scope-grumble-chroot" "$scope-experiments-chroot")
 
 case "$action" in
+prune-dangling)
+  [[ ${NIX_XD_DANGLING_PRUNE_CONFIRM:-} == YES ]] || {
+    echo "Set DANGLING_PRUNE_CONFIRM=YES to remove only unused dangling images" >&2; exit 2;
+  }
+  "${podman_cmd[@]}" image prune --filter dangling=true --force
+  printf "BUILDER_DANGLING_IMAGE_PRUNE_RESULT=passed machine=%s volumes=untouched\n" "$machine"
+  ;;
 inventory)
   printf 'BUILDER_RUNTIME_INVENTORY machine=%s\n' "$machine"
   "${podman_cmd[@]}" ps -a --format 'table {{.ID}} {{.Names}} {{.Image}} {{.Status}}'
@@ -74,7 +81,7 @@ REMOTE
   printf 'BUILDER_STORE_QUALIFY_CLEAN_RESULT=passed scope=%s\n' "$scope"
   ;;
 *)
-  echo 'Expected inventory or clean-qualify' >&2
+  echo 'Expected inventory, prune-dangling or clean-qualify' >&2
   exit 2
   ;;
 esac
