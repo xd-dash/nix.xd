@@ -34,7 +34,7 @@ builder-store-profile-complete:
 bootstrap-builder-profile:
 	@$(MAKE) --no-print-directory builder-store-profile-plan
 	@test "$(PROVIDER)" = podman || { echo 'Builder chroot bootstrap currently requires PROVIDER=podman' >&2; exit 2; }
-	@if [[ '$(INITIAL_PROFILE)' == 1 ]]; then \
+	@set -e; if [[ '$(INITIAL_PROFILE)' == 1 ]]; then \
 	  test -n '$(INITIAL_CHROOT_STORES)' || { echo 'Missing INITIAL_CHROOT_STORES' >&2; exit 2; }; \
 	  test '$(INITIAL_CHROOT_STORES)' = '$(BUILDER_CHROOT_STORES)' || { echo 'Initial and planned stores must match' >&2; exit 2; }; \
 	  test '$(BUILDER_CHROOT_NAMESPACE)' = 1 && test '$(BUILDER_CHROOT_SYSCALLS)' = 1 && test '$(CHROOT_SELINUX)' = keep || { echo 'Atomic profile requires namespace, seccomp and retained SELinux separation' >&2; exit 2; }; \
