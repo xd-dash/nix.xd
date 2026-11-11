@@ -18,14 +18,22 @@ builder-store-profile-apply:
 	  NIX_XD_CHROOT_SELINUX='$(CHROOT_SELINUX)' \
 	  bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-store-profile apply
 
+# Staging uses the container's writable layer. A Quadlet restart recreates it,
+# so first settle volume/namespace changes, stage for seccomp build, then restage
+# after any policy restart. Never assume /workspaces survives a unit restart.
+.PHONY: builder-store-profile-complete
+builder-store-profile-complete:
+	@$(MAKE) --no-print-directory builder-store-profile-apply BUILDER_CHROOT_SYSCALLS=0
+	@$(MAKE) --no-print-directory stage
+	@$(MAKE) --no-print-directory builder-store-profile-apply
+	@$(MAKE) --no-print-directory stage
+
 # Explicit opt-in: existing builder bootstraps and Quadlets are unchanged.
-# Stage the project flake before creating the syscall policy output.
 bootstrap-builder-profile:
 	@$(MAKE) --no-print-directory builder-store-profile-plan
 	@test "$(PROVIDER)" = podman || { echo 'Builder chroot bootstrap currently requires PROVIDER=podman' >&2; exit 2; }
 	@$(MAKE) --no-print-directory bootstrap
-	@$(MAKE) --no-print-directory stage
-	@$(MAKE) --no-print-directory builder-store-profile-apply
+	@$(MAKE) --no-print-directory builder-store-profile-complete
 
 # Run only on a disposable, freshly bootstrapped builder scope.
 # The first application may restart the builder; the second must not.
