@@ -108,7 +108,8 @@ filesystem. The next bounded fix is an opt-in builder Quadlet profile:
 submount restrictions so a nested user/PID namespace can mount its own proc.
 It retains seccomp and rootless execution; it does not enable privileged mode,
 add SYS_ADMIN or change kernel sysctls. This is a deliberate builder-only change,
-not application guest policy. The helper verifies the live masked/readonly paths,
+not application guest policy. The helper inspects live `/proc` submounts from mountinfo (independent of
+Podman inspect schema versions),
 non-root executor, zero effective capabilities and enabled seccomp filter.
 
 Pause owner builds before applying. It restarts only the owner when the live

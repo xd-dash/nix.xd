@@ -35,7 +35,9 @@ elif a[0]=='inspect':
   if state['conflict']:print('other|/stores/grumble')
   elif state['attached']:print('isolated|/stores/grumble')
 elif a[0]=='volume':sys.exit(0)
-elif a[0] in ('run','exec'):pass
+elif a[0]=='exec':
+ if a[-1]=='/proc/self/mountinfo' and not state['profile']:print('/proc/sys')
+elif a[0]=='run':pass
 else:raise SystemExit('Unexpected '+repr(a))
 ''');mock.chmod(0o755)
         mock=tools/'systemctl';mock.write_text('''#!/usr/bin/env python3

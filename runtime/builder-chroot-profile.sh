@@ -15,7 +15,7 @@ file="$dir/30-nix-chroot-profile.conf"
 expected=$(printf '[Container]\nUnmask=/proc/*\n')
 if [[ -e $file ]]; then [[ $(cat "$file") == "$expected" ]] || { echo 'Builder namespace profile differs' >&2;exit 1; }
 else printf '%s\n' "$expected" > "$file";chmod 600 "$file";fi
-proc_masks=$(podman inspect "$scope" --format '{{range .HostConfig.MaskedPaths}}{{println .}}{{end}}{{range .HostConfig.ReadonlyPaths}}{{println .}}{{end}}')
+proc_masks=$(podman exec "$scope" awk '$5 ~ "^/proc/" { print $5 }' /proc/self/mountinfo)
 if grep -Eq '^/proc(/|$)' <<< "$proc_masks"; then
   echo "BUILDER_PROFILE_RESTART owner=$scope profile=nix-chroot unmask=/proc/*"
   systemctl --user daemon-reload
@@ -23,7 +23,7 @@ if grep -Eq '^/proc(/|$)' <<< "$proc_masks"; then
 fi
 systemctl --user is-active --quiet "$scope.service"
 [[ $(podman inspect "$scope" --format '{{.HostConfig.Privileged}}') == false ]]
-proc_masks=$(podman inspect "$scope" --format '{{range .HostConfig.MaskedPaths}}{{println .}}{{end}}{{range .HostConfig.ReadonlyPaths}}{{println .}}{{end}}')
+proc_masks=$(podman exec "$scope" awk '$5 ~ "^/proc/" { print $5 }' /proc/self/mountinfo)
 if grep -Eq '^/proc(/|$)' <<< "$proc_masks"; then echo 'Proc restrictions remain after profile apply' >&2;exit 1;fi
 podman exec "$scope" sh -ec '
   test "$(id -u)" -ne 0
