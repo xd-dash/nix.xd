@@ -17,6 +17,20 @@ class BootstrapProfile(unittest.TestCase):
         mock = self.directory / "podman"
         mock.write_text('''#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$PROFILE_TEST_RECORD"
+if [[ ${PROFILE_TEST_COMPARISON:-0} == 1 ]]; then
+  if [[ $1 == info ]]; then echo true; exit; fi
+  case "$*" in
+    *'{{.ProcessLabel}}'*) echo 'system_u:system_r:container_t:s0:c1,c2'; exit ;;
+    *'{{.Id}}'*) echo fixture-id; exit ;;
+    *'{{.Image}}'*) echo fixture-image; exit ;;
+    *'.Mounts'*) echo owner-store; exit ;;
+  esac
+  if [[ $1 == run ]]; then
+    if [[ $* == *'label=disable '* ]]; then exit "${PROFILE_TEST_DISABLED_STATUS:-0}"; fi
+    echo 'unshare: mount /proc failed: Permission denied' >&2
+    exit "${PROFILE_TEST_BASELINE_STATUS:-1}"
+  fi
+fi
 if [[ $* == *".State.Running"* ]]; then echo "${PROFILE_TEST_RUNNING:-true}"; exit; fi
 if [[ $* == *".Mounts"* ]]; then
   printf 'owner-store /nix true\\naux-store /stores/aux %s\\npeer-store /peer/peer false\\n' "${PROFILE_TEST_WRITABLE:-true}"
@@ -106,6 +120,39 @@ builder_store_assert_owner owner store /nix fake
                                         env=dict(os.environ, TEST_OWNER=owner, TEST_MOUNT=mount),
                                         text=True, capture_output=True)
                 self.assertEqual(result.returncode == 0, success, result.stderr)
+
+    def run_comparison(self, **environment):
+        policy = self.directory / '.config/nix-xd/seccomp/owner-nix-chroot.json'
+        policy.parent.mkdir(parents=True, exist_ok=True)
+        policy.write_text('{}')
+        return subprocess.run(['bash', str(ROOT / 'runtime/bootstrap-profile-compare.sh'),
+                               'owner', 'owner-store'], cwd=ROOT,
+                              env=dict(self.environment, HOME=str(self.directory),
+                                       PROFILE_TEST_COMPARISON='1', **environment),
+                              text=True, capture_output=True)
+
+    def test_comparison_uses_read_only_probes_and_leaves_owner_unchanged(self):
+        result = self.run_comparison()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('BOOTSTRAP_PROFILE_COMPARISON_RESULT=isolated-selinux', result.stdout)
+        calls = self.record.read_text().splitlines()
+        probes = [line for line in calls if line.startswith('run ')]
+        self.assertEqual(len(probes), 2)
+        for probe in probes:
+            self.assertIn('--mount type=volume,src=owner-store,dst=/nix,ro', probe)
+            self.assertIn('--read-only --user 1000:1000', probe)
+            self.assertIn('--security-opt seccomp=', probe)
+        self.assertIn('label=type:container_t', probes[0])
+        self.assertIn('label=disable', probes[1])
+        self.assertFalse(any('restart' in line or 'volume create' in line for line in calls))
+
+    def test_comparison_does_not_claim_isolation_when_results_do_not_differ(self):
+        for setting in ({'PROFILE_TEST_DISABLED_STATUS': '1'},
+                        {'PROFILE_TEST_BASELINE_STATUS': '0'}):
+            with self.subTest(setting=setting):
+                result = self.run_comparison(**setting)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('BOOTSTRAP_PROFILE_COMPARISON_RESULT=not-isolated', result.stdout)
 
 
 if __name__ == '__main__':

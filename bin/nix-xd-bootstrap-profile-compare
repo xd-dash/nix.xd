@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+scope=${NIX_XD_SCOPE:?Select a builder scope}
+machine=${NIX_XD_MACHINE:?Select a Podman Machine}
+[[ ${NIX_XD_PROVIDER:-podman} == podman && $(uname -s) == Darwin ]] || {
+  echo 'Comparison requires the macOS Podman Machine adapter' >&2; exit 2;
+}
+[[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ && $machine =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+source "$repo/lib/builder-stores.sh"
+builder_stores_init "$scope"
+printf -v remote_args '%q ' "$scope" "$builder_store_volume"
+podman machine ssh "$machine" "bash -se -- $remote_args" < "$repo/runtime/bootstrap-profile-compare.sh"

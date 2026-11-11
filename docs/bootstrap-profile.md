@@ -58,6 +58,16 @@ evidence uses the normal shared log override or repository-local `.logs/`.
 Run `make bootstrap-profile-qualify` to repeat only that store qualification.
 
 This first-start adapter is currently available for ARM64 macOS with Podman.
+The first ARM run installed and staged successfully, but its private proc check
+failed with permission denied while retaining SELinux labeling. This profile
+therefore remains unqualified. Run `make bootstrap-profile-compare` to compare
+two temporary, read-only-store probes differing only in their SELinux labeling.
+The comparison reuses the built readiness tools and restricted seccomp policy,
+checks that the owner remained running with the same ID, and never rewrites its
+Quadlet or changes its label. Each namespace probe has a 20-second timeout.
+An isolated result supplies evidence for revising the declarative bootstrap
+profile; it does not automatically weaken the running builder's configuration.
+
 Declarations, packaged readiness tools and store selection support both Linux
 architectures; native AMD64 first-start provisioning still needs its adapter and
 runtime qualification. There is no emulated AMD64 gate in this change.

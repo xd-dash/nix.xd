@@ -49,13 +49,16 @@ bootstrap-profile-check:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory bootstrap-profile-check-internal
 .PHONY: bootstrap-profile-check-internal
 bootstrap-profile-check-internal:
-	@bash -n bin/nix-xd-bootstrap-profile runtime/bootstrap-ready.sh
+	@bash -n bin/nix-xd-bootstrap-profile runtime/bootstrap-ready.sh bin/nix-xd-bootstrap-profile-compare runtime/bootstrap-profile-compare.sh
 	@python3 tests/bootstrap-profile.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
 	@python3 tests/builder-atomic.py
 bootstrap-profile-qualify:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-bootstrap-profile qualify
+.PHONY: bootstrap-profile-compare
+bootstrap-profile-compare:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-bootstrap-profile-compare
 bootstrap-profile-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory bootstrap-profile-local-internal
 bootstrap-profile-local-internal:
