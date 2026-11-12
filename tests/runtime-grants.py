@@ -76,7 +76,7 @@ class GrantContracts(unittest.TestCase):
                 parse(record)
         record = fixture()
         record["grants"].append(dict(record["grants"][0]))
-        with self.assertRaisesRegex(ValueError, "Duplicate grant destination"):
+        with self.assertRaisesRegex(ValueError, "Duplicate volume grant"):
             parse(record)
 
     @patch.object(grants.subprocess, "run")
