@@ -136,14 +136,15 @@ SSH private keys should use a dedicated least-privilege runtime mount, not an in
 
 ## Probot VM1 exact-artifact store verification
 
-The controller automatically reuses `.state/agni-coreos/vm1-selection.json` from
-an earlier successful `agni-coreos-plan-check` when both composition
-parameters are unset. If no selection exists, pass the exact staged
-`COMPOSITION_FLAKE` and `COMPOSITION_REV` together. Do not select the
-new webhook qualification Agni revision as the machine-plan revision unless
-that same revision was explicitly prepared as the running VM1 composition.
-Recorded selection is subject to the existing HostLink state reconciliation
-and cannot silently replace the active guest's original plan.
+The read-only VM1 artifact check now uses the existing generation's persisted
+`.state/fatline/fatline-arm-vm1/state.json` (or its active VM1 generation),
+including the original Agni composition provenance, guest boot identity,
+placement, SSH configuration and GC roots. It does not evaluate the machine
+composition from a mutable source checkout, and does not require
+`COMPOSITION_REV` or `COMPOSITION_FLAKE`. The normal startup and service
+controllers still require exact immutable composition selection. If the
+existing host-link has not been prepared, this gate fails closed rather than
+inventing a new VM or selecting a newer composition.
 
 
 
