@@ -57,10 +57,10 @@ def preflight(link, source_path):
         "AGNI_PROBOT_GUEST_NODE": app["node"],
     }
     # The guest verifier uses only Bash and exact controller-validated paths.
-    script = "set -Eeuo pipefail\\n" + "".join(
-        "export " + name + "=" + shlex.quote(value) + "\\n"
+    script = "set -Eeuo pipefail\n" + "".join(
+        "export " + name + "=" + shlex.quote(value) + "\n"
         for name, value in guest_values.items()
-    ) + source + "\\n"
+    ) + source + "\n"
     output = run(link.command, link.env, True, script, timeout=120)
     print(output, end="", flush=True)
     require("AGNI_PROBOT_GUEST_STORE=passed roles=3 node=visible mount=9p-ro" in output.splitlines(),
