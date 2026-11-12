@@ -151,7 +151,7 @@ boot() {
     -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m "$ram" -smp "$cpus" \
     -drive if=none,id=disk0,file=/state/overlay.qcow2,format=qcow2 \
     -device virtio-blk-pci,drive=disk0 \
-    "${qemu_data_args[@]}" \
+    ${qemu_data_args[@]+"${qemu_data_args[@]}"} \
     -fw_cfg name=opt/com.coreos/config,file=/artifacts/config.ign \
     -netdev user,id=n0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=n0 \
     -display none -serial file:/state/serial.log -monitor none)"
