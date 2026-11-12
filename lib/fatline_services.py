@@ -82,7 +82,8 @@ class Services:
         metadata = json.loads((self.root / 'metadata.json').read_text())
         policy = json.loads((self.root / 'acl-policy.json').read_text())
         require(policy['componentRevisions'] == {'logma':metadata['logmaRev'], 'skymill':metadata['skymillRev'],
-                'ratelimiter':metadata['ratelimiterRev']}, 'Application source/ACL policy pin mismatch')
+                'ratelimiter':metadata['ratelimiterRev']} == self.link.state['plan']['componentRevisions'],
+                'Application source/ACL policy pin mismatch')
         run([sys.executable, str(self.root / 'render.py'), str(self.root), str(self.link.root / 'credentials'),
              str(self.root / 'credentials'), self.link.scope], self.link.env)
         self.state = {'source':source, 'bundle':bundle, 'root':root, 'metadata':metadata,
