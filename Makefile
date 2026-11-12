@@ -291,6 +291,15 @@ vm-state-preflight:
 
 # Generic declared workload storage grants; never reads volume payloads.
 # Read-only validation of a declared future CoreOS 9P export.
+.PHONY: guest-9p-seed guest-9p-qualify
+guest-9p-seed:
+	@test -n "$(COREOS_9P_GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
+	@NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-9p-seed
+
+guest-9p-qualify:
+	@test -n "$(COREOS_9P_GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-9p-qualify
+
 .PHONY: guest-9p-plan guest-9p-preflight
 guest-9p-plan guest-9p-preflight:
 	@test -n "$(GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
@@ -351,6 +360,7 @@ check-static-internal:
 	@bash -n bin/nix-xd-grants-host-share-qualify
 	@bash -n bin/nix-xd-grants-isolation-qualify runtime/grants-isolation-qualify.sh
 	@bash -n bin/nix-xd-coreos-podman
+	@bash -n bin/nix-xd-guest-9p-seed bin/nix-xd-guest-9p-qualify
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
@@ -402,7 +412,7 @@ COREOS_READY_RETRY_SEC ?= 10
 COREOS_SSH_CONNECT_TIMEOUT_SEC ?= 10
 COREOS_AGNI_REV ?=
 COREOS_NIX_STORE_VOLUME ?=
-COREOS_9P_GRANTS_FILE ?=
+COREOS_9P_GRANTS_FILE ?= $(GRANTS_FILE)
 COREOS_IGNITION_OUTPUT ?=
 COREOS_BUTANE_PROFILE ?=
 COREOS_GUEST_PROBE_ROOTFS ?=
