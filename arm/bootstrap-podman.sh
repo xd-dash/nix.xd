@@ -17,6 +17,13 @@ machine="${NIX_XD_MACHINE:-podman-machine-default}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
 [[ "$machine" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || die "Invalid machine name"
+if [[ -n ${NIX_XD_GRANTS_FILE:-} ]]; then
+  [[ -z ${NIX_XD_DATA_MOUNTS:-} ]] || die 'Select either GRANTS_FILE or DATA_MOUNTS, not both'
+  NIX_XD_DATA_MOUNTS="$(python3 "$repo/lib/runtime_grants.py" render "$NIX_XD_GRANTS_FILE")" ||
+    die 'Invalid selected runtime grants'
+  export NIX_XD_DATA_MOUNTS
+  python3 "$repo/lib/runtime_grants.py" plan "$NIX_XD_GRANTS_FILE"
+fi
 source "$repo/lib/builder-stores.sh"
 builder_stores_init "$scope"
 image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
