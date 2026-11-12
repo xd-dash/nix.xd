@@ -34,6 +34,8 @@ class GuestStoreTests(unittest.TestCase):
             module.preflight(link,"/home/nixuser/.local/state/agni/probot-webhook/artifacts.json")
         script=run.call_args.args[3]
         self.assertIn("AGNI_PROBOT_GUEST_LOGMA_SHA",script)
+        self.assertIn("set -Eeuo pipefail\nexport AGNI_PROBOT_GUEST_EXPECTED_BOOT=",script)
+        self.assertNotIn(r"\\nexport",script)
         self.assertIn(sha,script)
         self.assertNotIn("private_key",script)
         self.assertNotIn("oauth",script.lower())
