@@ -109,3 +109,10 @@ fatline-profile-reliability:
 fatline-profile-recover:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_profile.py recover
 
+
+# Source-built optional Wisp tooling; application controllers are isolated.
+WISP_SMOKE_REV ?= 66950da9a5e4e5303f5dcd018f9039f9b6fc8496
+.PHONY: wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward
+wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward:
+	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go $(patsubst wisp-go-%,%,$@)
+
