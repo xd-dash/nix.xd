@@ -74,10 +74,12 @@ output="$("${p[@]}" exec "$scope" nix --option system "$system" build --no-write
 "${p[@]}" exec "$scope" test -x "$binary"
 "${p[@]}" exec "$scope" test -x "$output/bin/$program"
 
+credential_access=z
+[[ "$action" != source-sync ]] || credential_access=ro,z
 common=(--rm --pull=never --user 1000:1000 --cap-drop all --security-opt no-new-privileges
   --tmpfs /tmp:rw,nosuid,nodev,mode=1777
   --mount "type=volume,src=$store,dst=/nix,ro"
-  --volume "$credential:/run/nix-xd/ghxd:z"
+  --volume "$credential:/run/nix-xd/ghxd:$credential_access"
   --volume "$home:/home/ghxd:z"
   --volume "$sources:/data/ghxd:z"
   --env HOME=/home/ghxd
