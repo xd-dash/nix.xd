@@ -350,6 +350,7 @@ check-static-internal:
 	@python3 tests/guest-9p-grants.py
 	@bash -n bin/nix-xd-grants-host-share-qualify
 	@bash -n bin/nix-xd-grants-isolation-qualify runtime/grants-isolation-qualify.sh
+	@bash -n bin/nix-xd-coreos-podman
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
