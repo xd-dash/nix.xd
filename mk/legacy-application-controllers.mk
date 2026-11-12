@@ -116,3 +116,17 @@ WISP_SMOKE_REV ?= 66950da9a5e4e5303f5dcd018f9039f9b6fc8496
 wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go $(patsubst wisp-go-%,%,$@)
 
+
+# Historical controller qualification is explicit, not part of generic static checks.
+.PHONY: legacy-application-check-static
+legacy-application-check-static:
+	@python3 tests/fatline-host-link.py
+	@python3 tests/fatline-multivm.py
+	@python3 tests/fatline-recovery.py
+	@python3 tests/fatline-reboot.py
+	@python3 tests/fatline-rebootstrap.py
+	@python3 tests/fatline-generations.py
+	@python3 tests/fatline-profile.py
+	@python3 tests/fatline-logmash.py
+	@python3 tests/fatline-services.py
+	@python3 tests/agni-coreos-plan.py
