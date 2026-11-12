@@ -54,6 +54,7 @@ def resolve(runtime, profile, env=None):
         "nixAlpineRevision": lock["nodes"]["nix-alpine-runtime"]["locked"]["rev"],
         "nixpkgsRevision": lock["nodes"]["nixpkgs"]["locked"]["rev"],
         "componentRevisions": plan["componentRevisions"],
+        "hostArtifacts": plan.get("hostArtifacts", {}),
         "components": {
             "transport": plan["sources"]["agni"]["revision"],
             "services": plan["services"]["revision"],
