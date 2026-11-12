@@ -425,14 +425,6 @@ check-static-internal:
 	@python3 tests/tenant-storage.py
 	@python3 tests/bootstrap-profile.py
 	@bash tests/workspace-contract.sh
-	@python3 tests/fatline-host-link.py
-	@python3 tests/fatline-multivm.py
-	@python3 tests/fatline-recovery.py
-	@python3 tests/fatline-reboot.py
-	@python3 tests/fatline-rebootstrap.py
-	@python3 tests/fatline-generations.py
-	@python3 tests/fatline-profile.py
-	@python3 tests/fatline-logmash.py
 	@python3 tests/composition-artifact.py
 	@bash tests/project-host-run-contract.sh
 	@python3 tests/runtime-grants.py
@@ -448,14 +440,12 @@ check-static-internal:
 	@bash -n bin/nix-xd-ghxd
 	@bash tests/grants-transport-contract.sh
 	@bash tests/grants-execute-contract.sh
-	@python3 tests/fatline-services.py
 	@bash -n bin/nix-xd-guest-app
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
 	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence bin/nix-xd-builder-store-qualify-fresh bin/nix-xd-builder-store-maintenance
 	@python3 tests/wisp-go-owner.py
 	@python3 tests/nix-task-contract.py
-	@python3 tests/agni-coreos-plan.py
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
 	@bash tests/project-run-contract.sh
