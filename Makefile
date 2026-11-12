@@ -290,6 +290,12 @@ vm-state-preflight:
 	@NIX_XD_MACHINE='$(MACHINE)' bash bin/nix-xd-vm-state-preflight '$(VM_CONTAINER)' '$(VM_INSTANCE)'
 
 # Generic declared workload storage grants; never reads volume payloads.
+# Read-only validation of a declared future CoreOS 9P export.
+.PHONY: guest-9p-plan guest-9p-preflight
+guest-9p-plan guest-9p-preflight:
+	@test -n "$(GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
+	@python3 lib/guest_9p_grants.py $(patsubst guest-9p-%,%,$@) "$(GRANTS_FILE)" --machine "$(MACHINE)"
+
 .PHONY: grants-isolation-qualify
 grants-isolation-qualify:
 	@NIX_XD_MACHINE="$(MACHINE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-grants-isolation-qualify
@@ -341,6 +347,7 @@ check-static-internal:
 	@python3 tests/composition-artifact.py
 	@bash tests/project-host-run-contract.sh
 	@python3 tests/runtime-grants.py
+	@python3 tests/guest-9p-grants.py
 	@bash -n bin/nix-xd-grants-host-share-qualify
 	@bash -n bin/nix-xd-grants-isolation-qualify runtime/grants-isolation-qualify.sh
 	@python3 tests/fatline-services.py
