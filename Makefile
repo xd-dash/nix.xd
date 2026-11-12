@@ -336,7 +336,7 @@ check-static-internal:
 # Host-side accelerated CoreOS qualification is intentionally independent of the
 # selected Nix execution provider. Artifacts must be exported before boot.
 PROFILE ?= starwisp
-COREOS_STATE_ROOT ?= $(CURDIR)/.state/coreos
+COREOS_STATE_ROOT ?= $(HOME)/.local/state/nix-xd/coreos
 COREOS_IMAGE ?=
 COREOS_IMAGE_SHA256 ?=
 COREOS_IGNITION ?=
