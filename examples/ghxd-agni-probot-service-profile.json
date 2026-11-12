@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "scope": "controller-bootstrap",
+  "sources": {
+    "agni": {
+      "repository": "dash-xd/agni",
+      "revision": "5c407b8670c266eebbf64fd34a5f8ec8c0ae8d15",
+      "checkout": "agni-ghxd-v10"
+    }
+  }
+}
