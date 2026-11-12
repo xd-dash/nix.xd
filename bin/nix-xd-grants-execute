@@ -9,6 +9,7 @@ image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
 manifest="${NIX_XD_GRANTS_FILE:?Select a workload grants manifest}"
 flake="${NIX_XD_FLAKE:?Select a staged flake}"
 target="${NIX_XD_TARGET:?Select a package output}"
+program_name="${NIX_XD_PROGRAM:?Select a package executable name}"
 store="${NIX_XD_STORE_VOLUME:-$scope-store}"
 [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
@@ -17,6 +18,7 @@ store="${NIX_XD_STORE_VOLUME:-$scope-store}"
 [[ "$store" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
 [[ "$flake" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$flake" != *..* ]] || exit 2
 [[ "$target" =~ ^#[A-Za-z0-9_-]+$ ]] || exit 2
+[[ "$program_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || exit 2
 python3 "$repo/lib/runtime_grants.py" plan "$manifest"
 # Only the selected secret + evidence shape is authorized by this gate.
 read -r secret evidence qualifier < <(python3 - "$repo/lib" "$manifest" <<'PY'
@@ -72,7 +74,7 @@ output="$("${p[@]}" exec "$scope" nix --option system "$system" build --no-write
 [[ "$output" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+$ ]] || {
   echo 'Unexpected Nix package output' >&2; exit 1;
 }
-program="$output/bin/agni-secret-volume-fixture"
+program="$output/bin/$program_name"
 "${p[@]}" exec "$scope" test -x "$program" || { echo 'Selected fixture executable missing' >&2; exit 1; }
 
 common=(--rm --pull=never --network none --read-only --cap-drop all
