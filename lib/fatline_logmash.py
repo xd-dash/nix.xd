@@ -12,6 +12,7 @@ import sys
 import time
 
 from compose_runtime import write_json
+from composition_artifact import export_executable
 from compositions import require
 from fatline_host_link import HostLink, REPO
 
@@ -38,10 +39,13 @@ def qualify(link, resource=False):
     root = link.root
     result = root / ('resource-logmash-qualification.json' if resource else 'logmash-qualification.json')
     write_json(result, {'result':'running', 'gate':'smoke-logmash-wisp'})
-    binary = REPO / '.state/wisp-go/smoke'
-    revision = os.environ['WISP_SMOKE_REV']
-    require(binary.is_file() and (binary.parent / 'revision').read_text().strip() == revision,
-            'Build the selected Smoke composition first')
+    artifact_flake = os.environ.get('NIX_XD_ARTIFACT_FLAKE', '')
+    require(artifact_flake, 'Select ARTIFACT_FLAKE for the composition-owned Smoke tool')
+    artifact = export_executable(link.runtime, artifact_flake, 'smoke-host-artifact',
+                                 REPO / '.state/composition-artifacts/smoke', 'darwin-arm64')
+    binary = Path(artifact['path'])
+    revision = artifact['sourceRevision']
+    print('FATLINE_SMOKE_ARTIFACT=passed source=' + revision + ' sha256=' + artifact['sha256'], flush=True)
     link.guest('status')
     link.guest('check')
     config = json.loads((root / 'credentials/subscriber.json').read_text())
@@ -120,7 +124,7 @@ def qualify(link, resource=False):
                     process.kill()
                     process.wait()
         write_json(result, {'result':'passed' if passed else 'failed', 'gate':'smoke-logmash-wisp',
-            'resourceBinding':resource_binding, 'resourceBacked':resource, 'smokeRev':revision, 'agniRev':link.state['agniRev'], 'boot':link.state['boot'],
+            'resourceBinding':resource_binding, 'resourceBacked':resource, 'smokeRev':revision, 'smokeArtifact':artifact, 'agniRev':link.state['agniRev'], 'boot':link.state['boot'],
             'aclDigest':link.state['aclDigest'], 'guestAdapter':link.state.get('guestAdapter'), 'fullFatline':False})
     print('SMOKE_LOGMA_RESOURCE_DISPATCH_RESULT=passed full_fatline=false' if resource else 'SMOKE_LOGMASH_WISP_RESULT=passed full_fatline=false')
 
