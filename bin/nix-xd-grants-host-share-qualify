@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+machine="${NIX_XD_MACHINE:?Select Podman Machine}"
+image="${NIX_XD_IMAGE:?Select an existing cached runtime image}"
+scope="${NIX_XD_SCOPE:?Select runtime scope}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
+[[ "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || exit 2
+[[ "$(uname -s)" == Darwin ]] || { echo 'Host bind sharing gate requires macOS' >&2; exit 2; }
+
+p=(podman --connection "$machine")
+"${p[@]}" image exists "$image" || { echo 'Runtime image not cached' >&2; exit 1; }
+parent="$HOME/.local/state/nix-xd"
+mkdir -p "$parent"
+scratch="$(mktemp -d "$parent/grant-share.XXXXXXXX")"
+trap 'rm -rf -- "$scratch"' EXIT
+chmod 0755 "$scratch"
+printf '%s\n' 'nix-xd-host-grant-fixture-v1' > "$scratch/canary"
+chmod 0644 "$scratch/canary"
+local_digest="$(shasum -a 256 "$scratch/canary" | awk '{print $1}')"
+
+# This tests the macOS->Podman Machine->container bind path only.
+# A disposable, network-disabled reader sees one read-only fixture directory.
+observed="$("${p[@]}" run --rm --pull=never --network=none --read-only \
+    --user 1000:1000 --cap-drop all \
+    --mount "type=bind,src=$scratch,dst=/run/nix-xd/mounts/probe,readonly" \
+    --entrypoint /bin/sh "$image" -ec '
+      test "$(cat /run/nix-xd/mounts/probe/canary)" = nix-xd-host-grant-fixture-v1
+      if touch /run/nix-xd/mounts/probe/forbidden 2>/dev/null; then exit 1; fi
+      sha256sum /run/nix-xd/mounts/probe/canary | cut -d" " -f1
+    ')"
+[[ "$observed" == "$local_digest" ]] || {
+  echo 'Host-to-container bind digest mismatch' >&2; exit 1;
+}
+printf 'HOST_GRANT_SHARE_RESULT=passed mode=ro scope=%s sha256=%s\n' "$scope" "$local_digest"
