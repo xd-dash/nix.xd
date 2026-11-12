@@ -20,7 +20,8 @@ class Stub:
         self.calls = []
         self.lock = json.dumps({
             "nodes": {"root": {"inputs": {"nix-alpine-runtime": "nix-alpine-runtime"}},
-                      "nix-alpine-runtime": {"locked": {"rev": "c" * 40}}}
+                      "nix-alpine-runtime": {"locked": {"rev": "c" * 40}},
+                      "nixpkgs": {"locked": {"rev": "2" * 40}}}
         })
         self.plan = json.dumps({
             "schema": 1, "system": "aarch64-linux", "scope": "fatline-arm-vm1",
