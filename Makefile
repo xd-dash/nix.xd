@@ -649,12 +649,6 @@ composition-local:
 composition-local-phases:
 	@$(MAKE) --no-print-directory -j1 -S check-static stage composition-plan composition-prepare composition-start composition-qualify composition-status WORKSPACES="$(abspath $(CURDIR)/..)" CHECKOUT="$(notdir $(CURDIR))"
 
-# Source-built optional Wisp tooling; application controllers are isolated.
-WISP_SMOKE_REV ?= 66950da9a5e4e5303f5dcd018f9039f9b6fc8496
-.PHONY: wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward
-wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go $(patsubst wisp-go-%,%,$@)
-
 # Validate an explicitly selected pinned GHXD source manifest.
 GHXD_SOURCE_MANIFEST ?=
 .PHONY: ghxd-source-version-check
