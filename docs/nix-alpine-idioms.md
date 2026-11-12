@@ -93,3 +93,35 @@ preserve prior qualification evidence.
 Live guest activation is a separate, effectful phase. Source syncing,
 Nix building, service-profile rendering and ACL candidate checks must
 never implicitly restart Redis or update active user-systemd units.
+
+## Generic immutable guest execution
+
+An application may supply a Nix package containing `guest.sh`. The generic
+`make guest-app` target builds this package inside the authoritative
+Nix-Alpine writer, validates the exact staged source SHA, retains the closure
+as a GC root, and streams the package's script to the existing CoreOS guest
+over strict known-hosts SSH. Its only selectors are `FLAKE`, `TARGET`,
+`GUEST_APP_REV` and `ARGS_JSON`. The guest script owns argument semantics,
+readiness checks and any service mutations.
+
+```sh
+make guest-app FLAKE=example20261112/local/example \
+  TARGET='#guest-check' GUEST_APP_REV=<exact-staged-source-sha> \
+  ARGS_JSON='["inventory","some-scope"]' \
+  COREOS_SSH_KEY="$HOME/.ssh/starwisp-test" \
+  COREOS_SSH_PORT=2222 COREOS_PROFILE=starwisp
+```
+
+Host SSH credentials remain on the host. `COREOS_KNOWN_HOSTS` may select an
+existing verified known_hosts file; otherwise the transport reads the
+CoreOS profile's `known_hosts` from `COREOS_STATE_ROOT`. Neither guest
+credentials nor OAuth tokens are copied into Nix store derivations. Use only
+a pinned and reviewed `guest.sh`; it executes with the guest user's rights.
+
+The previous application-specific host controller targets are **not**
+part of the default Nix-Alpine interface. Historical state/recovery
+compatibility is available on demand with
+`ENABLE_LEGACY_APPLICATION_CONTROLLERS=1`; this retains the exact old
+generation implementation and is not an activation recommendation.
+Retiring those controllers completely requires qualification of the
+Agni-owned migration and recovery paths against the existing VM.
