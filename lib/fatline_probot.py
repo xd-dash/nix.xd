@@ -68,10 +68,32 @@ def preflight(link, source_path):
     print("FATLINE_PROBOT_VM1_STORE=passed guest=existing roles=3 credentials=excluded")
 
 
+
+def selected_composition():
+    """Use only a previously recorded, immutable Agni VM1 selection."""
+    revision = os.environ.get("NIX_XD_COMPOSITION_REV", "")
+    flake = os.environ.get("NIX_XD_COMPOSITION_FLAKE", "")
+    if revision and flake:
+        return
+    require(not revision and not flake,
+            "Specify COMPOSITION_REV and COMPOSITION_FLAKE together")
+    evidence = REPO / ".state/agni-coreos/vm1-selection.json"
+    require(evidence.is_file(),
+            "No recorded VM1 composition; select COMPOSITION_REV and COMPOSITION_FLAKE explicitly")
+    record = json.loads(evidence.read_text())
+    require(record.get("schema") == 1 and record.get("profile") == "vm1" and
+            record.get("agniRepository") == "dash-xd/agni" and
+            re.fullmatch(r"[a-f0-9]{40}", record.get("agniRevision","")) and
+            re.fullmatch(r"/workspaces/[A-Za-z0-9_.-]+/local/fatline", record.get("flake","")),
+            "Recorded VM1 composition selection is invalid")
+    os.environ["NIX_XD_COMPOSITION_REV"] = record["agniRevision"]
+    os.environ["NIX_XD_COMPOSITION_FLAKE"] = record["flake"]
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("store-check",))
     args = parser.parse_args()
+    selected_composition()
     link = HostLink()
     with link.lock_path.open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
