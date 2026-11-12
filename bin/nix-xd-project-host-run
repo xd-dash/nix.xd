@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+workspace=${NIX_XD_HOST_WORKSPACES:?Select host workspaces}
+project=${NIX_XD_PROJECT:?Select PROJECT}
+application=${NIX_XD_APPLICATION:?Select APPLICATION}
+action=${NIX_XD_ACTION:?Select ACTION}
+runtime=${NIX_XD_RUNTIME_REPO:?Select runtime repository}
+
+[[ "$project" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo "Invalid project" >&2; exit 2; }
+[[ "$application" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "Invalid application" >&2; exit 2; }
+[[ "$action" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "Invalid action" >&2; exit 2; }
+
+source="$workspace/$project"
+[[ -d "$source/.git" || -f "$source/.git" ]] || { echo "Missing project checkout" >&2; exit 1; }
+revision="$(git -C "$source" rev-parse HEAD)"
+[[ "$revision" =~ ^[a-f0-9]{40}$ ]] || { echo "Invalid project revision" >&2; exit 1; }
+[[ -z "${NIX_XD_PROJECT_REV:-}" || "$revision" == "$NIX_XD_PROJECT_REV" ]] || {
+  echo "Project revision mismatch" >&2; exit 1;
+}
+[[ -z "$(git -C "$source" status --porcelain --untracked-files=no)" ]] || {
+  echo "Project checkout contains tracked changes" >&2; exit 1;
+}
+script="$source/local/$application/host-actions/$action.sh"
+[[ -f "$script" && ! -L "$script" ]] || { echo "Selected host action missing" >&2; exit 1; }
+
+# The project owns the effectful action. The infrastructure provides context only.
+export NIX_XD_SELECTED_PROJECT_REV="$revision"
+export NIX_XD_SELECTED_PROJECT_FLAKE="/workspaces/$project/local/$application"
+export NIX_XD_RUNTIME_REPO="$runtime"
+exec bash "$script"
