@@ -76,3 +76,18 @@ HTTPS or SSH Git URLs. Ordinary Git authentication is reused. Branches outside t
 Host source management belongs in Make. Building and running project flakes
 continues through Nix-Alpine. Shared stores, runtime state and the overridden log
 directory are independent of these dated source paths.
+
+## Private GitHub acquisition through Smoke ghxd (ARM Nix-Alpine)
+
+`workspace` and `sync` currently use host Git and are **not** a suitable private-repository bootstrap when macOS has no GitHub credentials. `stage` copies a committed host checkout, it does not fetch one. Do not put GitHub tokens into Git origin URLs, Nix source derivations, CLI argument strings, or Make logs.
+
+Use `make ghxd-auth-inventory PROVIDER=podman MACHINE=... SCOPE=...` to inspect the selected Nix-Alpine owner's likely encrypted GHXD credential paths and known age volume names. This check is read-only, prints metadata only, and **cannot establish token validity or decryptability**. Historical Smoke credentials were held as `.private/sops/ghxd.enc.json`, with a separate age identity; a rebootstrap may have removed either. The Fatline SOPS/age synthetic fixture volume is **not** a GitHub OAuth credential.
+
+The intended next source-acquisition adapter is:
+1. Make selects an application-owned exact source manifest (repository, SHA, checkout name); it never selects the remote head by accident.
+2. In the Nix-Alpine authoritative writer, build the pinned Smoke `github-worktree` implementation and its runtime closure.
+3. A one-shot rootless credential reader mounts only the **actual** GHXD encrypted credential and age identity read-only, plus the writer-built Nix closure read-only. Decrypt at runtime outside Nix, refresh through Smoke ghxd if necessary, and keep `GH_TOKEN` process scoped.
+4. The reader calls Smoke's exact-SHA worktree seeder (no host Git credential) into run-owned temporary storage. Send a verified source archive to `/workspaces/<checkout>` in the Nix-Alpine owner over a Podman copy/stream, without copying the token or age identity. Write the exact SHA marker only after checkout verification.
+5. Agni's `#qualify-integration --scenario probot-webhook` consumes the staged checkouts and refuses a SHA mismatch. No new application-specific Makefile target is necessary.
+
+The transport in steps 2–4 is **not yet implemented**. Do not claim that `make workspace` or `make sync` does it today. First inventory the old GHXD state; if the age identity/ciphertext is unavailable, reauthorize via Smoke ghxd's browser/device flow in Nix-Alpine and persist a new SOPS/age credential in a dedicated secret volume, not on macOS.
