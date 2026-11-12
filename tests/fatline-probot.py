@@ -40,6 +40,27 @@ class GuestStoreTests(unittest.TestCase):
         self.assertNotIn("private_key",script)
         self.assertNotIn("oauth",script.lower())
 
+    def test_recorded_vm1_selection_is_reused(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            selection=root/".state/agni-coreos/vm1-selection.json"
+            selection.parent.mkdir(parents=True)
+            selection.write_text(json.dumps({"schema":1,"profile":"vm1",
+                "agniRepository":"dash-xd/agni","agniRevision":"a"*40,
+                "flake":"/workspaces/agni20261111/local/fatline"}))
+            from unittest.mock import patch
+            with patch.object(module, "REPO", root), patch.dict(module.os.environ,{},clear=True):
+                module.selected_composition()
+                self.assertEqual(module.os.environ["NIX_XD_COMPOSITION_REV"],"a"*40)
+                self.assertEqual(module.os.environ["NIX_XD_COMPOSITION_FLAKE"],
+                    "/workspaces/agni20261111/local/fatline")
+
+    def test_partial_composition_selection_is_rejected(self):
+        with patch.dict(module.os.environ,{"NIX_XD_COMPOSITION_REV":"a"*40},clear=True):
+            with self.assertRaises(ValueError):
+                module.selected_composition()
+
     def test_wrong_artifact_selection_fails_before_ssh(self):
         pin=json.loads((ROOT/"examples/ghxd-agni-probot-guest-store.json").read_text())["sources"]["agni"]
         def owner(*argv):
