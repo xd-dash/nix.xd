@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "scope": "controller-bootstrap",
+  "sources": {
+    "agni": {
+      "repository": "dash-xd/agni",
+      "revision": "a1a0cee1e29e0eb019ff5b0b7dcf5d0ea037a9e2",
+      "checkout": "agni-ghxd-v11"
+    },
+    "skymill": {
+      "repository": "xd-dash/skymill",
+      "revision": "2c1700e9a1effc5b5c5273707fa3c5d12d7c63e5",
+      "checkout": "skymill-integration"
+    },
+    "logma": {
+      "repository": "xd-dash/logma",
+      "revision": "4322e34616b9a4343e75c7bdcc59dab381621294",
+      "checkout": "logma-integration"
+    },
+    "probot-runtime": {
+      "repository": "xd-dash/probot-runtime",
+      "revision": "3e25255b02529248523a702c0d0df24251f509fd",
+      "checkout": "probot-runtime-integration-v2"
+    }
+  }
+}
