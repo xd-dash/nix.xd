@@ -46,18 +46,21 @@ def preflight(link, source_path):
     for item in app["artifacts"].values():
         owner("test", "-e", item["store"])
     owner("test", "-x", app["node"])
-    payload = json.dumps(app, sort_keys=True, separators=(",", ":"))
-    # Only non-secret metadata crosses SSH. Scope and boot are bound to the
-    # already qualified host-link session, not environment defaults.
-    script = "\n".join((
-        "set -Eeuo pipefail",
-        "work=$(mktemp -d)",
-        "trap 'rm -rf -- \"$work\"' EXIT",
-        "printf '%s\\n' " + shlex.quote(payload) + " > \"$work/artifacts.json\"",
-        "export AGNI_PROBOT_GUEST_EXPECTED_BOOT=" + shlex.quote(link.state["boot"]),
-        "export AGNI_PROBOT_GUEST_ARTIFACTS=\"$work/artifacts.json\"",
-        source,
-    )) + "\n"
+    guest_values = {
+        "AGNI_PROBOT_GUEST_EXPECTED_BOOT": link.state["boot"],
+        "AGNI_PROBOT_GUEST_SKYMILL": app["artifacts"]["skymill"]["store"],
+        "AGNI_PROBOT_GUEST_SKYMILL_SHA": app["artifacts"]["skymill"]["revision"],
+        "AGNI_PROBOT_GUEST_LOGMA": app["artifacts"]["logma"]["store"],
+        "AGNI_PROBOT_GUEST_LOGMA_SHA": app["artifacts"]["logma"]["revision"],
+        "AGNI_PROBOT_GUEST_PROBOT": app["artifacts"]["probot-runtime"]["store"],
+        "AGNI_PROBOT_GUEST_PROBOT_SHA": app["artifacts"]["probot-runtime"]["revision"],
+        "AGNI_PROBOT_GUEST_NODE": app["node"],
+    }
+    # The guest verifier uses only Bash and exact controller-validated paths.
+    script = "set -Eeuo pipefail\\n" + "".join(
+        "export " + name + "=" + shlex.quote(value) + "\\n"
+        for name, value in guest_values.items()
+    ) + source + "\\n"
     output = run(link.command, link.env, True, script, timeout=120)
     print(output, end="", flush=True)
     require("AGNI_PROBOT_GUEST_STORE=passed roles=3 node=visible mount=9p-ro" in output.splitlines(),
@@ -74,8 +77,7 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if args.action == "store-check":
             source = os.environ.get("NIX_XD_PROBOT_ARTIFACT_MANIFEST", "")
-            require(source == "$HOME/.local/state/agni/probot-webhook/artifacts.json" or not source,
-                    "Custom owner paths require a separate declared grant")
+            require(not source, "Custom owner paths require a separate declared grant")
             manifest = link.runtime.owner("sh", "-ec",
                 'printf %s "$HOME/.local/state/agni/probot-webhook/artifacts.json"')
             preflight(link, manifest)
