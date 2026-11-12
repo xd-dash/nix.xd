@@ -290,6 +290,10 @@ vm-state-preflight:
 	@NIX_XD_MACHINE='$(MACHINE)' bash bin/nix-xd-vm-state-preflight '$(VM_CONTAINER)' '$(VM_INSTANCE)'
 
 # Generic declared workload storage grants; never reads volume payloads.
+.PHONY: grants-isolation-qualify
+grants-isolation-qualify:
+	@NIX_XD_MACHINE="$(MACHINE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-grants-isolation-qualify
+
 .PHONY: grants-host-share-qualify
 grants-host-share-qualify:
 	@NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-grants-host-share-qualify
@@ -338,6 +342,7 @@ check-static-internal:
 	@bash tests/project-host-run-contract.sh
 	@python3 tests/runtime-grants.py
 	@bash -n bin/nix-xd-grants-host-share-qualify
+	@bash -n bin/nix-xd-grants-isolation-qualify runtime/grants-isolation-qualify.sh
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
