@@ -17,7 +17,7 @@ make check-static
 
 cd "$HOME/workspace/agni20261111"
 git pull --ff-only
-AGNI_REV="$(git rev-parse HEAD)"
+COMPOSITION_REV="$(git rev-parse HEAD)"
 
 cd "$HOME/workspace/nix.xd20261111"
 WORKLOAD_REV="$(git rev-parse HEAD)"
@@ -29,18 +29,18 @@ make stage PROVIDER=podman SCOPE=nix-xd-arm \
   WORKSPACES="$HOME/workspace" CHECKOUT=nix.xd20261111
 
 make agni-coreos-plan-check PROVIDER=podman SCOPE=nix-xd-arm \
-  AGNI_FLAKE=/workspaces/agni20261111/local/fatline \
-  AGNI_REV="$AGNI_REV" FATLINE_PROFILE=vm1
+  COMPOSITION_FLAKE=/workspaces/agni20261111/local/fatline \
+  COMPOSITION_REV="$COMPOSITION_REV" FATLINE_PROFILE=vm1
 ```
 
-The plan command is read-only with respect to the guest. It will build the plan JSON in Nix-Alpine and write `.state/agni-coreos/vm1-selection.json` with immutable evidence. The controller rejects a staged Agni checkout whose SHA differs from `AGNI_REV`, a missing lock entry, or a changing lock. It uses `nix build --no-update-lock-file` so missing locked dependencies cannot be resolved opportunistically.
+The plan command is read-only with respect to the guest. It will build the plan JSON in Nix-Alpine and write `.state/agni-coreos/vm1-selection.json` with immutable evidence. The controller rejects a staged Agni checkout whose SHA differs from `COMPOSITION_REV`, a missing lock entry, or a changing lock. It uses `nix build --no-update-lock-file` so missing locked dependencies cannot be resolved opportunistically.
 
 The next conditional integration command (after the preflight passes and a disposable CoreOS VM1 is intended) is:
 
 ```sh
 make fatline-vm-local PROVIDER=podman ARCH=arm64 SCOPE=nix-xd-arm \
   WORKLOAD_FLAKE=/workspaces/nix.xd20261111 WORKLOAD_REV="$WORKLOAD_REV" \
-  AGNI_FLAKE=/workspaces/agni20261111/local/fatline AGNI_REV="$AGNI_REV" \
+  COMPOSITION_FLAKE=/workspaces/agni20261111/local/fatline COMPOSITION_REV="$COMPOSITION_REV" \
   FATLINE_PROFILE=vm1
 ```
 
@@ -87,6 +87,6 @@ Do not copy a live overlay between workspaces. Prefer a persistent state root; s
 
 The original Agni activation plan may remain pinned at its validated revision while a corrected qualification probe is evaluated separately. Use the optional `FATLINE_PROBE_REV=<40-hex-commit>` on `fatline-services-probe-refresh` only. This fetches the exact candidate Agni revision, builds its `coreos-services-vm1` bundle, verifies that Logma, Skymill, and Ratelimiter component revisions are unchanged, retains the candidate closure, and persists the qualification probe source. It does **not** rebind running application binaries, regenerate Quadlets, or restart Redis.
 
-Subsequent `fatline-services-qualify` uses the persisted probe executable, even when the override is omitted. A failed qualification stays unqualified. Do not change `AGNI_REV` from the active machine-plan revision during this operation; the host controller still requires exact existing provenance.
+Subsequent `fatline-services-qualify` uses the persisted probe executable, even when the override is omitted. A failed qualification stays unqualified. Do not change `COMPOSITION_REV` from the active machine-plan revision during this operation; the host controller still requires exact existing provenance.
 
 The Logma `/lifecycle/readyz` endpoint returns an authenticated plain-text `ready` response, not JSON. The probe validates HTTP 200 and the plain-text readiness contract, while Skymill message/delivery endpoints continue using JSON decoding. After qualification, promote the corrected probe revision into a new Agni machine plan through an explicit composition migration, not by silently changing an active plan.
