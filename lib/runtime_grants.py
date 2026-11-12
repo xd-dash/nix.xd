@@ -113,13 +113,28 @@ def verify(record, machine, scope):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("plan", "render", "verify"))
+    parser.add_argument("action", choices=("plan", "render", "verify", "fixture"))
     parser.add_argument("manifest")
     parser.add_argument("--machine", default="")
     parser.add_argument("--scope", default="")
     args = parser.parse_args()
     record = load(args.manifest)
-    if args.action == "render":
+    if args.action == "fixture":
+        by_path = {g["destination"]: g for g in record["grants"]}
+        require(set(by_path) == {"/run/nix-xd/mounts/secrets",
+                                 "/run/nix-xd/mounts/evidence"},
+                "Expected exact secret/evidence mounts")
+        secret = by_path["/run/nix-xd/mounts/secrets"]
+        evidence = by_path["/run/nix-xd/mounts/evidence"]
+        require(secret["access"] == "ro" and evidence["access"] == "rw"
+                and secret["volume"].startswith("nix-xd-state-secret-")
+                and secret["volume"].endswith("-qualification")
+                and evidence["volume"].startswith("nix-xd-state-control-")
+                and evidence["volume"].endswith("-qualification-evidence")
+                and secret["writer"] != record["scope"],
+                "Invalid secret/evidence owner and access policy")
+        print(secret["volume"], evidence["volume"], record["scope"])
+    elif args.action == "render":
         print(mounts(record))
     elif args.action == "plan":
         print("RUNTIME_GRANT_PLAN=passed scope=" + record["scope"] +
