@@ -80,7 +80,7 @@ class ApplicationGate(unittest.TestCase):
                     raise ValueError('missing delivery')
                 return original_wait(process, path, expected, timeout)
 
-            with patch.object(gate, 'REPO', root), patch.dict(os.environ, {'WISP_SMOKE_REV':'a' * 40,
+            with patch.object(gate, 'REPO', root), patch.object(gate, 'export_executable', return_value={'path':str(binary), 'sourceRevision':'a'*40, 'sha256':'b'*64, 'target':'darwin-arm64', 'storePath':'/nix/store/'+'c'*32+'-smoke', 'flake':'github:dash-xd/agni/pinned'}), patch.dict(os.environ, {'NIX_XD_ARTIFACT_FLAKE':'github:dash-xd/agni/pinned',
                     'COREOS_SSH_KEY':'/host/key'}), patch.object(gate.subprocess, 'Popen', Process), \
                     patch.object(gate.subprocess, 'run', negative), patch.object(gate, 'wait_log', wait), patch('fatline_services.Services', ResourceServices), patch.object(gate.secrets,'token_hex',return_value='d'*48), \
                     contextlib.redirect_stdout(io.StringIO()):
