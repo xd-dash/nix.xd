@@ -566,13 +566,11 @@ export NIX_XD_PEER_STORES = $(PEER_STORES)
 builder-store-plan:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-store-plan
 
-.PHONY: fatline-resource-local fatline-resource-phases fatline-resource-logmash-qualify
+.PHONY: fatline-resource-local fatline-resource-phases
 fatline-resource-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-resource-phases
 fatline-resource-phases:
-	@$(MAKE) --no-print-directory -j1 -S fatline-services-configure-logma fatline-resource-logmash-qualify
-fatline-resource-logmash-qualify:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_logmash.py --resource
+	@$(MAKE) --no-print-directory -j1 -S fatline-services-configure-logma project-host-run
 
 .PHONY: fatline-services-configure-logma
 
@@ -583,7 +581,7 @@ fatline-vm-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-vm-phases
 fatline-vm-phases:
 	@$(MAKE) --no-print-directory agni-coreos-plan-check
-	@$(MAKE) --no-print-directory -j1 -S fatline-vm-start fatline-prepare fatline-start fatline-adapter-refresh fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-configure-logma fatline-resource-logmash-qualify fatline-services-status
+	@$(MAKE) --no-print-directory -j1 -S fatline-vm-start fatline-prepare fatline-start fatline-adapter-refresh fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-configure-logma project-host-run fatline-services-status
 wisp-go-linux:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go linux
 fatline-cross-qualify:
@@ -605,7 +603,7 @@ fatline-restart-prepare fatline-restart-qualify fatline-restart-diagnose fatline
 fatline-restart-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-restart-phases
 fatline-restart-phases:
-	@$(MAKE) --no-print-directory -j1 -S fatline-restart-prepare fatline-restart-qualify fatline-services-qualify fatline-resource-logmash-qualify fatline-services-status
+	@$(MAKE) --no-print-directory -j1 -S fatline-restart-prepare fatline-restart-qualify fatline-services-qualify project-host-run fatline-services-status
 
 .PHONY: fatline-reboot-plan fatline-reboot-local fatline-reboot-resume
 fatline-reboot-plan:
