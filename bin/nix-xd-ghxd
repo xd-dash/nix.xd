@@ -124,12 +124,12 @@ for item in d["sources"].values():
     [[ "$existing" == absent ]] || {
       echo "Refusing to overwrite staged checkout $checkout (revision $existing)" >&2; exit 1;
     }
-    temporary="/workspaces/.$checkout.ghxd-prepare"
-    "${p[@]}" exec "$scope" sh -ec "test ! -e '$temporary' && mkdir -m 0700 '$temporary'"
+    temporary="$("${p[@]}" exec "$scope" mktemp -d "/workspaces/.$checkout.ghxd.XXXXXXXX")"
     if ! "${p[@]}" run --rm --pull=never --network none --user 1000:1000 \
       --volume "$sources:/data/ghxd:ro,z" --entrypoint /bin/tar "$image" \
       -C "/data/ghxd/$checkout" --exclude=.git -cf - . |
       "${p[@]}" exec -i "$scope" tar -C "$temporary" -xf -; then
+      "${p[@]}" exec "$scope" rm -rf -- "$temporary" || true
       echo "GHXD_STAGE=failed checkout=$checkout" >&2
       exit 1
     fi
