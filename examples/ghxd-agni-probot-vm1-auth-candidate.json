@@ -4,23 +4,23 @@
   "sources": {
     "agni": {
       "repository": "dash-xd/agni",
-      "revision": "1eb39d2ec2d599d858907d34ca332bbd1179e3a2",
-      "checkout": "agni-ghxd-v11"
+      "revision": "e9589110c60a3af9bda5552a96b10e29d52767e8",
+      "checkout": "agni20261112"
     },
     "skymill": {
       "repository": "xd-dash/skymill",
       "revision": "2c1700e9a1effc5b5c5273707fa3c5d12d7c63e5",
-      "checkout": "skymill-integration"
+      "checkout": "skymill20261112"
     },
     "logma": {
       "repository": "xd-dash/logma",
       "revision": "4322e34616b9a4343e75c7bdcc59dab381621294",
-      "checkout": "logma-integration"
+      "checkout": "logma20261112"
     },
     "probot-runtime": {
       "repository": "xd-dash/probot-runtime",
       "revision": "3e25255b02529248523a702c0d0df24251f509fd",
-      "checkout": "probot-runtime-integration-v2"
+      "checkout": "probot-runtime20261112"
     }
   }
 }
