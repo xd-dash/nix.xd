@@ -97,3 +97,21 @@ This temporary network-disabled Podman reader proves one read-only host fixture 
 `GRANTS_FILE` is intended for non-secret data and evidence that the persistent Nix-Alpine owner may read. It is **not** a general authorization to put private identities or plaintext passwords into a shared owner volume. A long-lived builder can run many project flakes, so secrets for one project must not be mounted into that common namespace. Future per-run credential grants belong to a separately scoped short-lived qualification container with its own identity and lifecycle, using Smoke's runtime-only secret handling. Never encode secret values, age identities, or host private-key paths into Nix derivations.
 
 The new grant documents complement the historical `shared-store-matrix.nix`; they do not change its previously qualified `common` store domain or automatically activate its deferred guest-local and guest-shared domains. A common matrix-domain-to-state-grant adapter remains an integration step.
+
+## Secret domain: same Podman volumes, tighter grants
+
+The generic state-volume controller accepts `STATE_KIND=secret`, producing a labeled `nix-xd-state-secret-<name>` volume. The generic `runtime_grants.py` parser accepts the same volume with `ro` reader or `rw` owner-only grants. This means encrypted SOPS documents and runtime age identities can be stored on persistent Podman volumes instead of ad hoc file-copy handoffs.
+
+**Mount permissions are necessary but not sufficient for secrets:** a `ro` bind denies writes but does not distinguish two processes inside the same container. Container/user-namespace boundaries and Unix DAC/ACLs must restrict which readers can open age identity files. SELinux MCS can add further separation within the Podman Machine, but `:z` explicitly provides a shared label and is not an exclusive grant; `:Z` gives one container a private label and must not be indiscriminately applied to a deliberately shared volume. Never use a blanket `:U` ownership rewrite on a shared secret store.
+
+The same named secret volume can be attached `ro` to authorized containers and `rw` to its designated owner. Any mounted consumer allowed to read the private age identity can decrypt ciphertext for the keys it authorizes. For a workload requiring decryption, prefer a process-scoped decryption environment (tmpfs or memory-backed file) and retain only the encrypted document and age identity in the persistent volume. Nix derivations and `/nix/store` must not contain the private key or decrypted plaintext.
+
+For CoreOS, Podman mounts the selected volume into the QEMU runner and QEMU can export it using virtio-9P. This is a **separate Linux permission boundary**: guest UID/GID interpretation and 9P security model must be verified, and Podman SELinux labels do not automatically become enforceable guest MCS policies. Start read-only, with an explicit mapping and guest-side access test. No existing VM is implicitly modified.
+
+Example new empty secrets volume (no key migration):
+
+```sh
+make state-volume-provision MACHINE=coreos-arm64 STATE_KIND=secret STATE_NAME=qualification
+```
+
+This establishes only a labeled volume, not encryption, permissions, tenant grant enforcement, or CoreOS 9P attachment.
