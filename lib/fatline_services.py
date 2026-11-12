@@ -60,6 +60,13 @@ class Services:
         plan, manifest = resolve(self.link.runtime, self.link.profile)
         require(manifest == self.link.state.get('composition'), 'Application plan differs from prepared Agni composition')
         source = plan[key]
+        if key == 'servicesProbe':
+            candidate = os.environ.get('NIX_XD_FATLINE_PROBE_REV', '')
+            if candidate:
+                require(re.fullmatch(r'[a-f0-9]{40}', candidate), 'Pin an immutable qualification probe commit')
+                source = dict(source, revision=candidate)
+            elif self.state and self.state.get('qualificationProbe'):
+                source = self.state['qualificationProbe']['source']
         require(source['repository'] == 'dash-xd/agni' and source['contract'] == 'coreos-services-v1' and
                 re.fullmatch(r'[a-f0-9]{40}', source['revision']) and source['package'] == 'coreos-services-vm1',
                 'Invalid application source binding')
