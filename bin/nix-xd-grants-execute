@@ -21,26 +21,8 @@ store="${NIX_XD_STORE_VOLUME:-$scope-store}"
 [[ "$program_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || exit 2
 python3 "$repo/lib/runtime_grants.py" plan "$manifest"
 # Only the selected secret + evidence shape is authorized by this gate.
-read -r secret evidence qualifier < <(python3 - "$repo/lib" "$manifest" <<'PY'
-import sys
-sys.path.insert(0, sys.argv[1])
-import runtime_grants
-document = runtime_grants.load(sys.argv[2])
-by_path = {g["destination"]: g for g in document["grants"]}
-if set(by_path) != {"/run/nix-xd/mounts/secrets", "/run/nix-xd/mounts/evidence"}:
-    raise SystemExit("Expected exact secret/evidence mounts")
-s = by_path["/run/nix-xd/mounts/secrets"]
-e = by_path["/run/nix-xd/mounts/evidence"]
-if not (s["access"] == "ro" and e["access"] == "rw" and
-        s["volume"].startswith("nix-xd-state-secret-") and
-        s["volume"].endswith("-qualification") and
-        e["volume"].startswith("nix-xd-state-control-") and
-        e["volume"].endswith("-qualification-evidence") and
-        s["writer"] != document["scope"]):
-    raise SystemExit("Invalid secret/evidence owner and access policy")
-print(s["volume"], e["volume"], document["scope"])
-PY
-)
+grant_tuple="$(python3 "$repo/lib/runtime_grants.py" fixture "$manifest")"
+read -r secret evidence qualifier <<< "$grant_tuple"
 [[ -n "$secret" && -n "$evidence" && -n "$qualifier" ]] || exit 1
 p=(podman --connection "$machine")
 [[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || exit 1
