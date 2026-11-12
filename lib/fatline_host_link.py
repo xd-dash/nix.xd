@@ -43,7 +43,8 @@ class HostLink:
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else None
         self.config, self.selection_manifest = resolve(self.runtime, self.profile)
         if self.state:
-            require(self.state.get('composition') == self.selection_manifest,
+            require(self.state.get('composition') == self.selection_manifest and
+                    self.state.get('agniRev') == self.config['sources']['agni']['revision'],
                     'Existing Fatline state belongs to another Agni composition; migrate explicitly')
         require(self.config['storeDomain'] == 'common', 'Unsupported store domain')
         require(self.config['schema'] == 1 and self.config['scope'] == self.scope and
