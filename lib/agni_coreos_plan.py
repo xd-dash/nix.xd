@@ -54,7 +54,6 @@ def resolve(runtime, profile, env=None):
         "nixAlpineRevision": lock["nodes"]["nix-alpine-runtime"]["locked"]["rev"],
         "nixpkgsRevision": lock["nodes"]["nixpkgs"]["locked"]["rev"],
         "componentRevisions": plan["componentRevisions"],
-        "hostArtifacts": plan.get("hostArtifacts", {}),
         "components": {
             "transport": plan["sources"]["agni"]["revision"],
             "services": plan["services"]["revision"],
@@ -65,6 +64,8 @@ def resolve(runtime, profile, env=None):
             "bootstrap": plan["bootstrap"]["revision"],
         },
     }
+    if "hostArtifacts" in plan:
+        manifest["hostArtifacts"] = plan["hostArtifacts"]
     return plan, manifest
 
 
