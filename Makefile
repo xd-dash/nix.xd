@@ -55,6 +55,7 @@ TASK = $(TASK_ENV) bash bin/nix-xd-task
 
 help:
 	@printf '%s\n' \
+	  'make tenant-storage-qualify  Disposable UID/GID, SELinux, sharing and scoped deletion gate on the selected Podman host' \
 	  'make bootstrap-profile-local BUILDER_CHROOT_STORES="name=volume ..."  First-start profile, readiness and isolated-store qualification' \
 	  'make bootstrap ARCH=arm64|amd64 PROVIDER=podman  Bootstrap selected host architecture' \
 	  'make bootstrap ARCH=amd64 PROVIDER=podman  Direct-volume native Linux x86_64 runtime' \
@@ -290,6 +291,7 @@ check-static:
 	@bash bin/nix-xd-log "$(SCOPE)" check-static $(MAKE) --no-print-directory check-static-internal
 
 check-static-internal:
+	@python3 tests/tenant-storage.py
 	@python3 tests/bootstrap-profile.py
 	@bash tests/workspace-contract.sh
 	@python3 tests/fatline-host-link.py
@@ -714,3 +716,20 @@ runtime-contract-check:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash tests/runtime-resource-contract.sh
 
 include mk/workspace.mk
+
+TENANT_STORAGE_SCOPE ?= $(SCOPE)-storage-qualify
+export NIX_XD_TENANT_SCOPE = $(TENANT_STORAGE_SCOPE)
+export NIX_XD_TENANT_IMAGE = $(IMAGE)
+.PHONY: tenant-storage-check tenant-storage-qualify
+tenant-storage-check:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory tenant-storage-check-internal
+.PHONY: tenant-storage-check-internal
+tenant-storage-check-internal:
+	@bash -n lib/tenant-storage.sh bin/nix-xd-tenant-storage-qualify runtime/tenant-storage-qualify.sh
+	@python3 tests/tenant-storage.py
+tenant-storage-qualify:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory tenant-storage-qualify-internal
+.PHONY: tenant-storage-qualify-internal
+tenant-storage-qualify-internal:
+	@$(MAKE) --no-print-directory tenant-storage-check-internal
+	@bash bin/nix-xd-tenant-storage-qualify

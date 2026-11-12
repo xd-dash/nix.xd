@@ -1,5 +1,9 @@
 # Nix.xd / Nix-Alpine
 
+The [tenant storage gate](docs/tenant-storage.md), `make tenant-storage-qualify`,
+checks mapped identities, private volume permissions, SELinux grants and scoped
+deletion with disposable fixtures on the selected Linux Podman host.
+
 Use the [persistent builder bootstrap profile](docs/bootstrap-profile.md) to
 prepare the primary and alternate chroot stores before the builder first starts.
 `make bootstrap-profile-local BUILDER_CHROOT_STORES="name=volume"` validates,

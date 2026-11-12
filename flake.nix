@@ -109,6 +109,8 @@
           };
         in {
           default = installer;
+          tenantStorageQualifier = pkgs.writeShellScriptBin "nix-xd-tenant-storage-qualify"
+            (builtins.readFile ./lib/tenant-storage.sh + "\n" + builtins.readFile ./runtime/tenant-storage-qualify.sh);
           bootstrapProfileTools = pkgs.buildEnv {
             name = "nix-xd-bootstrap-profile-tools";
             paths = [ namespaceProbe builderPolicy ];
@@ -198,6 +200,10 @@
         };
       });
       apps = eachSystem (system: {
+        tenant-storage-qualify = {
+          type = "app";
+          program = "${self.packages.${system}.tenantStorageQualifier}/bin/nix-xd-tenant-storage-qualify";
+        };
         chroot-store-diagnose = {
           type = "app";
           program = "${self.packages.${system}.chrootStoreDiagnose}/bin/nix-xd-chroot-store-diagnose";

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+scope=${NIX_XD_TENANT_SCOPE:?Select a qualification scope}
+image=${NIX_XD_TENANT_IMAGE:?Select the existing local runtime image}
+builder=${NIX_XD_SCOPE:?Select the ordinary builder}
+[[ ${NIX_XD_PROVIDER:-podman} == podman ]] || exit 2
+source "$repo/lib/tenant-storage.sh"
+tenant_volume_name "$scope" a private >/dev/null
+[[ $builder =~ ^[a-z][a-z0-9-]{0,39}$ && $image =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || exit 2
+if [[ $(uname -s) == Darwin ]]; then
+  machine=${NIX_XD_MACHINE:?Select a Podman Machine}
+  [[ $machine =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+  [[ $(podman machine inspect "$machine" --format '{{.State}}') == running ]]
+  printf -v remote_args '%q ' "$scope" "$image" "$builder"
+  { cat "$repo/lib/tenant-storage.sh"; cat "$repo/runtime/tenant-storage-qualify.sh"; } |
+    podman machine ssh "$machine" "bash -se -- $remote_args"
+else
+  { cat "$repo/lib/tenant-storage.sh"; cat "$repo/runtime/tenant-storage-qualify.sh"; } |
+    bash -se -- "$scope" "$image" "$builder"
+fi
