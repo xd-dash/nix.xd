@@ -136,6 +136,17 @@ SSH private keys should use a dedicated least-privilege runtime mount, not an in
 
 ## Probot VM1 exact-artifact store verification
 
+The controller automatically reuses `.state/agni-coreos/vm1-selection.json` from
+an earlier successful `agni-coreos-plan-check` when both composition
+parameters are unset. If no selection exists, pass the exact staged
+`COMPOSITION_FLAKE` and `COMPOSITION_REV` together. Do not select the
+new webhook qualification Agni revision as the machine-plan revision unless
+that same revision was explicitly prepared as the running VM1 composition.
+Recorded selection is subject to the existing HostLink state reconciliation
+and cannot silently replace the active guest's original plan.
+
+
+
 After the ARM64 Probot/Skymill/Logma `#qualify-integration --phase artifacts`
 gate, run `make fatline-probot-vm1-store-check` on the selected Podman machine.
 The thin Make entrypoint invokes `lib/fatline_probot.py`, which reuses the
