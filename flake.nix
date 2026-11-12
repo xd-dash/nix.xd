@@ -119,8 +119,8 @@
               (cd "$source" && go build -mod=readonly -trimpath -buildvcs=false -ldflags=-buildid= -o "$scratch/smoke" ./cmd/smoke)
               binary="$(nix-store --add "$scratch/smoke")"
               nix-store --realise --add-root "$root/smoke-gcroot" "$binary" >/dev/null
-              printf 'NIX_XD_NATIVE_ARTIFACT=%s\\n' "$binary"
-              printf 'GHXD_SOURCE_BUILD=passed source=%s\\n' "$revision"
+              printf 'NIX_XD_NATIVE_ARTIFACT=%s\n' "$binary"
+              printf 'GHXD_SOURCE_BUILD=passed source=%s\n' "$revision"
             '';
           };
           ghxdOperator = pkgs.writeShellApplication {
