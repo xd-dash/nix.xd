@@ -39,12 +39,14 @@ owner() {
   fi
 }
 
-actual="$(owner cat "/workspaces/$flake/.nix-xd-source-revision" 2>/dev/null || true)"
 # Subdirectory flakes have their source marker in the workspace root.
 checkout="${flake%%/*}"
 actual="$(owner cat "/workspaces/$checkout/.nix-xd-source-revision" 2>/dev/null || true)"
 [[ "$actual" == "$revision" ]] || fail 'Staged source differs from exact selected SHA'
-[[ "$(owner uname -m)" == aarch64 || "$system" == x86_64-linux ]] || fail 'Incorrect Nix-Alpine architecture'
+case "$system:$(owner uname -m)" in
+  aarch64-linux:aarch64|aarch64-linux:arm64|x86_64-linux:x86_64) ;;
+  *) fail 'Incorrect Nix-Alpine architecture' ;;
+esac
 root_key="$(python3 - "$revision" "$flake" "$target" <<'PY'
 import hashlib,sys
 print(hashlib.sha256("\x00".join(sys.argv[1:]).encode()).hexdigest()[:24])
@@ -55,6 +57,16 @@ owner mkdir -p /nix/home/nixuser/.local/state/nix-xd/guest-apps
 output="$(owner nix --option system "$system" build --no-write-lock-file --print-out-paths --out-link "$root" "/workspaces/$flake$target")"
 [[ "$output" =~ ^/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+$ ]] || fail 'Expected exactly one immutable store output'
 owner test -f "$output/guest.sh" || fail 'Selected package must contain guest.sh'
+# Reject invalid JSON before opening a remote session.
+python3 - "$args_json" <<'PY'
+import json,sys
+try:
+    values=json.loads(sys.argv[1])
+    if not isinstance(values,list) or len(values)>32 or any(not isinstance(x,str) or len(x)>4096 or chr(0) in x or chr(10) in x for x in values):
+        raise ValueError('Expected up to 32 newline-free string arguments')
+except (ValueError,TypeError) as error:
+    print(error,file=sys.stderr);sys.exit(2)
+PY
 args=()
 while IFS= read -r -d '' item; do args+=("$item"); done < <(python3 - "$args_json" <<'PY'
 import json,sys
