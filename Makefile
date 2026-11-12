@@ -55,12 +55,13 @@ OS := $(shell uname -s)
 TASK_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
+GHXD_FLAKE ?= $(notdir $(CURDIR))
 GHXD_ACTION ?= bootstrap
 GHXD_CLIENT_ID ?=
 GHXD_SOURCE_MANIFEST ?=
 GHXD_BUILD_APP ?= $(HASH)ghxd-source-build
 GHXD_PACKAGE ?= $(HASH)ghxd-operator
-GHXD_PROGRAM ?= agni-ghxd-operator
+GHXD_PROGRAM ?= nix-xd-ghxd-operator
 .PHONY: ghxd ghxd-volumes-provision
 ghxd-volumes-provision:
 	@$(MAKE) state-volume-provision MACHINE='$(MACHINE)' STATE_KIND=secret STATE_NAME=ghxd
@@ -69,8 +70,8 @@ ghxd-volumes-provision:
 
 ghxd:
 	@test "$(PROVIDER)" = podman || { echo 'GHXD currently requires Podman provider' >&2; exit 2; }
-	@test -n "$(FLAKE)" -a "$(FLAKE)" != . || { echo 'Select staged GHXD operator FLAKE' >&2; exit 2; }
-	@$(TASK_ENV) NIX_XD_IMAGE='$(IMAGE)' NIX_XD_GHXD_CLIENT_ID='$(GHXD_CLIENT_ID)' NIX_XD_GHXD_MANIFEST='$(GHXD_SOURCE_MANIFEST)' NIX_XD_GHXD_BUILD_APP='$(GHXD_BUILD_APP)' NIX_XD_GHXD_PACKAGE='$(GHXD_PACKAGE)' NIX_XD_GHXD_PROGRAM='$(GHXD_PROGRAM)' bash bin/nix-xd-log "$(SCOPE)" "ghxd-$(GHXD_ACTION)" bash bin/nix-xd-ghxd '$(GHXD_ACTION)'
+	@test -n "$(GHXD_FLAKE)" || { echo 'Select staged GHXD controller flake' >&2; exit 2; }
+	@$(TASK_ENV) NIX_XD_FLAKE='$(GHXD_FLAKE)' NIX_XD_IMAGE='$(IMAGE)' NIX_XD_GHXD_CLIENT_ID='$(GHXD_CLIENT_ID)' NIX_XD_GHXD_MANIFEST='$(GHXD_SOURCE_MANIFEST)' NIX_XD_GHXD_BUILD_APP='$(GHXD_BUILD_APP)' NIX_XD_GHXD_PACKAGE='$(GHXD_PACKAGE)' NIX_XD_GHXD_PROGRAM='$(GHXD_PROGRAM)' bash bin/nix-xd-log "$(SCOPE)" "ghxd-$(GHXD_ACTION)" bash bin/nix-xd-ghxd '$(GHXD_ACTION)'
 
 .PHONY: ghxd-auth-inventory
 .PHONY: help self-update bootstrap plan image-build machine-init machine-check machine-handoff machine-select machine-start machine-stop start stop restart status logs shell exec ps inspect store-info store-diagnose store-roots-inspect store-roots-apply sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan check-static
