@@ -122,14 +122,71 @@ class ExistingVM1Link:
                 "retain", root, target)
 
 
+def runtime_preflight(link):
+    require(link.state and link.state.get("status") in ("prepared","active"),
+            "Existing host-link must be prepared before VM1 runtime inventory")
+    script = """set -Eeuo pipefail
+test "$(cat /proc/sys/kernel/random/boot_id)" = BOOT_PLACEHOLDER
+test "$(id -u)" != 0
+test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+base="$HOME/.local/state/nix-xd/fatline/fatline-arm-vm1"
+apps="$base/services"
+units="$HOME/.config/containers/systemd"
+test -d "$base"
+test -d "$apps"
+test -f "$base/credentials/users.acl"
+test -f "$base/config/redis.conf"
+profile=absent
+if test -f "$apps/profile/profile.env" && test -f "$apps/bootstrap-template.acl"; then
+  profile=installed
+fi
+redis=inactive
+if systemctl --user is-active --quiet fatline-arm-vm1-redis.service; then
+  redis=active
+fi
+app_units=0
+for role in logma skymill; do
+  if test -f "$units/fatline-arm-vm1-$role.container"; then
+    app_units=$((app_units+1))
+  fi
+done
+user_names=$(awk '$1=="user" {print $2}' "$base/credentials/users.acl" | LC_ALL=C sort -u)
+for name in default publisher subscriber; do
+  grep -Fxq "$name" <<< "$user_names" || {
+    echo "Missing existing host-link Redis identity: $name" >&2
+    exit 1
+  }
+done
+test "$(grep -Fc 'user default off' "$base/credentials/users.acl")" = 1
+echo "AGNI_PROBOT_VM1_RUNTIME_INVENTORY=passed profile=$profile redis=$redis application_units=$app_units"
+if test "$profile" = installed; then
+  test -f "$base/credentials/runtime/users.acl"
+  test -f "$apps/profile/manifest.json"
+  echo 'AGNI_PROBOT_VM1_PROFILE=present bootstrap=managed'
+else
+  echo 'AGNI_PROBOT_VM1_PROFILE=absent bootstrap=legacy'
+fi
+"""
+    script=script.replace("BOOT_PLACEHOLDER", shlex.quote(link.state["boot"]))
+    output=run(link.command,link.env,True,script,timeout=120)
+    print(output,end="",flush=True)
+    require("AGNI_PROBOT_VM1_RUNTIME_INVENTORY=passed " in output and
+            ("AGNI_PROBOT_VM1_PROFILE=present bootstrap=managed" in output or
+             "AGNI_PROBOT_VM1_PROFILE=absent bootstrap=legacy" in output),
+            "CoreOS VM1 runtime profile inventory incomplete")
+    print("FATLINE_PROBOT_VM1_RUNTIME_PREFLIGHT=passed activation=blocked")
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("store-check",))
+    parser.add_argument("action", choices=("store-check","runtime-preflight",))
     args = parser.parse_args()
     link = ExistingVM1Link()
     with link.lock_path.open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if args.action == "store-check":
+        if args.action == "runtime-preflight":
+            runtime_preflight(link)
+        elif args.action == "store-check":
             source = os.environ.get("NIX_XD_PROBOT_ARTIFACT_MANIFEST", "")
             require(not source, "Custom owner paths require a separate declared grant")
             manifest = link.runtime.owner("sh", "-ec",
