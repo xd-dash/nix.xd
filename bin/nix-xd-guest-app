@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Generic immutable Nix artifact -> existing guest SSH transport.
+provider=${NIX_XD_PROVIDER:-podman}
+machine=${NIX_XD_MACHINE:-coreos-arm64}
+scope=${NIX_XD_SCOPE:-nix-xd-arm}
+system=${NIX_XD_SYSTEM:-aarch64-linux}
+flake=${NIX_XD_FLAKE:?Select an immutable staged flake}
+target=${NIX_XD_TARGET:?Select an output containing guest.sh}
+revision=${NIX_XD_GUEST_APP_REV:?Pin the staged source commit}
+args_json=${NIX_XD_ARGS_JSON:-[]}
+port=${COREOS_SSH_PORT:-2222}
+user=${COREOS_GUEST_USER:-wisp}
+host=${COREOS_GUEST_HOST:-127.0.0.1}
+key=${COREOS_SSH_KEY:?Specify guest SSH identity}
+state=${COREOS_STATE_ROOT:-$HOME/.local/state/nix-xd/coreos}
+profile=${COREOS_PROFILE:-starwisp}
+known_hosts=${COREOS_KNOWN_HOSTS:-$state/$profile/known_hosts}
+
+fail() { echo "Guest app error: $*" >&2; exit 1; }
+[[ "$provider" == podman || "$provider" == container ]] || fail 'Unknown owner provider'
+[[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] || fail 'Unsupported Nix system'
+[[ "$flake" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$flake" != *..* ]] || fail 'Unsafe flake path'
+[[ "$target" =~ ^#[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$ ]] || fail 'Unsafe target'
+[[ "$revision" =~ ^[0-9a-f]{40}$ ]] || fail 'Exact source commit required'
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid Nix owner scope'
+[[ "$port" =~ ^[0-9]{4,5}$ && "$port" -ge 1024 && "$port" -le 65535 ]] || fail 'Invalid SSH port'
+[[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail 'Invalid guest user'
+[[ "$host" =~ ^[A-Za-z0-9.:-]+$ ]] || fail 'Invalid guest hostname'
+[[ -f "$key" && -r "$key" && -f "$known_hosts" && -r "$known_hosts" ]] || fail 'Explicit SSH identity and verified known_hosts required'
+
+owner() {
+  if [[ "$provider" == podman ]]; then
+    if [[ "$(uname -s)" == Darwin ]]; then podman --connection "$machine" exec "$scope" "$@"
+    else podman exec "$scope" "$@"; fi
+  else
+    container exec "$scope" "$@"
+  fi
+}
+
+actual="$(owner cat "/workspaces/$flake/.nix-xd-source-revision" 2>/dev/null || true)"
+# Subdirectory flakes have their source marker in the workspace root.
+checkout="${flake%%/*}"
+actual="$(owner cat "/workspaces/$checkout/.nix-xd-source-revision" 2>/dev/null || true)"
+[[ "$actual" == "$revision" ]] || fail 'Staged source differs from exact selected SHA'
+[[ "$(owner uname -m)" == aarch64 || "$system" == x86_64-linux ]] || fail 'Incorrect Nix-Alpine architecture'
+root_key="$(python3 - "$revision" "$flake" "$target" <<'PY'
+import hashlib,sys
+print(hashlib.sha256("\x00".join(sys.argv[1:]).encode()).hexdigest()[:24])
+PY
+)"
+root="/nix/home/nixuser/.local/state/nix-xd/guest-apps/$root_key"
+owner mkdir -p /nix/home/nixuser/.local/state/nix-xd/guest-apps
+output="$(owner nix --option system "$system" build --no-write-lock-file --print-out-paths --out-link "$root" "/workspaces/$flake$target")"
+[[ "$output" =~ ^/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+$ ]] || fail 'Expected exactly one immutable store output'
+owner test -f "$output/guest.sh" || fail 'Selected package must contain guest.sh'
+args=()
+while IFS= read -r -d '' item; do args+=("$item"); done < <(python3 - "$args_json" <<'PY'
+import json,sys
+try:
+    values=json.loads(sys.argv[1])
+    if not isinstance(values,list) or len(values)>32 or any(not isinstance(x,str) or len(x)>4096 or "\x00" in x or "\n" in x for x in values):
+        raise ValueError("Expected an array of up to 32 plain string arguments")
+    sys.stdout.buffer.write(b"".join(x.encode()+b"\0" for x in values))
+except (ValueError,TypeError) as error:
+    print(error,file=sys.stderr);sys.exit(2)
+PY
+)
+# The guest receives only the exact store-backed script and caller-provided args.
+remote=(bash -se --)
+for item in "${args[@]}"; do remote+=("$item"); done
+printf -v remote_command '%q ' "${remote[@]}"
+printf 'NIX_XD_GUEST_APP_SOURCE=passed sha=%s output=%s\n' "$revision" "$output"
+owner cat "$output/guest.sh" | ssh -T -i "$key" -p "$port" \
+  -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+  -o "UserKnownHostsFile=$known_hosts" -o ConnectTimeout=10 \
+  "$user@$host" "$remote_command"
+echo 'NIX_XD_GUEST_APP=passed'
