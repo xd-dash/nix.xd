@@ -13,9 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check GHXD dated source manifest
+      - name: Check generic GHXD source contract
         run: python3 tests/ghxd-source-version.py
-      - name: Check selected Make entry point
+      - name: Check generic Nix application dispatch
         run: |
-          make -n fatline-probot-vm1-qualify ARCH=arm64 >/dev/null
-          make ghxd-source-version-check
+          make -n qualify QUALIFY_APP=1 FLAKE=example20261112/local/example TARGET='#qualify' ARGS='--phase verify' >/dev/null
+          if make ghxd-source-version-check; then echo 'Missing manifest accepted' >&2; exit 1; fi
