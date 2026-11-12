@@ -396,6 +396,7 @@ check-static-internal:
 # selected Nix execution provider. Artifacts must be exported before boot.
 PROFILE ?= starwisp
 COREOS_STATE_ROOT ?= $(HOME)/.local/state/nix-xd/coreos
+COREOS_ARTIFACT_STATE ?=
 COREOS_IMAGE ?=
 COREOS_IMAGE_SHA256 ?=
 COREOS_IGNITION ?=
@@ -433,6 +434,7 @@ export COREOS_RUNNER_IMAGE
 export COREOS_VMM = $(VMM)
 export COREOS_PROFILE = $(PROFILE)
 export COREOS_STATE_ROOT
+export COREOS_ARTIFACT_STATE
 export COREOS_IMAGE
 export COREOS_IMAGE_SHA256
 export COREOS_IGNITION
