@@ -198,6 +198,16 @@ sync clone:
 stage show check build path-info run:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-task "$@"
 
+# Generic host-to-guest transport for an immutable, app-owned Nix package.
+# Package output must contain guest.sh; the application defines its behavior.
+GUEST_APP_REV ?=
+ARGS_JSON ?= []
+COREOS_KNOWN_HOSTS ?=
+COREOS_GUEST_HOST ?= 127.0.0.1
+.PHONY: guest-app
+guest-app:
+	@$(TASK_ENV) NIX_XD_GUEST_APP_REV='$(GUEST_APP_REV)' NIX_XD_ARGS_JSON='$(ARGS_JSON)' COREOS_KNOWN_HOSTS='$(COREOS_KNOWN_HOSTS)' COREOS_GUEST_HOST='$(COREOS_GUEST_HOST)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-app
+
 # Generic host-side project action; project and action identities are caller-selected.
 PROJECT ?=
 APPLICATION ?=
@@ -434,7 +444,7 @@ check-static-internal:
 	@bash tests/grants-transport-contract.sh
 	@bash tests/grants-execute-contract.sh
 	@python3 tests/fatline-services.py
-	@python3 tests/fatline-probot.py
+	@bash -n bin/nix-xd-guest-app
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
 	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence bin/nix-xd-builder-store-qualify-fresh bin/nix-xd-builder-store-maintenance
@@ -668,20 +678,12 @@ fatline-logmash-qualify:
 
 .PHONY: fatline-adapter-refresh
 
-.PHONY: fatline-probot-vm1-store-check
-fatline-probot-vm1-store-check:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_probot.py store-check
-
 # Validate an explicitly selected pinned GHXD source manifest.
 GHXD_SOURCE_MANIFEST ?=
 .PHONY: ghxd-source-version-check
 ghxd-source-version-check:
 	@test -n "$(GHXD_SOURCE_MANIFEST)" || { echo 'GHXD_SOURCE_MANIFEST is required' >&2; exit 2; }
 	@python3 lib/ghxd_source_version.py "$(GHXD_SOURCE_MANIFEST)"
-
-.PHONY: fatline-probot-vm1-runtime-preflight
-fatline-probot-vm1-runtime-preflight:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_probot.py runtime-preflight
 
 .PHONY: fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop fatline-services-local fatline-services-phases
 fatline-services-prepare fatline-services-refresh fatline-services-probe-refresh fatline-services-configure-logma fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop:
