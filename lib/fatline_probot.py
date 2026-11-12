@@ -12,7 +12,8 @@ import sys
 
 from compose_runtime import run
 from compositions import require
-from fatline_host_link import HostLink
+from compose_runtime import Runtime
+from fatline_generations import active_root
 
 REPO = Path(__file__).resolve().parents[1]
 STORE = re.compile(r"/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+")
@@ -69,32 +70,63 @@ def preflight(link, source_path):
 
 
 
-def selected_composition():
-    """Use only a previously recorded, immutable Agni VM1 selection."""
-    revision = os.environ.get("NIX_XD_COMPOSITION_REV", "")
-    flake = os.environ.get("NIX_XD_COMPOSITION_FLAKE", "")
-    if revision and flake:
-        return
-    require(not revision and not flake,
-            "Specify COMPOSITION_REV and COMPOSITION_FLAKE together")
-    evidence = REPO / ".state/agni-coreos/vm1-selection.json"
-    require(evidence.is_file(),
-            "No recorded VM1 composition; select COMPOSITION_REV and COMPOSITION_FLAKE explicitly")
-    record = json.loads(evidence.read_text())
-    require(record.get("schema") == 1 and record.get("profile") == "vm1" and
-            record.get("agniRepository") == "dash-xd/agni" and
-            re.fullmatch(r"[a-f0-9]{40}", record.get("agniRevision","")) and
-            re.fullmatch(r"/workspaces/[A-Za-z0-9_.-]+/local/fatline", record.get("flake","")),
-            "Recorded VM1 composition selection is invalid")
-    os.environ["NIX_XD_COMPOSITION_REV"] = record["agniRevision"]
-    os.environ["NIX_XD_COMPOSITION_FLAKE"] = record["flake"]
+class ExistingVM1Link:
+    """Read existing host-link provenance without re-evaluating a moved Agni checkout."""
+
+    def __init__(self):
+        self.runtime = Runtime(os.environ)
+        self.scope = os.environ.get("NIX_XD_FATLINE_SCOPE", "fatline-arm-vm1")
+        self.profile = os.environ.get("NIX_XD_FATLINE_PROFILE", "vm1")
+        require(self.profile == "vm1" and self.scope == "fatline-arm-vm1",
+                "This artifact gate requires the existing CoreOS VM1 scope")
+        self.control_root = REPO / ".state/fatline" / self.scope
+        require(self.control_root.is_dir(), "Existing VM1 host-link state is absent")
+        self.lock_path = self.control_root / "controller.lock"
+        self.root = active_root(self.runtime.scope, self.profile, self.control_root)
+        state_path = self.root / "state.json"
+        require(state_path.is_file(), "Prepare existing VM1 host-link before artifact check")
+        self.state = json.loads(state_path.read_text())
+        plan = self.state.get("plan", {})
+        composition = self.state.get("composition", {})
+        require(plan.get("schema") == 1 and plan.get("scope") == self.scope and
+                plan.get("system") == os.environ.get("NIX_XD_SYSTEM") == "aarch64-linux" and
+                plan.get("storeDomain") == "common", "Recorded VM1 plan is incompatible")
+        require(composition.get("schema") == 1 and composition.get("profile") == "vm1" and
+                composition.get("agniRepository") == "dash-xd/agni" and
+                re.fullmatch(r"[a-f0-9]{40}", composition.get("agniRevision", "")),
+                "Recorded VM1 composition provenance is invalid")
+        source = plan.get("sources", {}).get("agni", {})
+        require(source.get("repository") == "dash-xd/agni" and
+                re.fullmatch(r"[a-f0-9]{40}", source.get("revision", "")) and
+                source["revision"] == self.state.get("agniRev"),
+                "Recorded VM1 transport revision is inconsistent")
+        require(plan.get("ingress") == {"transport": "ssh-tcp-nginx-unix",
+                "hostPort": 16379, "guestProxyPort": 16379}, "VM1 ingress differs")
+        require(self.state.get("status") in ("prepared", "active") and
+                re.fullmatch(r"[0-9a-f-]{36}", self.state.get("boot", "")),
+                "Existing VM1 host-link is not prepared with a boot identity")
+        placement = plan.get("placement", {})
+        require(placement.get("kind") == "coreos" and placement.get("sshPort") == 2222,
+                "Recorded VM1 placement is incompatible")
+        self.runtime.plan = {"placements": {"vm1": placement},
+                             "workloads": {"transport": {"placement": "vm1"}}}
+        self.command, self.env = self.runtime.transport_command("vm1", "transport")
+
+    def retain(self):
+        paths = self.state
+        require(len(paths.get("roots", [])) == 2, "Unexpected VM1 host-link roots")
+        for root, target in zip(paths["roots"], (paths["bundle"], paths["archive"])):
+            self.runtime.owner("sh", "-ec",
+                'test -e "$2"; if [ -L "$1" ]; then test "$(readlink "$1")" = "$2"; '
+                'else nix-store --realise --add-root "$1" "$2" >/dev/null; fi',
+                "retain", root, target)
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("store-check",))
     args = parser.parse_args()
-    selected_composition()
-    link = HostLink()
+    link = ExistingVM1Link()
     with link.lock_path.open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if args.action == "store-check":
