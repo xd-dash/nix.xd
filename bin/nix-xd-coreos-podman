@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 action="${1:-}"
 machine="${NIX_XD_MACHINE:-podman-machine-default}"
@@ -126,7 +127,7 @@ boot() {
   "${p[@]}" run --rm --pull=never --volume "$state:/state:rw" --volume "$artifacts:/artifacts:ro" "$id" img create -q -f qcow2 -F qcow2 -b /artifacts/base.qcow2 /state/overlay.qcow2
   printf 'port=%s\nrunner=%s\nartifact_state=%s\n' "$port" "$id" "$artifacts" > "$state/manifest.txt"
   if [[ -n "$data_grants" ]]; then
-    printf 'data_9p_sha256=%s\\n' "$(shasum -a 256 "$data_grants" | awk '{print $1}')" >> "$state/manifest.txt"
+    printf 'data_9p_sha256=%s\n' "$(shasum -a 256 "$data_grants" | awk '{print $1}')" >> "$state/manifest.txt"
   fi
   local mounts=(--volume "$artifacts:/artifacts:ro") qemu_mode=run
   local qemu_data_args=() volume tag
