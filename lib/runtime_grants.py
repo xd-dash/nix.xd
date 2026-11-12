@@ -83,6 +83,19 @@ def verify(record, machine, scope):
                 relevant[0].get("Name") == volume and
                 relevant[0].get("RW") is (grant["access"] == "rw"),
                 "Active runtime mount does not match grant: " + grant["destination"])
+        subprocess.run(podman + ["exec", scope, "test", "-r", grant["destination"]],
+                       check=True, stdout=subprocess.DEVNULL)
+        if grant["access"] == "rw":
+            ids = subprocess.check_output(podman + ["ps", "-aq"], text=True).split()
+            for identity in ids:
+                if identity == containers[0].get("Id"):
+                    continue
+                peer = json.loads(subprocess.check_output(
+                    podman + ["inspect", identity], text=True
+                ))[0]
+                require(not any(m.get("Name") == volume and m.get("RW") is True
+                                for m in peer.get("Mounts", [])),
+                        "Another container has writable access to " + volume)
         print("RUNTIME_GRANT_VERIFIED=" + grant["destination"] + " access=" + grant["access"])
     print("RUNTIME_GRANTS_RESULT=passed scope=" + scope)
 
