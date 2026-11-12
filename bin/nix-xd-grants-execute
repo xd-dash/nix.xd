@@ -33,7 +33,9 @@ s = by_path["/run/nix-xd/mounts/secrets"]
 e = by_path["/run/nix-xd/mounts/evidence"]
 if not (s["access"] == "ro" and e["access"] == "rw" and
         s["volume"].startswith("nix-xd-state-secret-") and
+        s["volume"].endswith("-qualification") and
         e["volume"].startswith("nix-xd-state-control-") and
+        e["volume"].endswith("-qualification-evidence") and
         s["writer"] != document["scope"]):
     raise SystemExit("Invalid secret/evidence owner and access policy")
 print(s["volume"], e["volume"], document["scope"])
@@ -83,7 +85,7 @@ common=(--rm --pull=never --network none --read-only --cap-drop all
 # Ownership is initialized only for a *fresh*, entirely empty test volume.
 for volume in "$secret" "$evidence"; do
   "${p[@]}" run --rm --pull=never --network none --cap-drop all \
-    --mount "type=volume,src=$volume,dst=/fixture" --entrypoint /bin/sh "$image" -ec '
+    --volume "$volume:/fixture:z" --entrypoint /bin/sh "$image" -ec '
       test -z "$(ls -A /fixture)" || exit 0
       chown 1000:1000 /fixture
       chmod 0700 /fixture
@@ -91,17 +93,17 @@ for volume in "$secret" "$evidence"; do
 done
 # Initialize inside a separate writer container. Never copy a key through macOS or Nix.
 present="$("${p[@]}" run --rm --pull=never --network none --read-only --cap-drop all \
-  --user 1000:1000 --mount "type=volume,src=$secret,dst=/run/nix-xd/mounts/secrets,ro" \
+  --user 1000:1000 --volume "$secret:/run/nix-xd/mounts/secrets:ro,z" \
   --entrypoint /bin/sh "$image" -ec 'if test -f /run/nix-xd/mounts/secrets/identity.txt; then echo yes; else echo no; fi')"
 if [[ "$present" == no ]]; then
   "${p[@]}" run "${common[@]}" --user 1000:1000 \
-    --mount "type=volume,src=$secret,dst=/run/nix-xd/mounts/secrets" \
+    --volume "$secret:/run/nix-xd/mounts/secrets:z" \
     --entrypoint "$program" "$image" init
 elif [[ "$present" != yes ]]; then
   echo 'Unexpected secret identity presence result' >&2; exit 1
 fi
 "${p[@]}" run "${common[@]}" --user 1000:1000 \
-  --mount "type=volume,src=$secret,dst=/run/nix-xd/mounts/secrets,ro" \
-  --mount "type=volume,src=$evidence,dst=/run/nix-xd/mounts/evidence" \
+  --volume "$secret:/run/nix-xd/mounts/secrets:ro,z" \
+  --volume "$evidence:/run/nix-xd/mounts/evidence:z" \
   --entrypoint "$program" "$image" verify
 printf 'GRANT_EXECUTION_RESULT=passed qualifier=%s secrets=ro evidence=rw\n' "$qualifier"
