@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 profile="${COREOS_PROFILE:-starwisp}"
-root="${COREOS_STATE_ROOT:-$PWD/.state/coreos}"
+root="${COREOS_STATE_ROOT:-$HOME/.local/state/nix-xd/coreos}"
 port="${COREOS_SSH_PORT:-2222}"
 user="${COREOS_GUEST_USER:-wisp}"
 key="${COREOS_SSH_KEY:-}"
