@@ -84,7 +84,7 @@ common=(--rm --pull=never --network none --read-only --cap-drop all
   --mount "type=volume,src=$store,dst=/nix,ro")
 # Ownership is initialized only for a *fresh*, entirely empty test volume.
 for volume in "$secret" "$evidence"; do
-  "${p[@]}" run --rm --pull=never --network none --cap-drop all \
+  "${p[@]}" run --rm --pull=never --network none \
     --volume "$volume:/fixture:z" --entrypoint /bin/sh "$image" -ec '
       test -z "$(ls -A /fixture)" || exit 0
       chown 1000:1000 /fixture
