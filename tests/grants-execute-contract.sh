@@ -31,6 +31,13 @@ with tempfile.TemporaryDirectory() as name:
     parsed = module.load(file)
     assert len(parsed["grants"]) == 2
     assert "nix-xd-state-secret-example-qualification" in module.mounts(parsed)
+    result = __import__("subprocess").check_output(
+        ["python3", str(root / "lib/runtime_grants.py"), "fixture", str(file)],
+        text=True,
+    ).strip()
+    assert result == ("nix-xd-state-secret-example-qualification "
+                      "nix-xd-state-control-example-qualification-evidence qualifier")
+
     good["grants"][0]["access"] = "rw"
     file.write_text(json.dumps(good))
     try:
