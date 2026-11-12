@@ -672,10 +672,15 @@ fatline-probot-vm1-store-check:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_probot.py store-check
 
 # Application implementation and qualification remain in Agni's pinned flake.
-FATLINE_PROBOT_FLAKE ?= agni-ghxd-v11/local/fatline
+FATLINE_PROBOT_FLAKE ?= agni20261112/local/fatline
 FATLINE_PROBOT_PHASE ?= service-profile
+GHXD_DATED_MANIFEST ?= $(CURDIR)/examples/ghxd-agni-probot-vm1-auth-candidate.json
+.PHONY: ghxd-source-version-check
+ghxd-source-version-check:
+	@python3 lib/ghxd_source_version.py "$(GHXD_DATED_MANIFEST)"
+
 .PHONY: fatline-probot-vm1-qualify
-fatline-probot-vm1-qualify:
+fatline-probot-vm1-qualify: ghxd-source-version-check
 	@test "$(ARCH)" = arm64 || { echo 'VM1 webhook qualification requires ARM64' >&2; exit 2; }
 	@$(MAKE) --no-print-directory run FLAKE="$(FATLINE_PROBOT_FLAKE)" TARGET="$(HASH)qualify-integration" ARGS="--scenario probot-webhook --phase $(FATLINE_PROBOT_PHASE)" PROVIDER="$(PROVIDER)" MACHINE="$(MACHINE)" SCOPE="$(SCOPE)"
 
