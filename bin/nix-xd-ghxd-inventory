@@ -27,11 +27,24 @@ echo "GHXD_OWNER=running scope=$scope machine=$machine"
   done
 '
 volumes="$("${p[@]}" volume ls --format '{{.Name}}')"
-for name in nix-xd-smoke-podman-age nix-xd-state-secret-ghxd nix-xd-state-secret-fatline-qualification; do
+for name in nix-xd-smoke-podman-age nix-xd-state-secret-ghxd nix-xd-state-control-ghxd-home nix-xd-state-control-ghxd-workspaces nix-xd-state-secret-fatline-qualification; do
   if grep -Fxq "$name" <<< "$volumes"; then
     echo "GHXD_VOLUME=present name=$name"
   else
     echo "GHXD_VOLUME=absent name=$name"
   fi
 done
+if grep -Fxq nix-xd-state-secret-ghxd <<< "$volumes"; then
+  image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
+  "${p[@]}" run --rm --pull=never --network none --user 1000:1000 --read-only --cap-drop all \
+    --volume nix-xd-state-secret-ghxd:/credential:ro,z --entrypoint /bin/sh "$image" -ec '
+      for field in identity.txt token.sops.json device-request.json; do
+        if test -s "/credential/$field"; then
+          echo "GHXD_CREDENTIAL=present file=$field"
+        else
+          echo "GHXD_CREDENTIAL=absent file=$field"
+        fi
+      done
+    '
+fi
 echo "GHXD_AUTH_INVENTORY=completed credentials_validity=unverified"
