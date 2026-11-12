@@ -105,7 +105,7 @@ ignition() {
   [[ "$output" == /nix/store/* && "$output" != *$'\n'* ]] || fail 'Unexpected Ignition output path'
   "${p[@]}" cp "$scope:$output/config.ign" "$state/config.ign"
   if [[ "$artifacts" == "$state" ]]; then
-  printf 'ignition_sha256=%s\nshared_nix_volume=%s\n' "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" "${store_volume:-none}" >> "$state/build.txt"
+    printf 'ignition_sha256=%s\nshared_nix_volume=%s\n' "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" "${store_volume:-none}" >> "$state/build.txt"
   else
     printf 'guest_ignition_sha256=%s\n' "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" >> "$state/build.txt"
   fi
@@ -122,9 +122,11 @@ preflight() {
   [[ -f "$artifacts/base.qcow2" ]] || fail 'Missing base.qcow2; run coreos-container-build'
   [[ -f "$state/build.txt" ]] || fail 'Missing build manifest'
   local guest_config="$artifacts/config.ign" expected_ignition_key=ignition_sha256
-  if [[ "$artifacts" != "$state" ]]; then
+  if [[ "$artifacts" != "$state" && -f "$state/config.ign" ]]; then
     guest_config="$state/config.ign"
     expected_ignition_key=guest_ignition_sha256
+  elif [[ -n "$data_grants" && "$artifacts" != "$state" ]]; then
+    fail 'Independent data 9P guest requires its own Ignition'
   fi
   [[ -f "$guest_config" ]] || fail 'Missing selected guest config.ign; build its independent Ignition'
   [[ "$(shasum -a 256 "$guest_config" | awk '{print $1}')" == "$(sed -n "s/^$expected_ignition_key=//p" "$state/build.txt")" ]] ||
@@ -157,7 +159,7 @@ boot() {
     printf 'data_9p_sha256=%s\n' "$(shasum -a 256 "$data_grants" | awk '{print $1}')" >> "$state/manifest.txt"
   fi
   local guest_config_path=/artifacts/config.ign
-  if [[ "$artifacts" != "$state" ]]; then guest_config_path=/state/config.ign; fi
+  if [[ "$artifacts" != "$state" && -f "$state/config.ign" ]]; then guest_config_path=/state/config.ign; fi
   local mounts=(--volume "$artifacts:/artifacts:ro") qemu_mode=run
   local qemu_data_args=() volume tag
   if [[ -n "$data_grants" ]]; then
