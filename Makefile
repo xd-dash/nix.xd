@@ -444,6 +444,8 @@ AGNI_FLAKE ?=
 AGNI_REV ?=
 export NIX_XD_AGNI_FLAKE = $(AGNI_FLAKE)
 export NIX_XD_AGNI_REV = $(AGNI_REV)
+FATLINE_PROBE_REV ?=
+export NIX_XD_FATLINE_PROBE_REV = $(FATLINE_PROBE_REV)
 
 .PHONY: agni-coreos-plan-check
 agni-coreos-plan-check:
