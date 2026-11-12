@@ -68,3 +68,26 @@ Existing Nix writer volumes and the qualified read-only store matrix must remain
 ## Repository ownership
 
 This initial implementation establishes a generic storage interface only. The older application-specific CoreOS/Starwisp, Smoke and Fatline qualification modules and fixture declarations still need extraction to their respective repositories before `nix.xd` can be considered application-neutral. Do not interpret a static storage-contract PASS as proof of full separation.
+
+## Composable workload state grants (candidate integration)
+
+The existing `bin/nix-xd-state-volume` remains the authority for named state-volume creation and identity labels. `lib/runtime_grants.py` consumes a caller-selected JSON document (schema 1, runtime scope, and an explicit list of reader/writer/access grants). It **only** accepts labeled `nix-xd-state-{control,vm,application}-<name>` resources and destinations under `/run/nix-xd/mounts/<alias>`. These grants do not replace the tenant-storage policy: hostile-tenant private volumes are deliberately excluded.
+
+The same declaration can be rendered to existing `DATA_MOUNTS` Quadlet syntax at bootstrap. `GRANTS_FILE` selects it without hand-constructing mount arguments:
+
+```sh
+make grants-plan GRANTS_FILE=/absolute/path/to/runtime-grants.json
+make grants-render GRANTS_FILE=/absolute/path/to/runtime-grants.json
+# A *future planned* builder recreation may select:
+# make bootstrap PROVIDER=podman GRANTS_FILE=/absolute/path/to/runtime-grants.json
+```
+
+`make grants-verify GRANTS_FILE=... MACHINE=... SCOPE=...` reads Podman volume labels and actual container mounts, verifies exact source/path/access identity and read permission from the running container, and refuses another writable attachment when a volume is granted `rw`. This is a **post-mount verification**; it does not provision or activate a mount, migrate data, or prove a snapshot across process races.
+
+For a non-secret macOS-to-Podman-Machine host bind fixture without modifying an existing container:
+
+```sh
+make grants-host-share-qualify PROVIDER=podman ARCH=arm64 SCOPE=nix-xd-arm
+```
+
+This temporary network-disabled Podman reader proves one read-only host fixture is visible through the Podman Machine at the same SHA-256 and not writable. It does **not** mount an SSH identity, add a CoreOS 9P filesystem, or imply the active Nix-Alpine owner has the new grant. Existing 9P sharing continues to apply only to the qualified read-only Nix store. Grant-to-9P guest exports and per-workload private credential bindings require separate adapters and qualification before a general end-to-end pass is claimed.
