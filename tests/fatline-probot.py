@@ -94,7 +94,7 @@ class GuestStoreTests(unittest.TestCase):
         self.assertIn("11111111-1111-1111-1111-111111111111",script)
         self.assertIn("fatline-arm-vm1-redis.service",script)
         self.assertIn("user default off",script)
-        self.assertNotIn("users.acl\")\n",script)
+        self.assertNotIn("REDISCLI_AUTH",script)
         self.assertNotIn("cat \"$base/credentials/users.acl\"",script)
 
     def test_wrong_artifact_selection_fails_before_ssh(self):
