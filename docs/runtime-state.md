@@ -94,7 +94,7 @@ This temporary network-disabled Podman reader proves one read-only host fixture 
 
 ### Credential boundary
 
-`GRANTS_FILE` is intended for non-secret data and evidence that the persistent Nix-Alpine owner may read. It is **not** a general authorization to put private identities or plaintext passwords into a shared owner volume. A long-lived builder can run many project flakes, so secrets for one project must not be mounted into that common namespace. Future per-run credential grants belong to a separately scoped short-lived qualification container with its own identity and lifecycle, using Smoke's runtime-only secret handling. Never encode secret values, age identities, or host private-key paths into Nix derivations.
+`GRANTS_FILE` can represent secret and non-secret Podman state volumes. The persistent Nix-Alpine owner may read a secret volume **only if intentionally authorized to access everything on that volume**; a mounted path grants container-level visibility, not per-flake isolation. Use a dedicated UID/GID, user namespace and SELinux category or a dedicated qualification container when independent access boundaries are required. Private age identities may live persistently in protected Podman secret volumes, but never in Nix derivations or `/nix/store`; decrypted material should remain process-scoped.
 
 The new grant documents complement the historical `shared-store-matrix.nix`; they do not change its previously qualified `common` store domain or automatically activate its deferred guest-local and guest-shared domains. A common matrix-domain-to-state-grant adapter remains an integration step.
 
