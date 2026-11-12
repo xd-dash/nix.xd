@@ -319,6 +319,27 @@ grants-host-share-qualify:
 	@NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-grants-host-share-qualify
 
 PROGRAM ?=
+BUILD_APP ?=
+RUN_PACKAGE ?=
+CREDENTIAL_IDENTITY ?=
+CREDENTIAL_KNOWN_HOSTS ?=
+GUEST_SSH_PORT ?= 2222
+export NIX_XD_CREDENTIAL_IDENTITY = $(CREDENTIAL_IDENTITY)
+export NIX_XD_CREDENTIAL_KNOWN_HOSTS = $(CREDENTIAL_KNOWN_HOSTS)
+export NIX_XD_BUILD_APP = $(BUILD_APP)
+export NIX_XD_RUN_PACKAGE = $(RUN_PACKAGE)
+export NIX_XD_GUEST_SSH_PORT = $(GUEST_SSH_PORT)
+.PHONY: grants-credentials-import grants-transport-qualify
+grants-credentials-import:
+	@test "$(PROVIDER)" = podman || { echo 'Podman provider required' >&2; exit 2; }
+	@test -n "$(GRANTS_FILE)" -a -n "$(CREDENTIAL_IDENTITY)" -a -n "$(CREDENTIAL_KNOWN_HOSTS)" || { echo 'GRANTS_FILE and both credential paths are required' >&2; exit 2; }
+	@$(TASK_ENV) NIX_XD_IMAGE='$(IMAGE)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-grants-import-credentials
+
+grants-transport-qualify:
+	@test "$(PROVIDER)" = podman || { echo 'Podman provider required' >&2; exit 2; }
+	@test -n "$(GRANTS_FILE)" -a -n "$(FLAKE)" -a -n "$(BUILD_APP)" -a -n "$(RUN_PACKAGE)" -a -n "$(PROGRAM)" || { echo 'Select grants, flake, native build app, run package and program' >&2; exit 2; }
+	@$(TASK_ENV) NIX_XD_IMAGE='$(IMAGE)' NIX_XD_PROGRAM='$(PROGRAM)' NIX_XD_STORE_VOLUME='$(SCOPE)-store' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-grants-transport-qualify
+
 .PHONY: grants-execute
 grants-execute:
 	@test "$(PROVIDER)" = podman || { echo 'Rootless Podman provider required' >&2; exit 2; }
@@ -375,6 +396,8 @@ check-static-internal:
 	@bash -n bin/nix-xd-guest-9p-seed bin/nix-xd-guest-9p-qualify
 	@bash -n bin/nix-xd-guest-9p-runtime-qualify
 	@bash -n bin/nix-xd-grants-execute
+	@bash -n bin/nix-xd-grants-import-credentials bin/nix-xd-grants-transport-qualify
+	@bash tests/grants-transport-contract.sh
 	@bash tests/grants-execute-contract.sh
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
