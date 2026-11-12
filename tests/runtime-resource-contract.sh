@@ -30,6 +30,18 @@ grep -qx 'Label=io.nix-xd.managed=true' "$tmp/quadlet"
 grep -qx 'Label=io.nix-xd.scope=test' "$tmp/quadlet"
 grep -qx 'Label=io.nix-xd.lifecycle=reusable' "$tmp/quadlet"
 grep -qx 'Volume=test-store:/nix' "$tmp/quadlet"
+NIX_XD_DATA_MOUNTS='fatline-state:/run/nix-xd/mounts/state:ro fatline-evidence:/run/nix-xd/mounts/evidence:rw' \
+  builder_quadlet test localhost/test:arm64 Test > "$tmp/data-mounts"
+grep -qx 'Volume=fatline-state:/run/nix-xd/mounts/state:ro' "$tmp/data-mounts"
+grep -qx 'Volume=fatline-evidence:/run/nix-xd/mounts/evidence:rw' "$tmp/data-mounts"
+for invalid in 'test-store:/run/nix-xd/mounts/store:rw' \
+    'outside:/nix/secrets:ro' 'foo:/run/nix-xd/mounts/state:invalid' \
+    '../bad:/run/nix-xd/mounts/state:ro'; do
+  if NIX_XD_DATA_MOUNTS="$invalid" builder_quadlet test localhost/test:arm64 Test >/dev/null; then
+    echo 'Accepted invalid data-mount policy' >&2
+    exit 1
+  fi
+done
 NIX_XD_LIFECYCLE=disposable builder_quadlet test localhost/test:arm64 Test > "$tmp/disposable"
 grep -qx 'Label=io.nix-xd.lifecycle=disposable' "$tmp/disposable"
 if NIX_XD_LIFECYCLE=invalid builder_quadlet test localhost/test:arm64 Test > /dev/null; then exit 1; fi
