@@ -85,6 +85,8 @@ else
   if [[ -n $base ]]; then start="refs/remotes/origin/$base"; else start=refs/remotes/origin/HEAD; fi
   if git -C "$tmp" show-ref --verify --quiet "refs/heads/$branch"; then
     git -C "$tmp" switch "$branch"
+  elif git -C "$tmp" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    git -C "$tmp" switch --track -c "$branch" "origin/$branch"
   else
     git -C "$tmp" switch --no-track -c "$branch" "$start"
   fi
