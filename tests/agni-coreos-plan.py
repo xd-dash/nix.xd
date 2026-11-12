@@ -54,7 +54,7 @@ class Selection(unittest.TestCase):
     def test_selected_revision_and_lock_are_bound_to_output(self):
         stub = Stub()
         plan, evidence = resolve(stub, "vm1", {
-            "NIX_XD_AGNI_FLAKE": FLAKE, "NIX_XD_AGNI_REV": SHA,
+            "NIX_XD_COMPOSITION_FLAKE": FLAKE, "NIX_XD_COMPOSITION_REV": SHA,
             "NIX_XD_SYSTEM": "aarch64-linux"
         })
         self.assertEqual(plan["scope"], "fatline-arm-vm1")
@@ -67,7 +67,7 @@ class Selection(unittest.TestCase):
         stub = Stub(actual="1" * 40)
         with self.assertRaisesRegex(ValueError, "Staged Agni revision differs"):
             resolve(stub, "vm1", {
-                "NIX_XD_AGNI_FLAKE": FLAKE, "NIX_XD_AGNI_REV": SHA,
+                "NIX_XD_COMPOSITION_FLAKE": FLAKE, "NIX_XD_COMPOSITION_REV": SHA,
                 "NIX_XD_SYSTEM": "aarch64-linux"
             })
         self.assertEqual(len(stub.calls), 1)
@@ -77,7 +77,7 @@ class Selection(unittest.TestCase):
         stub.lock = '{"nodes":{"root":{"inputs":{}}}}'
         with self.assertRaisesRegex(ValueError, "lock must pin"):
             resolve(stub, "vm1", {
-                "NIX_XD_AGNI_FLAKE": FLAKE, "NIX_XD_AGNI_REV": SHA,
+                "NIX_XD_COMPOSITION_FLAKE": FLAKE, "NIX_XD_COMPOSITION_REV": SHA,
                 "NIX_XD_SYSTEM": "aarch64-linux"
             })
         self.assertEqual(len(stub.calls), 2)
