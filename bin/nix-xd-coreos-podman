@@ -82,6 +82,16 @@ ignition() {
     butane="${flake%/local}/profiles/starwisp/butane/starwisp-9p.bu"
     output_name=ignitionStarwisp9p
   fi
+  if [[ -n "$data_grants" ]]; then
+    [[ -n "${COREOS_IGNITION_OUTPUT:-}" && -n "${COREOS_BUTANE_PROFILE:-}" ]] ||
+      fail 'CoreOS data 9P exports require explicit COREOS_IGNITION_OUTPUT and COREOS_BUTANE_PROFILE'
+    [[ "$COREOS_IGNITION_OUTPUT" =~ ^[a-zA-Z][a-zA-Z0-9-]*$ ]] ||
+      fail 'Invalid selected ignition output'
+    [[ "$COREOS_BUTANE_PROFILE" =~ ^/workspaces/[a-zA-Z0-9._/-]+[.]bu$ && "$COREOS_BUTANE_PROFILE" != *..* ]] ||
+      fail 'Selected Butane profile must be staged under /workspaces'
+    butane="$COREOS_BUTANE_PROFILE"
+    output_name="$COREOS_IGNITION_OUTPUT"
+  fi
   "${p[@]}" exec "$scope" test -f "$butane" || fail "Missing staged Agni Starwisp Butane profile: $butane"
   output="$("${p[@]}" exec "$scope" env COREOS_TEST_SSH_PUBLIC_KEY="$key" COREOS_STARWISP_BUTANE="$butane" COREOS_STARWISP_9P_BUTANE="$butane" \
     nix build --impure --no-write-lock-file --no-link --print-out-paths "$flake#$output_name")"
