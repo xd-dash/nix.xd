@@ -63,6 +63,15 @@ class Selection(unittest.TestCase):
         self.assertEqual(evidence["planSha256"], hashlib.sha256(stub.plan.encode()).hexdigest())
         self.assertIn("--no-update-lock-file", stub.calls[2])
 
+    def test_legacy_agni_variables_do_not_select_composition(self):
+        stub = Stub()
+        with self.assertRaisesRegex(ValueError, "NIX_XD_COMPOSITION_REV"):
+            resolve(stub, "vm1", {
+                "NIX_XD_AGNI_FLAKE": FLAKE, "NIX_XD_AGNI_REV": SHA,
+                "NIX_XD_SYSTEM": "aarch64-linux"
+            })
+        self.assertEqual(stub.calls, [])
+
     def test_mismatched_staged_commit_fails_before_build(self):
         stub = Stub(actual="1" * 40)
         with self.assertRaisesRegex(ValueError, "Staged Agni revision differs"):
