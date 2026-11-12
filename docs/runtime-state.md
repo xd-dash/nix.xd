@@ -91,3 +91,9 @@ make grants-host-share-qualify PROVIDER=podman ARCH=arm64 SCOPE=nix-xd-arm
 ```
 
 This temporary network-disabled Podman reader proves one read-only host fixture is visible through the Podman Machine at the same SHA-256 and not writable. It does **not** mount an SSH identity, add a CoreOS 9P filesystem, or imply the active Nix-Alpine owner has the new grant. Existing 9P sharing continues to apply only to the qualified read-only Nix store. Grant-to-9P guest exports and per-workload private credential bindings require separate adapters and qualification before a general end-to-end pass is claimed.
+
+### Credential boundary
+
+`GRANTS_FILE` is intended for non-secret data and evidence that the persistent Nix-Alpine owner may read. It is **not** a general authorization to put private identities or plaintext passwords into a shared owner volume. A long-lived builder can run many project flakes, so secrets for one project must not be mounted into that common namespace. Future per-run credential grants belong to a separately scoped short-lived qualification container with its own identity and lifecycle, using Smoke's runtime-only secret handling. Never encode secret values, age identities, or host private-key paths into Nix derivations.
+
+The new grant documents complement the historical `shared-store-matrix.nix`; they do not change its previously qualified `common` store domain or automatically activate its deferred guest-local and guest-shared domains. A common matrix-domain-to-state-grant adapter remains an integration step.
