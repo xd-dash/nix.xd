@@ -7,6 +7,7 @@ import subprocess
 import sys
 from compose_runtime import Runtime, REPO, run
 from compositions import require
+from agni_coreos_plan import resolve
 
 
 def start():
@@ -15,8 +16,7 @@ def start():
     require(profile in ('vm1', 'vm2'), 'Select vm1 or vm2')
     revision = runtime.owner('cat', runtime.flake + '/.nix-xd-source-revision')
     require(revision == os.environ['NIX_XD_WORKLOAD_REV'], 'Stage the selected revision first')
-    plan = json.loads(runtime.owner('nix', 'eval', '--json', '--no-write-lock-file',
-        runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.' + profile))
+    plan, _ = resolve(runtime, profile)
     runtime.plan = {'placements':{profile:plan['placement']}, 'workloads':{'transport':{'placement':profile}}}
     env = runtime.environment('transport')
     run(['bash', str(REPO / 'bin/nix-xd-coreos-podman'), 'start'], env)
