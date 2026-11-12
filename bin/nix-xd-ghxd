@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+action="${1:?Expected bootstrap, auth-start, auth-finish, or source-sync}"
+case "$action" in bootstrap|auth-start|auth-finish|source-sync) ;; *) exit 2 ;; esac
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+system="${NIX_XD_SYSTEM:-aarch64-linux}"
+image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
+flake="${NIX_XD_FLAKE:?Select staged flake providing ghxd-source-build and ghxd-operator}"
+build_app="${NIX_XD_GHXD_BUILD_APP:-#ghxd-source-build}"
+package="${NIX_XD_GHXD_PACKAGE:-#ghxd-operator}"
+program="${NIX_XD_GHXD_PROGRAM:-agni-ghxd-operator}"
+manifest="${NIX_XD_GHXD_MANIFEST:-}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
+[[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] || exit 2
+[[ "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || exit 2
+[[ "$flake" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$flake" != *..* ]] || exit 2
+[[ "$build_app" =~ ^#[A-Za-z0-9_-]+$ && "$package" =~ ^#[A-Za-z0-9_-]+$ ]] || exit 2
+[[ "$program" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || exit 2
+[[ "$action" != source-sync || -r "$manifest" ]] || {
+  echo 'GHXD source-sync requires a readable SOURCE_MANIFEST' >&2; exit 2;
+}
+p=(podman --connection "$machine")
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || exit 1
+[[ "$("${p[@]}" inspect "$scope" --format '{{.State.Running}}')" == true ]] || exit 1
+store="$scope-store"
+[[ "$("${p[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')" == "$store" ]] || {
+  echo 'GHXD store does not match authoritative Nix-Alpine owner' >&2; exit 1;
+}
+"${p[@]}" image exists "$image" || exit 1
+
+credential=nix-xd-state-secret-ghxd
+home=nix-xd-state-control-ghxd-home
+sources=nix-xd-state-control-ghxd-workspaces
+for entry in "$credential" "$home" "$sources"; do
+  kind=control
+  [[ "$entry" != "$credential" ]] || kind=secret
+  name="${entry#nix-xd-state-$kind-}"
+  labels="$("${p[@]}" volume inspect "$entry" --format '{{json .Labels}}')" || {
+    echo "Missing GHXD volume: $entry (use make state-volume-provision)" >&2
+    exit 1
+  }
+  python3 - "$labels" "$kind" "$name" <<'PY'
+import json,sys
+data=json.loads(sys.argv[1])
+for k,v in (("io.nix-xd.state.version","1"),("io.nix-xd.state.kind",sys.argv[2]),("io.nix-xd.state.name",sys.argv[3])):
+    if data.get(k)!=v: raise SystemExit("GHXD volume labels mismatch")
+PY
+  # Initialize only a completely empty directory. No recursive ownership changes.
+  "${p[@]}" run --rm --pull=never --network none --user 0:0 \
+    --volume "$entry:/data:z" --entrypoint /bin/sh "$image" -ec '
+      if test -z "$(ls -A /data)"; then chown 1000:1000 /data; chmod 0700 /data; fi
+      test "$(stat -c %u /data)" = 1000
+    '
+done
+
+# No other running container may hold the credential volume.
+for id in $("${p[@]}" ps -aq); do
+  [[ "$id" == "$scope" ]] && continue
+  mounted="$("${p[@]}" inspect "$id" --format '{{range .Mounts}}{{if eq .Name "nix-xd-state-secret-ghxd"}}{{println .Destination}}{{end}}{{end}}')"
+  [[ -z "$mounted" ]] || { echo "GHXD secret volume attached to container $id" >&2; exit 1; }
+done
+
+build_output="$("${p[@]}" exec "$scope" nix --option system "$system" run --no-write-lock-file \
+  "/workspaces/$flake$build_app")"
+printf '%s\n' "$build_output"
+binary="$(printf '%s\n' "$build_output" | sed -n 's/^NIX_XD_NATIVE_ARTIFACT=//p' | tail -n 1)"
+[[ "$binary" =~ ^/nix/store/[a-z0-9]{32}-smoke$ ]] || exit 1
+output="$("${p[@]}" exec "$scope" nix --option system "$system" build --no-write-lock-file \
+  --no-link --print-out-paths "/workspaces/$flake$package")"
+[[ "$output" =~ ^/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+$ ]] || exit 1
+"${p[@]}" exec "$scope" test -x "$binary"
+"${p[@]}" exec "$scope" test -x "$output/bin/$program"
+
+common=(--rm --pull=never --user 1000:1000 --cap-drop all --security-opt no-new-privileges
+  --tmpfs /tmp:rw,nosuid,nodev,mode=1777
+  --mount "type=volume,src=$store,dst=/nix,ro"
+  --volume "$credential:/run/nix-xd/ghxd:z"
+  --volume "$home:/home/ghxd:z"
+  --volume "$sources:/data/ghxd:z"
+  --env HOME=/home/ghxd
+  --env NIX_XD_NATIVE_BINARY="$binary"
+  --entrypoint "$output/bin/$program")
+
+if [[ "$action" == auth-start ]]; then
+  [[ -n "${NIX_XD_GHXD_CLIENT_ID:-}" ]] || {
+    echo 'GHXD_CLIENT_ID (public GitHub App/OAuth client ID) is required' >&2; exit 2;
+  }
+  common+=(--env NIX_XD_GHXD_CLIENT_ID="${NIX_XD_GHXD_CLIENT_ID}")
+fi
+
+if [[ "$action" == source-sync ]]; then
+  # The manifest contains only public repository metadata and exact SHAs.
+  cat "$manifest" | "${p[@]}" run -i "${common[@]}" "$image" "$action"
+  rows="$(python3 - "$manifest" <<'PY'
+import json,re,sys
+d=json.load(open(sys.argv[1]))
+if d.get("schema") != 1 or not isinstance(d.get("sources"),dict): raise SystemExit("Invalid source manifest")
+for item in d["sources"].values():
+    checkout=item["checkout"]; sha=item["revision"]
+    if not re.fullmatch(r"[a-z][a-z0-9-]{1,63}",checkout): raise SystemExit("Unsafe checkout")
+    if not re.fullmatch(r"[0-9a-f]{40}",sha): raise SystemExit("Invalid SHA")
+    print(checkout+"\t"+sha)
+PY
+)"
+  while IFS=$'\t' read -r checkout sha; do
+    [[ -n "$checkout" ]] || continue
+    destination="/workspaces/$checkout"
+    existing="$("${p[@]}" exec "$scope" sh -ec "if test -e '$destination'; then cat '$destination/.nix-xd-source-revision' 2>/dev/null || echo unknown; else echo absent; fi")"
+    if [[ "$existing" == "$sha" ]]; then
+      echo "GHXD_STAGE=reused checkout=$checkout sha=$sha"
+      continue
+    fi
+    [[ "$existing" == absent ]] || {
+      echo "Refusing to overwrite staged checkout $checkout (revision $existing)" >&2; exit 1;
+    }
+    temporary="/workspaces/.$checkout.ghxd-prepare"
+    "${p[@]}" exec "$scope" sh -ec "test ! -e '$temporary' && mkdir -m 0700 '$temporary'"
+    if ! "${p[@]}" run --rm --pull=never --network none --user 1000:1000 \
+      --volume "$sources:/data/ghxd:ro,z" --entrypoint /bin/tar "$image" \
+      -C "/data/ghxd/$checkout" --exclude=.git -cf - . |
+      "${p[@]}" exec -i "$scope" tar -C "$temporary" -xf -; then
+      echo "GHXD_STAGE=failed checkout=$checkout" >&2
+      exit 1
+    fi
+    "${p[@]}" exec "$scope" sh -ec \
+      "printf '%s\\n' '$sha' > '$temporary/.nix-xd-source-revision' && mv '$temporary' '$destination'"
+    echo "GHXD_STAGE=passed checkout=$checkout sha=$sha"
+  done <<< "$rows"
+  echo 'GHXD_WORKSPACE_SYNC=passed'
+else
+  "${p[@]}" run "${common[@]}" "$image" "$action"
+fi
