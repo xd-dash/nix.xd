@@ -35,6 +35,8 @@ MACHINE_ENV = NIX_XD_MACHINE="$(MACHINE)" NIX_XD_MACHINE_PROVIDER="$(MACHINE_PRO
 SCOPE ?= $(if $(filter arm64,$(ARCH)),nix-xd-arm,nix-xd-amd64)
 IMAGE ?= localhost/nix-xd:$(ARCH)
 WORKSPACES ?= $(abspath $(CURDIR)/..)
+DATA_MOUNTS ?=
+export NIX_XD_DATA_MOUNTS = $(DATA_MOUNTS)
 REPO ?=
 BRANCH ?= main
 REV ?=
