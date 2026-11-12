@@ -12,6 +12,9 @@ guest="${COREOS_CONTAINER_NAME:-coreos-starwisp}"
 guest_user="${COREOS_GUEST_USER:-wisp}"
 guest_port="${NIX_XD_GUEST_SSH_PORT:-2222}"
 store="${NIX_XD_STORE_VOLUME:-$owner-store}"
+build_app="${NIX_XD_BUILD_APP:?Select native build app}"
+run_package="${NIX_XD_RUN_PACKAGE:?Select transport package}"
+program_name="${NIX_XD_PROGRAM:?Select transport program}"
 [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
 [[ "$owner" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
 [[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] || exit 2
@@ -21,6 +24,8 @@ store="${NIX_XD_STORE_VOLUME:-$owner-store}"
 [[ "$guest_user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || exit 2
 [[ "$guest_port" =~ ^[0-9]+$ ]] && ((guest_port >= 1 && guest_port <= 65535)) || exit 2
 [[ "$flake" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$flake" != *..* ]] || exit 2
+[[ "$build_app" =~ ^#[A-Za-z0-9_-]+$ && "$run_package" =~ ^#[A-Za-z0-9_-]+$ ]] || exit 2
+[[ "$program_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || exit 2
 python3 "$repo/lib/runtime_grants.py" plan "$manifest"
 tuple="$(python3 "$repo/lib/runtime_grants.py" fixture "$manifest")"
 read -r secret evidence qualifier <<< "$tuple"
@@ -61,16 +66,16 @@ done
 
 # Build only inside the authoritative writer, never in the secret-bearing reader.
 build_log="$("${p[@]}" exec "$owner" nix --option system "$system" run --no-write-lock-file \
-  "/workspaces/$flake#resource-preflight" -- --check-build)"
+  "/workspaces/$flake$build_app" -- --check-build)"
 printf '%s\n' "$build_log"
-binary="$(printf '%s\n' "$build_log" | sed -n 's/^AGNI_NATIVE_SMOKE_BUILD=passed source=[^ ]* store=\([^ ]*\) sha256=[0-9a-f]*$/\1/p' | tail -n 1)"
+binary="$(printf '%s\n' "$build_log" | sed -n 's/^NIX_XD_NATIVE_ARTIFACT=//p' | tail -n 1)"
 [[ "$binary" =~ ^/nix/store/[a-z0-9]{32}-smoke$ ]] || {
   echo 'Missing Nix store-backed native Smoke artifact' >&2; exit 1;
 }
 package="$("${p[@]}" exec "$owner" nix --option system "$system" build --no-write-lock-file \
-  --no-link --print-out-paths "/workspaces/$flake#native-smoke-qualifier")"
+  --no-link --print-out-paths "/workspaces/$flake$run_package")"
 [[ "$package" =~ ^/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+$ ]] || exit 1
-program="$package/bin/agni-fatline-native-qualifier"
+program="$package/bin/$program_name"
 "${p[@]}" exec "$owner" test -x "$binary" || exit 1
 "${p[@]}" exec "$owner" test -x "$program" || exit 1
 
@@ -86,12 +91,12 @@ program="$package/bin/agni-fatline-native-qualifier"
   --volume "$secret:/run/nix-xd/mounts/secrets:ro,z" \
   --volume "$evidence:/run/nix-xd/mounts/evidence:z" \
   --env HOME=/tmp \
-  --env AGNI_NATIVE_SMOKE_BINARY="$binary" \
-  --env AGNI_COREOS_ENDPOINT=127.0.0.1 \
-  --env AGNI_COREOS_PORT="$guest_port" \
-  --env AGNI_COREOS_USER="$guest_user" \
-  --env AGNI_COREOS_IDENTITY=/run/nix-xd/mounts/secrets/identity \
-  --env AGNI_COREOS_KNOWN_HOSTS=/run/nix-xd/mounts/secrets/known_hosts \
-  --env AGNI_EVIDENCE_DIR=/run/nix-xd/mounts/evidence \
+  --env NIX_XD_NATIVE_BINARY="$binary" \
+  --env NIX_XD_TRANSPORT_ENDPOINT=127.0.0.1 \
+  --env NIX_XD_TRANSPORT_PORT="$guest_port" \
+  --env NIX_XD_TRANSPORT_USER="$guest_user" \
+  --env NIX_XD_TRANSPORT_IDENTITY=/run/nix-xd/mounts/secrets/identity \
+  --env NIX_XD_TRANSPORT_KNOWN_HOSTS=/run/nix-xd/mounts/secrets/known_hosts \
+  --env NIX_XD_EVIDENCE_DIR=/run/nix-xd/mounts/evidence \
   --entrypoint "$program" "$image" --check-transport
 echo 'GRANTS_TRANSPORT_RESULT=passed coreos=existing credentials=volume-readonly'
