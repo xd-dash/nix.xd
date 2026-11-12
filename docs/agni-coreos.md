@@ -133,3 +133,23 @@ make run PROVIDER=podman ARCH=arm64 SCOPE=nix-xd-arm FLAKE=agni20261111/local/fa
 To supply additional runtime files at **container creation** time, the reusable Podman Quadlet supports `DATA_MOUNTS='name:/run/nix-xd/mounts/alias:ro|rw ...'`. Only already-existing named volumes are accepted; mounts are constrained to `/run/nix-xd/mounts` and do not overlap the authoritative Nix store. This does **not** add mounts to an already-running container. Host file shares into the Podman Machine and 9P mounts into CoreOS are distinct capabilities; they must be bound and qualified separately rather than presuming that a macOS path is visible inside Nix-Alpine or CoreOS.
 
 SSH private keys should use a dedicated least-privilege runtime mount, not an indiscriminate shared store or evidence volume. The follow-on runtime gate must verify guest reachability, trust-path identity, scoped credentials, and resource readback before claiming Fatline resource qualification. The existing VM1 services stay intact.
+
+## Probot VM1 exact-artifact store verification
+
+After the ARM64 Probot/Skymill/Logma `#qualify-integration --phase artifacts`
+gate, run `make fatline-probot-vm1-store-check` on the selected Podman machine.
+The thin Make entrypoint invokes `lib/fatline_probot.py`, which reuses the
+existing Fatline HostLink session, its VM1 boot identity and controller lock.
+The controller verifies the immutable `agni-ghxd-v9` source SHA, reads the
+credential-free artifact manifest from the authoritative Nix-Alpine owner,
+retains the prepared host-link roots and checks the paths in the owner store.
+The SSH remote executes Agni's Bash-only verifier against CoreOS's existing
+read-only 9P mount; it checks all three exact artifacts and the pinned Node
+binary/router, and emits `FATLINE_PROBOT_VM1_STORE=passed`.
+
+This is an actual guest filesystem/mount gate, **not** installation or
+process readiness. It does not create or modify guest Quadlets, Redis ACLs,
+runtime credentials, or GitHub App bindings. Application activation must be
+implemented separately inside the existing Agni guest service manager;
+HostLink remains the transport and lifecycle controller, not a second
+application launcher.
