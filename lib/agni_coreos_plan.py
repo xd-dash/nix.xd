@@ -52,6 +52,7 @@ def resolve(runtime, profile, env=None):
         "planSha256": hashlib.sha256(raw.encode()).hexdigest(),
         "flakeLockSha256": hashlib.sha256(lock_raw.encode()).hexdigest(),
         "nixAlpineRevision": lock["nodes"]["nix-alpine-runtime"]["locked"]["rev"],
+        "componentRevisions": plan["componentRevisions"],
         "components": {
             "transport": plan["sources"]["agni"]["revision"],
             "services": plan["services"]["revision"],
