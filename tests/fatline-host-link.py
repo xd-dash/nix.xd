@@ -71,6 +71,8 @@ class Adapter(unittest.TestCase):
             link.state_path = link.root / 'state.json'
             link.state = {'agniRev':'runtime', 'roots':['protected'], 'status':'prepared'}
             link.scope = 'scope'
+            link.profile = 'vm1'
+            link.state['composition'] = {'revision':'pinned'}
             (link.root / 'guest.sh').write_text('old')
             class Owner:
                 flake = '/workspaces/nix.xd'
@@ -81,7 +83,9 @@ class Adapter(unittest.TestCase):
                         return json.dumps({'scope':'scope','guestAdapter':adapter})
                     return '/nix/store/source/local/fatline'
             link.runtime = Owner()
-            with patch.dict(os.environ, {'NIX_XD_WORKLOAD_REV':'selected', 'NIX_XD_SYSTEM':'aarch64-linux'}), contextlib.redirect_stdout(io.StringIO()):
+            with patch('fatline_host_link.resolve', return_value=({'scope':'scope', 'guestAdapter':adapter}, {'revision':'pinned'})), \
+                 patch.dict(os.environ, {'NIX_XD_WORKLOAD_REV':'selected', 'NIX_XD_SYSTEM':'aarch64-linux'}), \
+                 contextlib.redirect_stdout(io.StringIO()):
                 link.refresh_adapter()
                 self.assertEqual((link.root / 'guest.sh').read_text(), script)
                 self.assertEqual(link.state['roots'], ['protected'])
