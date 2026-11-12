@@ -439,6 +439,14 @@ export NIX_XD_SYSTEM = $(NIX_SYSTEM)
 export NIX_XD_WORKLOAD = $(WORKLOAD)
 export NIX_XD_WORKLOAD_FLAKE = $(WORKLOAD_FLAKE)
 export NIX_XD_WORKLOAD_REV = $(WORKLOAD_REV)
+AGNI_FLAKE ?=
+AGNI_REV ?=
+export NIX_XD_AGNI_FLAKE = $(AGNI_FLAKE)
+export NIX_XD_AGNI_REV = $(AGNI_REV)
+
+.PHONY: agni-coreos-plan-check
+agni-coreos-plan-check:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/agni_coreos_plan.py
 export NIX_XD_WORKLOAD_GENERATION = $(WORKLOAD_GENERATION)
 .PHONY: workload-prepare workload-inspect workload-activate workload-check workload-status workload-stop
 workload-prepare workload-inspect workload-activate workload-check workload-status workload-stop:
