@@ -115,3 +115,11 @@ make state-volume-provision MACHINE=coreos-arm64 STATE_KIND=secret STATE_NAME=qu
 ```
 
 This establishes only a labeled volume, not encryption, permissions, tenant grant enforcement, or CoreOS 9P attachment.
+
+## Isolated volume and CoreOS 9P qualification progression
+
+`make grants-isolation-qualify` uses a disposable, rootless Podman fixture on the selected Linux Podman Machine. It requires enforcing SELinux, uses two disjoint UID/GID maps, and creates brand-new labeled fixture volumes for private identity, read-only input, and writable evidence. It verifies that a matching authorized identity can read the fixture identity and produce evidence, an unrelated mapped identity cannot read the identity, and both are denied writes to read-only inputs. The fixture does not use live SOPS/age keys and does not change VM1.
+
+`make guest-9p-plan GRANTS_FILE=...` validates a schema-1 CoreOS 9P export declaration. `guest-9p-preflight` verifies its named Podman state volumes exist and retain their exact ownership labels. It does not start or alter a VM. `COREOS_9P_GRANTS_FILE` is an opt-in host adapter input for **newly created** CoreOS QEMU runner containers: it binds those volumes read-only under `/run/nix-xd/9p/<tag>`, passes read-only virtio-9P device arguments to the existing Agni QEMU runner, and records the declaration digest in the VM manifest. The managed-start path refuses a changed or missing declaration for an existing VM, rather than silently swapping attached storage. Existing VM1 is unaffected when the option is omitted.
+
+**Still unqualified:** mounting the new tag inside CoreOS at a guest path, checking guest-side UID/GID/DAC and SELinux policy semantics, and the complete Logma resource roundtrip. A guest with new 9P hardware needs an Agni-owned guest mount declaration (for example, Ignition/systemd), and a disposable CoreOS runtime gate before activation on a persistent VM. The existing `nixstore` 9P export remains separate from all data and secret exports.
