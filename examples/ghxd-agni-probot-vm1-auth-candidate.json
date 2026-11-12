@@ -4,7 +4,7 @@
   "sources": {
     "agni": {
       "repository": "dash-xd/agni",
-      "revision": "a1a0cee1e29e0eb019ff5b0b7dcf5d0ea037a9e2",
+      "revision": "1eb39d2ec2d599d858907d34ca332bbd1179e3a2",
       "checkout": "agni-ghxd-v11"
     },
     "skymill": {
