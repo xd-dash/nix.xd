@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-action="${1:?Expected bootstrap, auth-start, auth-finish, or source-sync}"
-case "$action" in bootstrap|auth-start|auth-finish|source-sync) ;; *) exit 2 ;; esac
+action="${1:?Expected bootstrap, auth-start, auth-finish, auth-refresh, or source-sync}"
+case "$action" in bootstrap|auth-start|auth-finish|auth-refresh|source-sync) ;; *) exit 2 ;; esac
 machine="${NIX_XD_MACHINE:-coreos-arm64}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 system="${NIX_XD_SYSTEM:-aarch64-linux}"
