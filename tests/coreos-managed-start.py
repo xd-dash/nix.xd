@@ -103,6 +103,18 @@ class ManagedStart(unittest.TestCase):
         self.assertIn("/artifacts/base.qcow2", self.record.read_text())
         self.assertIn('artifact_state=' + str(primary.resolve()), (second / "manifest.txt").read_text())
 
+    def test_default_state_survives_dated_checkout_selection(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = dict(self.env, HOME=home)
+            env.pop('COREOS_STATE_ROOT')
+            result = subprocess.run(['bash', str(REPO / 'bin/nix-xd-coreos-podman'), 'start'],
+                                    env=dict(env, VM_STATUS='missing'), capture_output=True, text=True)
+            stable = Path(home) / '.local/state/nix-xd/coreos/starwisp'
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Missing base.qcow2', result.stderr)
+            self.assertTrue(stable.is_dir())
+            self.assertFalse((stable / '.managed-start.lock').exists())
+
     def test_missing_state_reports_missing_artifacts_not_lock_contention(self):
         import shutil
         shutil.rmtree(self.state)
