@@ -14,6 +14,7 @@ import sys
 from compose_runtime import run, write_json
 from compositions import require
 from fatline_host_link import HostLink
+from agni_coreos_plan import resolve
 
 
 class Services:
@@ -56,8 +57,8 @@ class Services:
         owner = self.link.runtime.owner
         staged = owner('cat', self.link.runtime.flake + '/.nix-xd-source-revision')
         require(staged == os.environ.get('NIX_XD_WORKLOAD_REV'), 'Stage the selected nix.xd revision first')
-        plan = json.loads(owner('nix', 'eval', '--json', '--no-write-lock-file',
-            self.link.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.' + getattr(self.link, 'profile', 'vm1')))
+        plan, manifest = resolve(self.link.runtime, self.link.profile)
+        require(manifest == self.link.state.get('composition'), 'Application plan differs from prepared Agni composition')
         source = plan[key]
         require(source['repository'] == 'dash-xd/agni' and source['contract'] == 'coreos-services-v1' and
                 re.fullmatch(r'[a-f0-9]{40}', source['revision']) and source['package'] == 'coreos-services-vm1',
