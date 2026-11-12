@@ -18,6 +18,7 @@ import tempfile
 from compose_runtime import Runtime, run, write_json
 from compositions import require
 from fatline_generations import active_root
+from agni_coreos_plan import resolve
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -40,8 +41,11 @@ class HostLink:
         os.chmod(self.root, 0o700)
         self.state_path = self.root / 'state.json'
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else None
-        self.config = self.state['plan'] if self.state else json.loads(self.runtime.owner('nix', 'eval', '--json',
-            '--no-write-lock-file', self.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.' + getattr(self, 'profile', 'vm1')))
+        self.config, self.selection_manifest = resolve(self.runtime, self.profile)
+        if self.state:
+            require(self.state.get('composition') == self.selection_manifest and
+                    self.state['plan'] == self.config,
+                    'Existing Fatline state belongs to another Agni composition; migrate explicitly')
         require(self.config['storeDomain'] == 'common', 'Unsupported store domain')
         require(self.config['schema'] == 1 and self.config['scope'] == self.scope and
                 self.config['system'] == os.environ['NIX_XD_SYSTEM'], 'Invalid Fatline plan binding')
@@ -125,7 +129,8 @@ class HostLink:
         boot = run(self.command, self.env, True, 'cat /proc/sys/kernel/random/boot_id\n', timeout=30).strip()
         self.state = {'aclDigest':hashlib.sha256((credentials / 'users.acl').read_bytes()).hexdigest(),
                       'policyDigest':(credentials / 'policy.sha256').read_text().strip(),
-                      'plan':self.config, 'status':'preparing', 'metadata':metadata, 'archive':archive, 'bundle':bundle,
+                      'plan':self.config, 'composition':self.selection_manifest,
+                      'status':'preparing', 'metadata':metadata, 'archive':archive, 'bundle':bundle,
                       'agniRev':self.agni_rev, 'boot':boot, 'incoming':incoming,
                       'roots':[suffix + '-bundle', suffix + '-rootfs']}
         write_json(self.state_path, self.state)
@@ -143,8 +148,8 @@ class HostLink:
         require(self.state, 'Prepare the runtime before refreshing its guest adapter')
         staged = self.runtime.owner('cat', self.runtime.flake + '/.nix-xd-source-revision')
         require(staged == os.environ.get('NIX_XD_WORKLOAD_REV'), 'Stage the selected revision first')
-        desired = json.loads(self.runtime.owner('nix', 'eval', '--json', '--no-write-lock-file',
-            self.runtime.flake + '#fatlinePlans.' + os.environ['NIX_XD_SYSTEM'] + '.' + getattr(self, 'profile', 'vm1')))
+        desired, manifest = resolve(self.runtime, self.profile)
+        require(manifest == self.state.get('composition'), 'Agni source selection changed during adapter refresh')
         adapter = desired['guestAdapter']
         require(desired['scope'] == self.scope and adapter['repository'] == 'dash-xd/agni' and
                 adapter['contract'] == 'fatline-host-link-v1' and
