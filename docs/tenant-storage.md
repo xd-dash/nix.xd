@@ -40,6 +40,10 @@ The gate proves:
 - The ordinary Linux host identity cannot browse either private backing path.
 - A probe using the ordinary Nix builder's mapping and identity cannot read a
   tenant's private volume, even with a read-only attachment.
+  If that builder shares Podman's rootless user namespace, the probe reuses it
+  directly instead of attempting setns into its current namespace. The probe
+  verifies its namespace inode, UID/GID and zero effective capabilities before
+  testing access.
 - The deletion helper refuses an in-use volume. After stopping/removing tenant A,
   it deletes A's private volume while B retains its container ID, data and grant.
 

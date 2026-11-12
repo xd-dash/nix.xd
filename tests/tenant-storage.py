@@ -9,6 +9,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ScopedVolumes(unittest.TestCase):
+    def test_probe_reuses_shared_rootless_namespace_without_reentering_it(self):
+        for target, current, expected in [('user:[123]', 'user:[123]', 'host'),
+                                          ('user:[456]', 'user:[123]', 'container:builder')]:
+            result = subprocess.run(['bash', '-eu', '-c',
+                                     'source lib/tenant-storage.sh; tenant_probe_userns "$1" "$2" builder',
+                                     '--', target, current], cwd=ROOT, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), expected)
+        result = subprocess.run(['bash', '-eu', '-c',
+                                 'source lib/tenant-storage.sh; tenant_probe_userns invalid "user:[123]" builder'],
+                                cwd=ROOT, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+
     def run_controller(self, labels, operation='tenant_volume_remove fixture-qualify a private', status='0'):
         with tempfile.TemporaryDirectory() as directory:
             record = Path(directory) / 'calls'

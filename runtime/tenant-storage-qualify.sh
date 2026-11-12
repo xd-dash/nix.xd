@@ -148,11 +148,21 @@ done
 builder_label=$(podman inspect "$builder" --format '{{.ProcessLabel}}')
 builder_type=$(cut -d : -f 3 <<< "$builder_label"); builder_level=$(cut -d : -f 4- <<< "$builder_label")
 [[ $builder_type == container_userns_t || $builder_type == container_t ]] || fail builder-unconfined
-podman run --rm "${common[@]}" --userns="container:$builder" \
+builder_ns=$(podman exec "$builder" readlink /proc/self/ns/user)
+podman_ns=$(podman unshare readlink /proc/self/ns/user)
+builder_userns=$(tenant_probe_userns "$builder_ns" "$podman_ns" "$builder")
+builder_user=$(podman exec "$builder" id -u); builder_group=$(podman exec "$builder" id -g)
+[[ $builder_user == 1000 && $builder_group == 1000 ]] || fail unexpected-builder-user
+printf 'TENANT_BUILDER_PROBE namespace=%s mode=%s uid=%s gid=%s\n' "$builder_ns" "$builder_userns" "$builder_user" "$builder_group"
+podman run --rm "${common[@]}" --userns="$builder_userns" \
   --label io.nix-xd.managed=true --label io.nix-xd.role=storage-probe --label "io.nix-xd.scope=$scope" --label io.nix-xd.lifecycle=disposable \
   --security-opt "label=type:$builder_type" --security-opt "label=level:$builder_level" \
   -v "$pa:/probe:ro,nocreate" --entrypoint /bin/sh "$image" -ec \
-  'if cat /probe/store/canary >/dev/null 2>&1; then exit 1; fi'
+  'test "$(readlink /proc/self/ns/user)" = "$1"
+   test "$(id -u)" = "$2"; test "$(id -g)" = "$3"
+   grep -Eq "^CapEff:[[:space:]]+0+$" /proc/self/status
+   if cat /probe/store/canary >/dev/null 2>&1; then exit 1; fi' \
+  -- "$builder_ns" "$builder_user" "$builder_group"
 echo TENANT_HOST_BUILDER_READ=denied
 if tenant_volume_remove "$scope" a private; then fail deleted-in-use-volume; fi
 echo TENANT_DELETE_WHILE_ATTACHED=denied

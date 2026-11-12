@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Disposable qualification volumes; the controller only inspects metadata.
+tenant_probe_userns() {
+  [[ $1 =~ ^user:\[[0-9]+\]$ && $2 =~ ^user:\[[0-9]+\]$ ]] || return 2
+  [[ $3 =~ ^[a-z][a-z0-9-]{0,39}$ ]] || return 2
+  if [[ $1 == "$2" ]]; then printf 'host\n'; else printf 'container:%s\n' "$3"; fi
+}
 tenant_volume_name() {
   [[ $1 =~ ^[a-z][a-z0-9-]{0,39}$ && $1 == *-qualify ]] || return 2
   [[ $2 =~ ^[a-z][a-z0-9-]{0,15}$ && $3 =~ ^[a-z][a-z0-9-]{0,15}$ ]] || return 2
