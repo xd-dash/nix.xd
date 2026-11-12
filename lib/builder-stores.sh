@@ -72,7 +72,7 @@ builder_quadlet() {
     [[ "$mount_target" =~ ^/run/nix-xd/mounts/[a-z][a-z0-9-]{0,39}$ ]] || return 2
     [[ "$mount_mode" == ro || "$mount_mode" == rw ]] || return 2
     [[ "$mount_source" != "$builder_store_volume" ]] || return 2
-    printf 'Volume=%s:%s:%s\\n' "$mount_source" "$mount_target" "$mount_mode"
+    printf 'Volume=%s:%s:%s\n' "$mount_source" "$mount_target" "$mount_mode"
   done
   if [[ -n ${NIX_XD_INITIAL_CHROOT_STORES:-} ]]; then
     case "${NIX_XD_CHROOT_SELINUX:-keep}" in
