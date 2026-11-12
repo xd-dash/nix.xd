@@ -83,6 +83,20 @@ class GuestStoreTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     module.ExistingVM1Link()
 
+    def test_vm1_runtime_inventory_uses_pinned_boot_and_does_not_print_secrets(self):
+        link=SimpleNamespace(state={"status":"prepared","boot":"11111111-1111-1111-1111-111111111111"},
+            command=["ssh","guest"],env={})
+        output=("AGNI_PROBOT_VM1_RUNTIME_INVENTORY=passed profile=installed redis=active application_units=2\\n"
+                "AGNI_PROBOT_VM1_PROFILE=present bootstrap=managed\\n")
+        with patch.object(module,"run",return_value=output) as remote:
+            module.runtime_preflight(link)
+        script=remote.call_args.args[3]
+        self.assertIn("11111111-1111-1111-1111-111111111111",script)
+        self.assertIn("fatline-arm-vm1-redis.service",script)
+        self.assertIn("user default off",script)
+        self.assertNotIn("users.acl\")\n",script)
+        self.assertNotIn("cat \"$base/credentials/users.acl\"",script)
+
     def test_wrong_artifact_selection_fails_before_ssh(self):
         pin=json.loads((ROOT/"examples/ghxd-agni-probot-guest-store.json").read_text())["sources"]["agni"]
         def owner(*argv):
