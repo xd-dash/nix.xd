@@ -97,6 +97,9 @@ help:
 	  'make nix-store-check|maintenance-review  Combined store contracts and read-only cleanup review' \
 	  'make state-volume-plan|state-volume-provision|state-volume-inspect STATE_KIND=control|vm|application|secret STATE_NAME=... MACHINE=...' \
 	  'make state-volume-export STATE_KIND=... STATE_NAME=... STATE_EXPORT_PATH=/absolute/path.tar MACHINE=...' \
+	  'make grants-plan|grants-execute GRANTS_FILE=... FLAKE=... TARGET=... PROGRAM=...' \
+	  'make grants-credentials-import GRANTS_FILE=... CREDENTIAL_IDENTITY=... CREDENTIAL_KNOWN_HOSTS=...' \
+	  'make grants-transport-qualify GRANTS_FILE=... FLAKE=... BUILD_APP=... RUN_PACKAGE=... PROGRAM=...' \
 	  'make builder-image-prune-dangling DANGLING_PRUNE_CONFIRM=YES  Remove dangling images only' \
 	  'make store-isolation-static|store-isolation-check  Independent Nix-Alpine writer checks' \
 	  'make workload-prepare|workload-inspect|workload-activate|workload-stop WORKLOAD=starwisp-probe' \
