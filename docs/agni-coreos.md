@@ -1,5 +1,17 @@
 # Agni-owned CoreOS plan transition
 
+> **Historical VM1 qualification record.** The `fatline-*` Make commands
+> below belong to the pre-migration host controller, not the default
+> Nix-Alpine interface. They require
+> `ENABLE_LEGACY_APPLICATION_CONTROLLERS=1` and should be used only for
+> recovery of generations created by that controller. New qualification
+> uses `make qualify QUALIFY_APP=1 FLAKE=... TARGET=... ARGS=...`,
+> and Agni's pinned guest checks use `make guest-app FLAKE=... TARGET=...
+> GUEST_APP_REV=... ARGS_JSON=...`. The normal Make interface contains
+> no service scenario or application-specific phase graph. See
+> [Nix-Alpine idioms](nix-alpine-idioms.md).
+
+
 This is a transitional runtime adapter, not a completed transfer of Fatline lifecycle logic out of `nix.xd`.
 
 Agni `v20261111` owns `local/fatline/coreos/plan.nix`. Its `flake.lock` pins both nixpkgs and the Nix-Alpine runtime. The Nix-Alpine owner builds `#coreos-plan-vm1`; the host's generic VM transport still performs guest operations.
