@@ -40,26 +40,48 @@ class GuestStoreTests(unittest.TestCase):
         self.assertNotIn("private_key",script)
         self.assertNotIn("oauth",script.lower())
 
-    def test_recorded_vm1_selection_is_reused(self):
+    def test_persisted_vm1_host_link_without_staging_composition(self):
         import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp)
-            selection=root/".state/agni-coreos/vm1-selection.json"
-            selection.parent.mkdir(parents=True)
-            selection.write_text(json.dumps({"schema":1,"profile":"vm1",
-                "agniRepository":"dash-xd/agni","agniRevision":"a"*40,
-                "flake":"/workspaces/agni20261111/local/fatline"}))
-            from unittest.mock import patch
-            with patch.object(module, "REPO", root), patch.dict(module.os.environ,{},clear=True):
-                module.selected_composition()
-                self.assertEqual(module.os.environ["NIX_XD_COMPOSITION_REV"],"a"*40)
-                self.assertEqual(module.os.environ["NIX_XD_COMPOSITION_FLAKE"],
-                    "/workspaces/agni20261111/local/fatline")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            state_dir = root / ".state/fatline/fatline-arm-vm1"
+            state_dir.mkdir(parents=True)
+            state = {
+                "status": "prepared",
+                "boot": "11111111-1111-1111-1111-111111111111",
+                "agniRev": "a"*40,
+                "composition": {"schema":1,"profile":"vm1",
+                    "agniRepository":"dash-xd/agni","agniRevision":"b"*40},
+                "plan": {"schema":1,"scope":"fatline-arm-vm1",
+                    "system":"aarch64-linux","storeDomain":"common",
+                    "sources":{"agni":{"repository":"dash-xd/agni","revision":"a"*40}},
+                    "ingress":{"transport":"ssh-tcp-nginx-unix",
+                               "hostPort":16379,"guestProxyPort":16379},
+                    "placement":{"kind":"coreos","container":"coreos-starwisp",
+                                 "sshPort":2222}},
+                "roots":["/nix/root1","/nix/root2"],"bundle":"/nix/store/bundle",
+                "archive":"/nix/store/archive",
+            }
+            (state_dir/"state.json").write_text(json.dumps(state))
+            fake=SimpleNamespace(scope="nix-xd-arm",
+                plan=None, transport_command=lambda place,name: (["ssh","guest"],{}))
+            with patch.object(module,"REPO",root), patch.object(module,"Runtime",return_value=fake), \
+                 patch.object(module,"active_root",return_value=state_dir), \
+                 patch.dict(module.os.environ,{"NIX_XD_SYSTEM":"aarch64-linux"},clear=True):
+                link=module.ExistingVM1Link()
+            self.assertEqual(link.state["agniRev"],"a"*40)
+            self.assertEqual(link.command,["ssh","guest"])
+            self.assertEqual(fake.plan["placements"]["vm1"]["sshPort"],2222)
 
-    def test_partial_composition_selection_is_rejected(self):
-        with patch.dict(module.os.environ,{"NIX_XD_COMPOSITION_REV":"a"*40},clear=True):
-            with self.assertRaises(ValueError):
-                module.selected_composition()
+    def test_missing_existing_vm1_state_fails(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            fake=SimpleNamespace(scope="nix-xd-arm")
+            with patch.object(module,"REPO",Path(temp)), \
+                 patch.object(module,"Runtime",return_value=fake), \
+                 patch.dict(module.os.environ,{"NIX_XD_SYSTEM":"aarch64-linux"},clear=True):
+                with self.assertRaises(ValueError):
+                    module.ExistingVM1Link()
 
     def test_wrong_artifact_selection_fails_before_ssh(self):
         pin=json.loads((ROOT/"examples/ghxd-agni-probot-guest-store.json").read_text())["sources"]["agni"]
