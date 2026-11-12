@@ -103,6 +103,16 @@ class ManagedStart(unittest.TestCase):
         self.assertIn("/artifacts/base.qcow2", self.record.read_text())
         self.assertIn('artifact_state=' + str(primary.resolve()), (second / "manifest.txt").read_text())
 
+    def test_missing_state_reports_missing_artifacts_not_lock_contention(self):
+        import shutil
+        shutil.rmtree(self.state)
+        result = self.run_start('missing')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Missing base.qcow2', result.stderr)
+        self.assertNotIn('already running', result.stderr)
+        self.assertTrue(self.state.is_dir())
+        self.assertFalse((self.state / '.managed-start.lock').exists())
+
     def test_fresh_boot_records_container_identity(self):
         result = self.run_start('missing')
         self.assertEqual(result.returncode, 0, result.stderr)
