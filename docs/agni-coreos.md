@@ -82,3 +82,11 @@ The QEMU runner and Fedora CoreOS QCOW2 may require substantial downloads. The I
 After preflight succeeds, run `fatline-vm-local` with the same state root (now default), `COREOS_NIX_STORE_VOLUME=nix-xd-arm-store`, and immutable Agni/Controller revisions. A missing or unqualified VM runner must fail before guest activation.
 
 Do not copy a live overlay between workspaces. Prefer a persistent state root; source checkout rotation must never relocate guest state.
+
+## Probe-only readiness correction on an active VM
+
+The original Agni activation plan may remain pinned at its validated revision while a corrected qualification probe is evaluated separately. Use the optional `FATLINE_PROBE_REV=<40-hex-commit>` on `fatline-services-probe-refresh` only. This fetches the exact candidate Agni revision, builds its `coreos-services-vm1` bundle, verifies that Logma, Skymill, and Ratelimiter component revisions are unchanged, retains the candidate closure, and persists the qualification probe source. It does **not** rebind running application binaries, regenerate Quadlets, or restart Redis.
+
+Subsequent `fatline-services-qualify` uses the persisted probe executable, even when the override is omitted. A failed qualification stays unqualified. Do not change `AGNI_REV` from the active machine-plan revision during this operation; the host controller still requires exact existing provenance.
+
+The Logma `/lifecycle/readyz` endpoint returns an authenticated plain-text `ready` response, not JSON. The probe validates HTTP 200 and the plain-text readiness contract, while Skymill message/delivery endpoints continue using JSON decoding. After qualification, promote the corrected probe revision into a new Agni machine plan through an explicit composition migration, not by silently changing an active plan.
