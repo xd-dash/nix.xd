@@ -165,3 +165,32 @@ runtime credentials, or GitHub App bindings. Application activation must be
 implemented separately inside the existing Agni guest service manager;
 HostLink remains the transport and lifecycle controller, not a second
 application launcher.
+
+## Probot VM1 activation-profile qualification
+
+After exact artifacts are visible on VM1, the next source-driven gate is
+`agni-ghxd-v10/local/fatline#qualify-integration --scenario probot-webhook
+--phase service-profile`. It runs Agni's five-role systemd-Quadlet profile
+rendering tests and credential-generation tests inside Nix-Alpine. They
+check new Skymill TCP Redis/DB0 settings, Logma lifecycle entrypoint,
+Probot state and lifecycle-publisher identities, private credential
+mounts, unchanged host-link publisher/subscriber ACL lines, and inherited
+Redis bootstrap/revocation hooks. No VM service changes occur.
+
+`make fatline-probot-vm1-runtime-preflight` inventories the real
+existing VM1 guest using the same previously qualified boot-bound SSH
+transport and controller lock. It reports whether Agni's consolidated
+startup profile and Redis bootstrap ACL are installed and whether Redis
+is active. It does not attempt an implicit profile migration or restart
+the currently RAM-only Redis. Use `COREOS_SSH_KEY` for the same
+rootless VM1 SSH identity that passed artifact visibility qualification.
+
+The next live operation is a **new generation** of the existing Agni
+startup profile: render the exact installed runtime profile with pinned
+artifacts and generated ACL credentials, retain every closure, stage
+private data through the existing controller, and explicitly confirm
+the restart/loss of in-memory Redis state. A profile migration must
+not silently overlay the legacy `coreos-services/guest.sh` units.
+This activation operation is not available until the live inventory,
+exact host-link ACL reconciliation and service readiness implementation
+are qualified. Webhook authority is a separate later gate.
