@@ -112,3 +112,21 @@ make fatline-resource-logmash-qualify PROVIDER=podman ARCH=arm64 SCOPE=nix-xd-ar
 ```
 
 Future plans declare the artifact app, flake, source revision and host target themselves; the application gate then requires no `ARTIFACT_FLAKE` override. These targets are compatibility entry points, not the final Agni-owned controller: application-specific host orchestration, including remaining Wisp, Fatline and Astrochicken targets, must move out of `nix.xd` after qualification.
+
+## Generic project-host-run selection
+
+Application-specific resource commands no longer need a Make target. Run `make project-host-run PROJECT=<checkout> APPLICATION=<app> ACTION=<action>`. The generic runtime checks the local project's exact Git HEAD and clean tracked files, selects `local/<app>/host-actions/<action>.sh`, and executes the project-owned host action with the selected infrastructure environment. The project script owns its side effects.
+
+For the already-running Fatline VM1 (legacy pinned composition), use the Agni project's resource action with the active composition revision:
+
+```sh
+make project-host-run PROJECT=agni20261111 APPLICATION=fatline ACTION=resource-qualify \
+  PROVIDER=podman ARCH=arm64 SCOPE=nix-xd-arm \
+  COREOS_STATE_ROOT="$HOME/.local/state/nix-xd/coreos" \
+  COREOS_NIX_STORE_VOLUME=nix-xd-arm-store COREOS_SSH_KEY="$HOME/.ssh/starwisp-test" \
+  WORKLOAD_FLAKE=/workspaces/nix.xd20261111 WORKLOAD_REV="$(git rev-parse HEAD)" \
+  COMPOSITION_FLAKE=/workspaces/agni20261111/local/fatline \
+  COMPOSITION_REV=5442e5f9b13479edefb55cfa3c3cd518e199ad5c FATLINE_PROFILE=vm1
+```
+
+The host action selects the exact Smoke artifact flake itself; there is no manual Smoke build or `ARTIFACT_FLAKE` argument. The legacy Fatline-specific Python code remains temporarily in `nix.xd`; the generic dispatcher has no application-specific names or operation mapping. The old literal `fatline-resource-logmash-qualify` target is removed.
