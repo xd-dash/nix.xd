@@ -62,6 +62,18 @@ builder_quadlet() {
   printf 'Label=io.nix-xd.managed=true\nLabel=io.nix-xd.schema=1\nLabel=io.nix-xd.role=builder\n'
   printf 'Label=io.nix-xd.scope=%s\nLabel=io.nix-xd.lifecycle=%s\nLabel=io.nix-xd.composition=%s\nLabel=io.nix-xd.placement=%s\n' "$scope" "$lifecycle" "$composition" "$placement"
   builder_store_mounts
+  # Optional runtime data volumes; never place credentials inside the Nix store.
+  local mount_spec mount_source mount_target mount_mode mount_extra
+  local -a data_mounts=()
+  read -r -a data_mounts <<< "${NIX_XD_DATA_MOUNTS:-}"
+  for mount_spec in ${data_mounts[@]+"${data_mounts[@]}"}; do
+    IFS=: read -r mount_source mount_target mount_mode mount_extra <<< "$mount_spec"
+    [[ -z "$mount_extra" && "$mount_source" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || return 2
+    [[ "$mount_target" =~ ^/run/nix-xd/mounts/[a-z][a-z0-9-]{0,39}$ ]] || return 2
+    [[ "$mount_mode" == ro || "$mount_mode" == rw ]] || return 2
+    [[ "$mount_source" != "$builder_store_volume" ]] || return 2
+    printf 'Volume=%s:%s:%s\\n' "$mount_source" "$mount_target" "$mount_mode"
+  done
   if [[ -n ${NIX_XD_INITIAL_CHROOT_STORES:-} ]]; then
     case "${NIX_XD_CHROOT_SELINUX:-keep}" in
       keep) ;;
