@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+manifest="${COREOS_9P_GRANTS_FILE:?Select guest 9P grant manifest}"
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+profile="${COREOS_PROFILE:-starwisp}"
+state_root="${COREOS_STATE_ROOT:-$HOME/.local/state/nix-xd/coreos}"
+port="${COREOS_SSH_PORT:-2222}"
+user="${COREOS_GUEST_USER:-wisp}"
+identity="${COREOS_SSH_KEY:?Select an SSH identity}"
+container="${COREOS_CONTAINER_NAME:-coreos-$profile}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ && "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
+[[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$container" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || exit 2
+[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || exit 2
+[[ -r "$identity" ]] || { echo 'SSH key missing' >&2; exit 2; }
+state="$state_root/$profile"
+[[ -f "$state/manifest.txt" ]] || { echo 'Missing guest boot manifest' >&2; exit 1; }
+grep -Fxq "port=$port" "$state/manifest.txt" || { echo 'Guest port differs from manifest' >&2; exit 1; }
+expected="$(shasum -a 256 "$manifest" | awk '{print $1}')"
+grep -Fxq "data_9p_sha256=$expected" "$state/manifest.txt" || {
+  echo 'Guest 9P grant digest differs from declared manifest' >&2; exit 1;
+}
+[[ "$(podman --connection "$machine" inspect "$container" --format '{{.State.Running}}')" == true ]] ||
+  { echo 'Selected CoreOS guest not running' >&2; exit 1; }
+ssh_opts=(-i "$identity" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes
+  -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new
+  -o "UserKnownHostsFile=$state/known_hosts")
+mkdir -p "$state"
+log="$state/guest-9p-volume-qualification.log"
+: > "$log"
+while read -r volume tag; do
+  [[ "$volume" == nix-xd-state-control-* ]] || { echo 'This gate only reads nonsecret control fixture volumes' >&2; exit 2; }
+  ssh -T "${ssh_opts[@]}" "$user@127.0.0.1" "bash -se -- $tag" >> "$log" 2>&1 <<'GUEST'
+set -Eeuo pipefail
+tag="$1"
+mount_path="/var/mnt/$tag"
+[[ "$tag" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || exit 2
+[[ "$(findmnt -rn -o FSTYPE --mountpoint "$mount_path")" == 9p ]] || {
+  echo 'GUEST_9P_VOLUME_RESULT=failed reason=not-mounted-as-9p'
+  exit 1
+}
+mount_options="$(findmnt -rn -o OPTIONS --mountpoint "$mount_path")"
+[[ ",$mount_options," == *,ro,* ]] || {
+  echo 'GUEST_9P_VOLUME_RESULT=failed reason=not-readonly'
+  exit 1
+}
+test "$(cat "$mount_path/nix-xd-9p-canary")" = nix-xd-9p-fixture-v1
+if touch "$mount_path/nix-xd-9p-forbidden" 2>/dev/null; then
+  echo 'GUEST_9P_VOLUME_RESULT=failed reason=write-allowed'
+  exit 1
+fi
+printf 'GUEST_9P_VOLUME=passed tag=%s fstype=9p access=ro boot_id=%s\n' "$tag" "$(cat /proc/sys/kernel/random/boot_id)"
+GUEST
+  grep -Fq "GUEST_9P_VOLUME=passed tag=$tag " "$log" || {
+    cat "$log" >&2
+    exit 1
+  }
+done < <(python3 "$repo/lib/guest_9p_grants.py" pairs "$manifest")
+cat "$log"
+echo 'GUEST_9P_QUALIFICATION_RESULT=passed'
