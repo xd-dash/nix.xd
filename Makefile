@@ -375,6 +375,7 @@ check-static-internal:
 	@bash -n bin/nix-xd-guest-9p-seed bin/nix-xd-guest-9p-qualify
 	@bash -n bin/nix-xd-guest-9p-runtime-qualify
 	@bash -n bin/nix-xd-grants-execute
+	@bash tests/grants-execute-contract.sh
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
