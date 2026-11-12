@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -25,6 +26,38 @@ class Lifecycle(unittest.TestCase):
         services.state = {'root':'/registered-services-root','bundle':'/nix/store/services','status':'active'}
         services.guest = lambda action: calls.append(('guest',action))
         return services, calls
+
+    def test_probe_revision_override_does_not_change_application_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            services, _ = self.make(directory)
+            services.link.profile = 'vm1'
+            services.link.runtime.flake = '/workspaces/nix.xd20261111'
+            services.link.runtime.owner = lambda *args: 'selected'
+            manifest = {'revision': 'pinned'}
+            services.link.state['composition'] = manifest
+            probe = {'repository':'dash-xd/agni', 'revision':'a'*40,
+                     'contract':'coreos-services-v1','package':'coreos-services-vm1'}
+            plan = {'servicesProbe':probe}
+            with patch('fatline_services.resolve', return_value=(plan, manifest)):
+                with patch.dict(os.environ, {
+                    'NIX_XD_WORKLOAD_REV':'selected',
+                    'NIX_XD_FATLINE_PROBE_REV':'b'*40,
+                }):
+                    selected = services.selection('servicesProbe')
+                    self.assertEqual(selected['revision'], 'b'*40)
+                    self.assertEqual(probe['revision'], 'a'*40)
+                services.state['qualificationProbe'] = {'source':selected}
+                with patch.dict(os.environ, {
+                    'NIX_XD_WORKLOAD_REV':'selected',
+                    'NIX_XD_FATLINE_PROBE_REV':'',
+                }):
+                    self.assertEqual(services.selection('servicesProbe'), selected)
+                with patch.dict(os.environ, {
+                    'NIX_XD_WORKLOAD_REV':'selected',
+                    'NIX_XD_FATLINE_PROBE_REV':'not-a-sha',
+                }):
+                    with self.assertRaisesRegex(ValueError, 'immutable qualification probe'):
+                        services.selection('servicesProbe')
 
     def test_stop_releases_application_root_only_after_ack(self):
         with tempfile.TemporaryDirectory() as directory:
