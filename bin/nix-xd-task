@@ -91,7 +91,7 @@ flake_ref() {
     fail "FLAKE must be a workspace-relative path"
   fi
   [[ "$path" != *..* ]] || fail "Unsafe flake path"
-  [[ -z "$target" || "$target" =~ ^#[A-Za-z0-9_.-]+$ ]] || fail "TARGET must be empty or #output"
+  [[ -z "$target" || "$target" =~ ^#[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$ ]] || fail "TARGET must be empty or #output"
   ref="$path$target"
 }
 nix_task() {
@@ -102,10 +102,14 @@ nix_task() {
     build) inside nix --option system "$system" build --no-write-lock-file --no-link "$ref" ;;
     path-info) inside nix --option system "$system" path-info --no-write-lock-file "$ref" ;;
     run|qualify)
-      local -a argv=()
       # Simple space-delimited arguments; use exec CMD=... for shell constructs.
-      [[ -z "$args" ]] || read -r -a argv <<< "$args"
-      inside nix --option system "$system" run --no-write-lock-file "$ref" -- "${argv[@]}"
+      if [[ -n "$args" ]]; then
+        local -a argv=()
+        read -r -a argv <<< "$args"
+        inside nix --option system "$system" run --no-write-lock-file "$ref" -- "${argv[@]}"
+      else
+        inside nix --option system "$system" run --no-write-lock-file "$ref"
+      fi
       ;;
     develop) interactive nix --option system "$system" develop --no-write-lock-file "$ref" -c bash ;;
   esac
