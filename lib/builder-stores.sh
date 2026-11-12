@@ -97,6 +97,10 @@ builder_quadlet() {
     printf 'SeccompProfile=%s\n' "$NIX_XD_INITIAL_SECCOMP_PATH"
   fi
   printf 'Exec=sleep infinity\n\n[Service]\n'
+  for mount_spec in ${data_mounts[@]+"${data_mounts[@]}"}; do
+    mount_source="${mount_spec%%:*}"
+    printf 'ExecStartPre=/usr/bin/podman volume exists %s\n' "$mount_source"
+  done
   for ((i=0;i<builder_peer_count;i++)); do
     volume="${builder_peer_volumes[i]}"
     printf 'ExecStartPre=/usr/bin/podman volume exists %s\n' "$volume"
