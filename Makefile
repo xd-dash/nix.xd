@@ -406,6 +406,7 @@ check-static:
 	@bash bin/nix-xd-log "$(SCOPE)" check-static $(MAKE) --no-print-directory check-static-internal
 
 check-static-internal:
+	@python3 tests/ghxd-source-version.py
 	@python3 tests/tenant-storage.py
 	@python3 tests/bootstrap-profile.py
 	@bash tests/workspace-contract.sh
