@@ -28,12 +28,13 @@ esac
             env = dict(os.environ, PATH=str(root) + ':' + os.environ['PATH'],
                        CALLS=str(root / 'calls'), PAYLOAD=str(root / 'payload'),
                        WISP_SMOKE_REV='a' * 40, NIX_XD_SCOPE='owner',
-                       NIX_XD_MACHINE='test', NIX_XD_PROVIDER='podman')
+                       NIX_XD_MACHINE='test', NIX_XD_PROVIDER='podman',
+                       NIX_XD_WORKLOAD_FLAKE='/workspaces/selected-dated-checkout')
             result = subprocess.run(['bash', str(root / 'bin/nix-xd-wisp-go'), 'build'],
                                     env=env, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             calls = (root / 'calls').read_text()
-            self.assertIn('/workspaces/nix.xd#wispGoTools', calls)
+            self.assertIn('/workspaces/selected-dated-checkout#wispGoTools', calls)
             self.assertEqual(calls.count(' cat '), 2)
             self.assertNotIn('.ssh', calls)
             payload = (root / 'payload').read_text()
