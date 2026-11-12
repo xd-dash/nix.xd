@@ -174,8 +174,11 @@ reset_failed() {
   echo "RESET_FAILED profile=$profile archived=$archive status=$status; base disk and Ignition preserved"
 }
 start() {
+  mkdir -p "$state"
   [[ ! -e "$state/.qualify-starwisp.lock" ]] || fail 'VM qualification is already running'
-  mkdir "$state/.managed-start.lock" || fail 'Managed VM start is already running'
+  if ! mkdir "$state/.managed-start.lock" 2>/dev/null; then
+    fail 'Managed VM start is already running'
+  fi
   trap 'rmdir "$state/.managed-start.lock"' EXIT
   preflight
   local status cid recorded actual_image recorded_artifacts
