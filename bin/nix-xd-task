@@ -4,6 +4,7 @@ set -euo pipefail
 action="${1:?Action required}"
 provider="${NIX_XD_PROVIDER:-podman}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+system="${NIX_XD_SYSTEM:-aarch64-linux}"
 root="${NIX_XD_WORKSPACES:-$HOME/workspace/nix.xd}"
 checkout="${NIX_XD_CHECKOUT:-}"
 flake="${NIX_XD_FLAKE:-.}"
@@ -14,6 +15,7 @@ cmd="${NIX_XD_CMD:-nix --version}"
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$provider" == podman || "$provider" == container ]] || fail "Unsupported provider: $provider"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid scope"
+[[ "$system" == aarch64-linux ]] || fail "ARM runner requires aarch64-linux"
 runtime="$provider"
 if [[ "$provider" == container ]]; then
   [[ "$(uname -s)" == Darwin ]] || fail "Apple container requires macOS"
@@ -59,17 +61,17 @@ flake_ref() {
 nix_task() {
   flake_ref
   case "$action" in
-    show) inside nix flake show --no-write-lock-file "$ref" ;;
-    check) inside nix flake check --no-write-lock-file "$ref" ;;
-    build) inside nix build --no-write-lock-file --no-link "$ref" ;;
-    path-info) inside nix path-info --no-write-lock-file "$ref" ;;
+    show) inside nix --option system "$system" flake show --no-write-lock-file "$ref" ;;
+    check) inside nix --option system "$system" flake check --no-write-lock-file "$ref" ;;
+    build) inside nix --option system "$system" build --no-write-lock-file --no-link "$ref" ;;
+    path-info) inside nix --option system "$system" path-info --no-write-lock-file "$ref" ;;
     run|qualify)
       local -a argv=()
       # Simple space-delimited arguments; use exec CMD=... for shell constructs.
       [[ -z "$args" ]] || read -r -a argv <<< "$args"
-      inside nix run --no-write-lock-file "$ref" -- "${argv[@]}"
+      inside nix --option system "$system" run --no-write-lock-file "$ref" -- "${argv[@]}"
       ;;
-    develop) interactive nix develop --no-write-lock-file "$ref" -c bash ;;
+    develop) interactive nix --option system "$system" develop --no-write-lock-file "$ref" -c bash ;;
   esac
 }
 
