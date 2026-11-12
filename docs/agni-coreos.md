@@ -118,3 +118,18 @@ make project-host-run PROJECT=agni20261111 APPLICATION=fatline ACTION=resource-q
 ```
 
 The host action selects the exact Smoke artifact flake itself; there is no manual Smoke build or `ARTIFACT_FLAKE` argument. The legacy Fatline-specific Python code remains temporarily in `nix.xd`; the generic dispatcher has no application-specific names or operation mapping. The old literal `fatline-resource-logmash-qualify` target is removed.
+
+## Native Nix-Alpine qualification (new path)
+
+Agni's `#resource-preflight` runs **inside Nix-Alpine**, cross-checks the host system is Linux, builds the pinned Smoke entry point as a native Linux executable, retains a Nix-store root, and reports its source and SHA-256 identity. It intentionally reports `AGNI_RESOURCE_QUALIFICATION=pending`, because VM1 currently holds host-side SSH trust and Redis credential files and the generic guest binding has not been established inside Nix-Alpine.
+
+Use the existing generic Make dispatcher to qualify the first step; the project-specific `project-host-run` transition is not required:
+
+```sh
+make stage PROVIDER=podman ARCH=arm64 SCOPE=nix-xd-arm WORKSPACES="$HOME/workspace" CHECKOUT=agni20261111
+make run PROVIDER=podman ARCH=arm64 SCOPE=nix-xd-arm FLAKE=agni20261111/local/fatline TARGET='#resource-preflight'
+```
+
+To supply additional runtime files at **container creation** time, the reusable Podman Quadlet supports `DATA_MOUNTS='name:/run/nix-xd/mounts/alias:ro|rw ...'`. Only already-existing named volumes are accepted; mounts are constrained to `/run/nix-xd/mounts` and do not overlap the authoritative Nix store. This does **not** add mounts to an already-running container. Host file shares into the Podman Machine and 9P mounts into CoreOS are distinct capabilities; they must be bound and qualified separately rather than presuming that a macOS path is visible inside Nix-Alpine or CoreOS.
+
+SSH private keys should use a dedicated least-privilege runtime mount, not an indiscriminate shared store or evidence volume. The follow-on runtime gate must verify guest reachability, trust-path identity, scoped credentials, and resource readback before claiming Fatline resource qualification. The existing VM1 services stay intact.
