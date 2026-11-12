@@ -336,6 +336,8 @@ check-static-internal:
 	@python3 tests/fatline-logmash.py
 	@python3 tests/composition-artifact.py
 	@bash tests/project-host-run-contract.sh
+	@python3 tests/runtime-grants.py
+	@bash -n bin/nix-xd-grants-host-share-qualify
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
