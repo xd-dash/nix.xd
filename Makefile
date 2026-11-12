@@ -290,6 +290,10 @@ vm-state-preflight:
 	@NIX_XD_MACHINE='$(MACHINE)' bash bin/nix-xd-vm-state-preflight '$(VM_CONTAINER)' '$(VM_INSTANCE)'
 
 # Generic declared workload storage grants; never reads volume payloads.
+.PHONY: grants-host-share-qualify
+grants-host-share-qualify:
+	@NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-grants-host-share-qualify
+
 .PHONY: grants-plan grants-render grants-verify
 grants-plan grants-render:
 	@test -n "$(GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
