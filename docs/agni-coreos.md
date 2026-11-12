@@ -90,3 +90,25 @@ The original Agni activation plan may remain pinned at its validated revision wh
 Subsequent `fatline-services-qualify` uses the persisted probe executable, even when the override is omitted. A failed qualification stays unqualified. Do not change `COMPOSITION_REV` from the active machine-plan revision during this operation; the host controller still requires exact existing provenance.
 
 The Logma `/lifecycle/readyz` endpoint returns an authenticated plain-text `ready` response, not JSON. The probe validates HTTP 200 and the plain-text readiness contract, while Skymill message/delivery endpoints continue using JSON decoding. After qualification, promote the corrected probe revision into a new Agni machine plan through an explicit composition migration, not by silently changing an active plan.
+
+## Composition-owned Smoke host artifact (transitional)
+
+The currently running VM1 keeps the selected composition revision `5442e5f9b13479edefb55cfa3c3cd518e199ad5c` and its provisioned application binaries. Do not rebind the active plan to test the host tool.
+
+Agni now exposes `#smoke-host-artifact`, which executes inside the Nix-Alpine owner, fetches the exact Smoke source revision through Nix, cross-compiles the `cmd/smoke-wisp` Go entry point for `darwin/arm64`, adds the executable to the owner's Nix store, and installs a stable GC root. This is an **explicitly effectful Nix app** rather than a hermetic derivation: module downloads happen at runtime under the pinned `go.mod`/`go.sum`, and the Nix owner reports the resulting SHA-256. Do not claim binary reproducibility until a fixed-output vendoring derivation is qualified.
+
+The generic `composition_artifact` exporter copies the exact store file through the configured Podman machine connection, checks the SHA-256 before atomic publication, and produces provenance evidence. The Fatline application gate requests this dependency automatically; no separate `wisp-go-build` target or manually synchronized `WISP_SMOKE_REV` is needed.
+
+For an **old VM1 plan** that predates the `hostArtifacts` field, pass the pinned artifact flake explicitly:
+
+```sh
+make fatline-resource-logmash-qualify PROVIDER=podman ARCH=arm64 SCOPE=nix-xd-arm \
+  COREOS_NIX_STORE_VOLUME=nix-xd-arm-store COREOS_SSH_KEY="$HOME/.ssh/starwisp-test" \
+  WORKLOAD_FLAKE=/workspaces/nix.xd20261111 WORKLOAD_REV="$(git rev-parse HEAD)" \
+  COMPOSITION_FLAKE=/workspaces/agni20261111/local/fatline \
+  COMPOSITION_REV=5442e5f9b13479edefb55cfa3c3cd518e199ad5c \
+  ARTIFACT_FLAKE='github:dash-xd/agni/f3331e2b16cfaf19fb0fc409d82754bf7532fca8?dir=local/fatline' \
+  FATLINE_PROFILE=vm1
+```
+
+Future plans declare the artifact app, flake, source revision and host target themselves; the application gate then requires no `ARTIFACT_FLAKE` override. These targets are compatibility entry points, not the final Agni-owned controller: application-specific host orchestration, including remaining Wisp, Fatline and Astrochicken targets, must move out of `nix.xd` after qualification.
