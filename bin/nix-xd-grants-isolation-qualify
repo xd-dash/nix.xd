@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+machine="${NIX_XD_MACHINE:?Select Podman Machine}"
+scope="${NIX_XD_GRANT_FIXTURE_SCOPE:-grants-qualify}"
+image="${NIX_XD_IMAGE:?Select existing locally cached image}"
+[[ "$(uname -s)" == Darwin ]] || { echo 'This adapter runs from macOS' >&2; exit 2; }
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,25}$ ]] || exit 2
+[[ "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || exit 2
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || exit 1
+printf -v args '%q ' "$scope" "$image"
+exec 3< "$repo/runtime/grants-isolation-qualify.sh"
+podman machine ssh "$machine" "bash -se -- $args" <&3
