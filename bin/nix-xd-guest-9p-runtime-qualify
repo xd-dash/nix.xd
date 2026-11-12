@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+manifest="${COREOS_9P_GRANTS_FILE:?Set COREOS_9P_GRANTS_FILE}"
+state_root="${COREOS_STATE_ROOT:?Set independent COREOS_STATE_ROOT}"
+artifact_root="${COREOS_ARTIFACT_STATE:?Set existing read-only CoreOS artifact state}"
+profile="${COREOS_PROFILE:-starwisp}"
+port="${COREOS_SSH_PORT:?Select alternate SSH port}"
+container="${COREOS_CONTAINER_NAME:?Select unique CoreOS container}"
+[[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
+[[ "$container" =~ ^[a-z][a-z0-9-]{0,63}$ && "$container" != coreos-starwisp ]] || exit 2
+[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 && port != 2222 )) || exit 2
+[[ -d "$artifact_root" && -f "$artifact_root/build.txt" ]] || {
+  echo 'Missing existing base artifacts' >&2; exit 1;
+}
+[[ "$state_root" != "${artifact_root%/$profile}" ]] || { echo 'Guest state must differ from base artifacts' >&2; exit 2; }
+[[ -n "${COREOS_IGNITION_OUTPUT:-}" && -n "${COREOS_BUTANE_PROFILE:-}" ]] || {
+  echo 'Select an Agni guest 9P Butane profile and Ignition output' >&2; exit 2;
+}
+[[ -r "${COREOS_SSH_KEY:-}" && -r "${COREOS_SSH_PUBLIC_KEY:-}" ]] || {
+  echo 'SSH identity and public key are required' >&2; exit 2;
+}
+[[ -z "${COREOS_GUEST_PROBE_ROOTFS:-}" && -z "${COREOS_GUEST_OCI_ARCHIVE:-}" ]] || {
+  echo 'Unexpected nested store probe configuration' >&2; exit 2;
+}
+python3 "$repo/lib/guest_9p_grants.py" preflight "$manifest" --machine "${NIX_XD_MACHINE:-coreos-arm64}"
+# A normal state volume can be seeded once without altering the original guest.
+bash "$repo/bin/nix-xd-guest-9p-seed"
+guest_state="$state_root/$profile"
+if [[ ! -f "$guest_state/config.ign" ]]; then
+  bash "$repo/bin/nix-xd-coreos-podman" ignition
+fi
+boot_requested=0
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  if (( boot_requested )); then
+    bash "$repo/bin/nix-xd-coreos-podman" stop || rc=1
+  fi
+  printf 'GUEST_9P_RUNTIME_EXIT=%s evidence=%s\n' "$rc" "$guest_state"
+  exit "$rc"
+}
+trap cleanup EXIT
+boot_requested=1
+bash "$repo/bin/nix-xd-coreos-podman" start
+bash "$repo/bin/nix-xd-wisp-ssh"
+bash "$repo/bin/nix-xd-guest-9p-qualify"
+echo 'GUEST_9P_RUNTIME_RESULT=passed'
