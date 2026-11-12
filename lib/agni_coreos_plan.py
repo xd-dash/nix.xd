@@ -17,11 +17,11 @@ SHA = re.compile(r"[0-9a-f]{40}")
 def resolve(runtime, profile, env=None):
     env = os.environ if env is None else env
     require(profile in ("vm1", "vm2"), "Select vm1 or vm2")
-    flake = env.get("NIX_XD_AGNI_FLAKE", "")
-    revision = env.get("NIX_XD_AGNI_REV", "")
-    require(SHA.fullmatch(revision), "Pin NIX_XD_AGNI_REV to the staged Agni commit")
+    flake = env.get("NIX_XD_COMPOSITION_FLAKE", "")
+    revision = env.get("NIX_XD_COMPOSITION_REV", "")
+    require(SHA.fullmatch(revision), "Pin NIX_XD_COMPOSITION_REV to the selected composition commit")
     require(re.fullmatch(r"/workspaces/[A-Za-z0-9_.-]+/local/fatline", flake),
-            "NIX_XD_AGNI_FLAKE must select a staged Agni Fatline checkout")
+            "NIX_XD_COMPOSITION_FLAKE must select a staged Fatline composition checkout")
     checkout = flake.removesuffix("/local/fatline")
     staged = runtime.owner("cat", checkout + "/.nix-xd-source-revision")
     require(staged == revision, "Staged Agni revision differs from the selected immutable commit")
