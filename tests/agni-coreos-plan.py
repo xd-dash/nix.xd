@@ -63,6 +63,30 @@ class Selection(unittest.TestCase):
         self.assertEqual(evidence["planSha256"], hashlib.sha256(stub.plan.encode()).hexdigest())
         self.assertIn("--no-update-lock-file", stub.calls[2])
 
+    def test_legacy_plan_keeps_exact_manifest_shape(self):
+        stub = Stub()
+        _, manifest = resolve(stub, "vm1", {
+            "NIX_XD_COMPOSITION_FLAKE": FLAKE, "NIX_XD_COMPOSITION_REV": SHA,
+            "NIX_XD_SYSTEM": "aarch64-linux"
+        })
+        self.assertNotIn("hostArtifacts", manifest)
+
+    def test_new_plan_binds_declared_host_artifacts(self):
+        stub = Stub()
+        plan = json.loads(stub.plan)
+        plan["hostArtifacts"] = {"smoke": {
+            "flake": "github:dash-xd/agni/" + SHA + "?dir=local/fatline",
+            "app": "smoke-host-artifact",
+            "sourceRevision": SHA,
+            "target": "darwin-arm64"
+        }}
+        stub.plan = json.dumps(plan)
+        _, manifest = resolve(stub, "vm1", {
+            "NIX_XD_COMPOSITION_FLAKE": FLAKE, "NIX_XD_COMPOSITION_REV": SHA,
+            "NIX_XD_SYSTEM": "aarch64-linux"
+        })
+        self.assertEqual(manifest["hostArtifacts"], plan["hostArtifacts"])
+
     def test_legacy_agni_variables_do_not_select_composition(self):
         stub = Stub()
         with self.assertRaisesRegex(ValueError, "NIX_XD_COMPOSITION_REV"):
