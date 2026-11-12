@@ -29,8 +29,9 @@ def resolve(runtime, profile, env=None):
     lock = json.loads(lock_raw)
     require(lock["nodes"]["root"]["inputs"].get("nix-alpine-runtime") == "nix-alpine-runtime",
             "Agni lock must pin nix-alpine-runtime")
-    require(SHA.fullmatch(lock["nodes"]["nix-alpine-runtime"]["locked"]["rev"]),
-            "Invalid Nix-Alpine runtime revision")
+    require(SHA.fullmatch(lock["nodes"]["nix-alpine-runtime"]["locked"]["rev"]) and
+            SHA.fullmatch(lock["nodes"]["nixpkgs"]["locked"]["rev"]),
+            "Agni lock contains an invalid runtime or nixpkgs revision")
     output = runtime.owner("nix", "build", "--no-update-lock-file", "--no-write-lock-file",
                            "--print-out-paths", "--no-link", flake + "#coreos-plan-" + profile)
     require(STORE_PATH.fullmatch(output), "Invalid Agni plan store output")
@@ -51,6 +52,7 @@ def resolve(runtime, profile, env=None):
         "planSha256": hashlib.sha256(raw.encode()).hexdigest(),
         "flakeLockSha256": hashlib.sha256(lock_raw.encode()).hexdigest(),
         "nixAlpineRevision": lock["nodes"]["nix-alpine-runtime"]["locked"]["rev"],
+        "nixpkgsRevision": lock["nodes"]["nixpkgs"]["locked"]["rev"],
         "componentRevisions": plan["componentRevisions"],
         "components": {
             "transport": plan["sources"]["agni"]["revision"],
