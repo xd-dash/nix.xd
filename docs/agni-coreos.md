@@ -56,3 +56,29 @@ Old Fatline state without the new immutable composition manifest is rejected; ma
 - Thin Makefile: dispatch and qualification gates.
 
 After VM1 qualifies, move the remaining Fatline-specific phase graph into Agni's orchestration app and retire the old `fatlinePlans`, controllers, and fixture only after confirming no other active callers.
+
+## Persistent CoreOS VM state and fresh bootstrap
+
+CoreOS state defaults to `$HOME/.local/state/nix-xd/coreos`, shared by dated source checkouts. The host launcher, SSH readiness helper, Makefile, and composition runtime agree on this default. `COREOS_STATE_ROOT` remains an explicit override. The state directory contains base and overlay qcow2 disks, Ignition, boot manifests and SSH evidence. It is not source code and is never deleted by daily workspace cleanup.
+
+If no previously prepared `starwisp/build.txt` exists, the VM cannot start merely because the Agni plan qualifies. From the dated `nix.xd` checkout, after staging Agni (including its `qemu/coreos-live/local` flake), provision the disposable VM artifacts **once**:
+
+```sh
+make coreos-container-build PROVIDER=podman SCOPE=nix-xd-arm \
+  COREOS_FLAKE=/workspaces/agni20261111/qemu/coreos-live/local \
+  COREOS_NIX_STORE_VOLUME=nix-xd-arm-store
+
+make coreos-ignition-build PROVIDER=podman SCOPE=nix-xd-arm \
+  COREOS_FLAKE=/workspaces/agni20261111/qemu/coreos-live/local \
+  COREOS_NIX_STORE_VOLUME=nix-xd-arm-store \
+  COREOS_SSH_PUBLIC_KEY="$HOME/.ssh/starwisp-test.pub"
+
+make coreos-preflight PROVIDER=podman SCOPE=nix-xd-arm \
+  COREOS_NIX_STORE_VOLUME=nix-xd-arm-store
+```
+
+The QEMU runner and Fedora CoreOS QCOW2 may require substantial downloads. The Ignition step requires an existing SSH public key; it is not created automatically. If an existing VM is still running with its disk mounted elsewhere, first reconcile that VM identity rather than constructing another overlay against its base.
+
+After preflight succeeds, run `fatline-vm-local` with the same state root (now default), `COREOS_NIX_STORE_VOLUME=nix-xd-arm-store`, and immutable Agni/Controller revisions. A missing or unqualified VM runner must fail before guest activation.
+
+Do not copy a live overlay between workspaces. Prefer a persistent state root; source checkout rotation must never relocate guest state.
