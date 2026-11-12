@@ -41,8 +41,8 @@ cleanup() {
   exit "$rc"
 }
 trap cleanup EXIT
-boot_requested=1
 bash "$repo/bin/nix-xd-coreos-podman" start
+boot_requested=1
 bash "$repo/bin/nix-xd-wisp-ssh"
 bash "$repo/bin/nix-xd-guest-9p-qualify"
 echo 'GUEST_9P_RUNTIME_RESULT=passed'
