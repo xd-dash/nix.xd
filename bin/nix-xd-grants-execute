@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+system="${NIX_XD_SYSTEM:-aarch64-linux}"
+image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
+manifest="${NIX_XD_GRANTS_FILE:?Select a workload grants manifest}"
+flake="${NIX_XD_FLAKE:?Select a staged flake}"
+target="${NIX_XD_TARGET:?Select a package output}"
+store="${NIX_XD_STORE_VOLUME:-$scope-store}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
+[[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] || exit 2
+[[ "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || exit 2
+[[ "$store" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$flake" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$flake" != *..* ]] || exit 2
+[[ "$target" =~ ^#[A-Za-z0-9_-]+$ ]] || exit 2
+python3 "$repo/lib/runtime_grants.py" plan "$manifest"
+# Only the selected secret + evidence shape is authorized by this gate.
+read -r secret evidence qualifier < <(python3 - "$repo/lib" "$manifest" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import runtime_grants
+document = runtime_grants.load(sys.argv[2])
+by_path = {g["destination"]: g for g in document["grants"]}
+if set(by_path) != {"/run/nix-xd/mounts/secrets", "/run/nix-xd/mounts/evidence"}:
+    raise SystemExit("Expected exact secret/evidence mounts")
+s = by_path["/run/nix-xd/mounts/secrets"]
+e = by_path["/run/nix-xd/mounts/evidence"]
+if not (s["access"] == "ro" and e["access"] == "rw" and
+        s["volume"].startswith("nix-xd-state-secret-") and
+        e["volume"].startswith("nix-xd-state-control-") and
+        s["writer"] != document["scope"]):
+    raise SystemExit("Invalid secret/evidence owner and access policy")
+print(s["volume"], e["volume"], document["scope"])
+PY
+)
+[[ -n "$secret" && -n "$evidence" && -n "$qualifier" ]] || exit 1
+p=(podman --connection "$machine")
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || exit 1
+[[ "$("${p[@]}" inspect "$scope" --format '{{.State.Running}}')" == true ]] || exit 1
+[[ "$("${p[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')" == "$store" ]] ||
+  { echo 'Authoritative Nix volume differs from runtime store' >&2; exit 1; }
+"${p[@]}" image exists "$image" || { echo 'Missing cached qualifier runtime image' >&2; exit 1; }
+for entry in "$secret" "$evidence"; do
+  "${p[@]}" volume exists "$entry" || { echo "Missing state volume $entry" >&2; exit 1; }
+  labels="$("${p[@]}" volume inspect "$entry" --format '{{json .Labels}}')"
+  python3 - "$entry" "$labels" <<'PY'
+import json,re,sys
+name=sys.argv[1]
+labels=json.loads(sys.argv[2])
+match=re.fullmatch(r"nix-xd-state-(secret|control)-([a-z][a-z0-9-]{0,39})",name)
+if not match or any((
+    labels.get("io.nix-xd.state.version") != "1",
+    labels.get("io.nix-xd.state.kind") != match.group(1),
+    labels.get("io.nix-xd.state.name") != match.group(2),
+)):
+    raise SystemExit("State-volume ownership mismatch")
+PY
+done
+# Ensure this intentionally isolated fixture does not take over a live workload's writable volume.
+ids="$("${p[@]}" ps -aq)"
+for id in $ids; do
+  for volume in "$secret" "$evidence"; do
+    attached="$("${p[@]}" inspect "$id" --format '{{range .Mounts}}{{if eq .Name "'$volume'"}}{{println .RW}}{{end}}{{end}}')"
+    [[ -z "$attached" ]] || { echo "Selected fixture volume already attached to container $id" >&2; exit 1; }
+  done
+done
+output="$("${p[@]}" exec "$scope" nix --option system "$system" build --no-write-lock-file --no-link --print-out-paths "/workspaces/$flake$target")"
+[[ "$output" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+$ ]] || {
+  echo 'Unexpected Nix package output' >&2; exit 1;
+}
+program="$output/bin/agni-secret-volume-fixture"
+"${p[@]}" exec "$scope" test -x "$program" || { echo 'Selected fixture executable missing' >&2; exit 1; }
+
+common=(--rm --pull=never --network none --read-only --cap-drop all
+  --tmpfs /tmp:rw,nosuid,nodev,mode=1777
+  --mount "type=volume,src=$store,dst=/nix,ro")
+# Ownership is initialized only for a *fresh*, entirely empty test volume.
+for volume in "$secret" "$evidence"; do
+  "${p[@]}" run --rm --pull=never --network none --cap-drop all \
+    --mount "type=volume,src=$volume,dst=/fixture" --entrypoint /bin/sh "$image" -ec '
+      test -z "$(ls -A /fixture)" || exit 0
+      chown 1000:1000 /fixture
+      chmod 0700 /fixture
+    '
+done
+# Initialize inside a separate writer container. Never copy a key through macOS or Nix.
+present="$("${p[@]}" run --rm --pull=never --network none --read-only --cap-drop all \
+  --user 1000:1000 --mount "type=volume,src=$secret,dst=/run/nix-xd/mounts/secrets,ro" \
+  --entrypoint /bin/sh "$image" -ec 'if test -f /run/nix-xd/mounts/secrets/identity.txt; then echo yes; else echo no; fi')"
+if [[ "$present" == no ]]; then
+  "${p[@]}" run "${common[@]}" --user 1000:1000 \
+    --mount "type=volume,src=$secret,dst=/run/nix-xd/mounts/secrets" \
+    --entrypoint "$program" "$image" init
+elif [[ "$present" != yes ]]; then
+  echo 'Unexpected secret identity presence result' >&2; exit 1
+fi
+"${p[@]}" run "${common[@]}" --user 1000:1000 \
+  --mount "type=volume,src=$secret,dst=/run/nix-xd/mounts/secrets,ro" \
+  --mount "type=volume,src=$evidence,dst=/run/nix-xd/mounts/evidence" \
+  --entrypoint "$program" "$image" verify
+printf 'GRANT_EXECUTION_RESULT=passed qualifier=%s secrets=ro evidence=rw\n' "$qualifier"
