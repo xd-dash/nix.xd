@@ -307,6 +307,7 @@ check-static-internal:
 	@python3 tests/builder-store-profile.py
 	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence bin/nix-xd-builder-store-qualify-fresh bin/nix-xd-builder-store-maintenance
 	@python3 tests/wisp-go-owner.py
+	@python3 tests/nix-task-contract.py
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
 	@bash tests/project-run-contract.sh
