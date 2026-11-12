@@ -12,6 +12,7 @@ cpus="${COREOS_CPUS:-2}"
 flake="${COREOS_FLAKE:-/workspaces/agni/qemu/coreos-live/local}"
 image="${COREOS_RUNNER_IMAGE:-localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64}"
 store_volume="${COREOS_NIX_STORE_VOLUME:-}"
+data_grants="${COREOS_9P_GRANTS_FILE:-}"
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ -z "$store_volume" || "$store_volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid shared Nix volume"
 [[ "$machine" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || fail 'Invalid machine'
@@ -88,7 +89,14 @@ ignition() {
   printf 'ignition_sha256=%s\nshared_nix_volume=%s\n' "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" "${store_volume:-none}" >> "$state/build.txt"
   echo "IGNITION_BUILT profile=$profile state=$state"
 }
+guest_data_preflight() {
+  [[ -n "$data_grants" ]] || return 0
+  [[ -f "$data_grants" ]] || fail 'Missing selected CoreOS 9P grants file'
+  python3 "$repo/lib/guest_9p_grants.py" preflight "$data_grants" --machine "$machine" ||
+    fail 'Unqualified CoreOS data-volume grants'
+}
 preflight() {
+  guest_data_preflight
   [[ -f "$artifacts/base.qcow2" ]] || fail 'Missing base.qcow2; run coreos-container-build'
   [[ -f "$artifacts/config.ign" ]] || fail 'Missing config.ign; export application-owned Ignition here'
   [[ -f "$state/build.txt" ]] || fail 'Missing build manifest'
@@ -117,7 +125,20 @@ boot() {
   id="$(runner_id)"
   "${p[@]}" run --rm --pull=never --volume "$state:/state:rw" --volume "$artifacts:/artifacts:ro" "$id" img create -q -f qcow2 -F qcow2 -b /artifacts/base.qcow2 /state/overlay.qcow2
   printf 'port=%s\nrunner=%s\nartifact_state=%s\n' "$port" "$id" "$artifacts" > "$state/manifest.txt"
+  if [[ -n "$data_grants" ]]; then
+    printf 'data_9p_sha256=%s\\n' "$(shasum -a 256 "$data_grants" | awk '{print $1}')" >> "$state/manifest.txt"
+  fi
   local mounts=(--volume "$artifacts:/artifacts:ro") qemu_mode=run
+  local qemu_data_args=() volume tag
+  if [[ -n "$data_grants" ]]; then
+    while read -r volume tag; do
+      [[ -n "$volume" && -n "$tag" ]] || fail 'Invalid 9P grant tuple'
+      mounts+=(--mount "type=volume,src=$volume,dst=/run/nix-xd/9p/$tag,ro")
+      qemu_data_args+=(-fsdev "local,id=$tag,path=/run/nix-xd/9p/$tag,security_model=none,readonly=on")
+      qemu_data_args+=(-device "virtio-9p-pci,fsdev=$tag,mount_tag=$tag")
+    done < <(python3 "$repo/lib/guest_9p_grants.py" pairs "$data_grants")
+    [[ ${#qemu_data_args[@]} -gt 0 ]] || fail 'No selected 9P grants'
+  fi
   if [[ -n "$store_volume" ]]; then
     mounts+=(--mount "type=volume,src=$store_volume,dst=/host-nix,ro")
     qemu_mode=run-shared-nix
@@ -129,6 +150,7 @@ boot() {
     -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m "$ram" -smp "$cpus" \
     -drive if=none,id=disk0,file=/state/overlay.qcow2,format=qcow2 \
     -device virtio-blk-pci,drive=disk0 \
+    "${qemu_data_args[@]}" \
     -fw_cfg name=opt/com.coreos/config,file=/artifacts/config.ign \
     -netdev user,id=n0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=n0 \
     -display none -serial file:/state/serial.log -monitor none)"
@@ -187,6 +209,15 @@ start() {
     recorded="$(sed -n 's/^container_id=//p' "$state/manifest.txt")"
     if [[ "$status" == running || "$recorded" == "$cid" ]]; then
       [[ "$recorded" == "$cid" ]] || fail 'Running VM lacks matching managed container identity'
+      local recorded_grants expected_grants
+      recorded_grants="$(sed -n 's/^data_9p_sha256=//p' "$state/manifest.txt")"
+      expected_grants=""
+      if [[ -n "$data_grants" ]]; then
+        guest_data_preflight
+        expected_grants="$(shasum -a 256 "$data_grants" | awk '{print $1}')"
+      fi
+      [[ "$recorded_grants" == "$expected_grants" ]] ||
+        fail 'Existing guest 9P grant identity differs; no in-place mount changes allowed'
       recorded_artifacts="$(sed -n 's/^artifact_state=//p' "$state/manifest.txt")"
       [[ "$recorded_artifacts" == "$artifacts" || ( -z "$recorded_artifacts" && "$artifacts" == "$state" ) ]] || fail 'VM artifact binding changed'
       grep -Fxq "port=$port" "$state/manifest.txt" || fail 'VM SSH port differs from recorded boot'
