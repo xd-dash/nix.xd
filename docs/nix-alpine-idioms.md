@@ -57,14 +57,24 @@ cd "$(make -s workspace-path WORKSPACE_VERSION=20261112)"
 make workspace-check
 ```
 
-Use `make ghxd GHXD_ACTION=source-sync GHXD_SOURCE_MANIFEST=...` for
-the pinned component source set, then a dated Agni flake checkout:
+The generic interface takes **FLAKE**, **TARGET** and **ARGS** from the
+caller. No project name, scenario or phase is a nix.xd Make variable or
+Make target. For example, after a caller supplies a pinned source manifest:
 
 ```sh
-make run FLAKE=agni20261112/local/fatline \
+make ghxd GHXD_ACTION=source-sync GHXD_SOURCE_MANIFEST=/absolute/path/to/source-manifest.json
+make ghxd-source-version-check GHXD_SOURCE_MANIFEST=/absolute/path/to/source-manifest.json
+make qualify QUALIFY_APP=1 \
+  FLAKE=agni20261112/local/fatline \
   TARGET='#qualify-integration' \
   ARGS='--scenario probot-webhook --phase service-profile'
 ```
+
+The names `probot-webhook` and `service-profile` above are **opaque arguments
+to Agni**. The generic Nix-Alpine dispatcher never branches on these values.
+Other flakes can expose entirely different app names and argument conventions.
+`QUALIFY_APP=1` selects Nix app execution through the already existing
+generic `qualify` target.
 
 Use a new manifest with a new date for a new candidate; do not quietly
 rebind an existing checkout. Do not put credentials, GitHub tokens or
@@ -73,10 +83,12 @@ application configuration values into dated source names or derivations.
 ## Qualification
 
 Run `make workspace-check` and `make check-static` for workspace
-contracts. New VM1 GHXD candidate manifests must also pass
-`make ghxd-source-version-check`, which verifies date-only checkout
-names and exact source SHAs. This validation is additive; older GHXD
-manifests remain readable to preserve prior qualification evidence.
+contracts. For a selected new GHXD candidate manifest, run
+`make ghxd-source-version-check GHXD_SOURCE_MANIFEST=/path/to/manifest.json`
+to verify date-only checkout names and exact source SHAs. The manifest is
+selected by the caller: no application-specific path is supplied by nix.xd.
+This validation is additive; older GHXD manifests remain readable to
+preserve prior qualification evidence.
 
 Live guest activation is a separate, effectful phase. Source syncing,
 Nix building, service-profile rendering and ACL candidate checks must
