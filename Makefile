@@ -446,6 +446,8 @@ export NIX_XD_COMPOSITION_FLAKE = $(COMPOSITION_FLAKE)
 export NIX_XD_COMPOSITION_REV = $(COMPOSITION_REV)
 FATLINE_PROBE_REV ?=
 export NIX_XD_FATLINE_PROBE_REV = $(FATLINE_PROBE_REV)
+ARTIFACT_FLAKE ?=
+export NIX_XD_ARTIFACT_FLAKE = $(ARTIFACT_FLAKE)
 
 .PHONY: agni-coreos-plan-check
 agni-coreos-plan-check:
@@ -551,7 +553,7 @@ builder-store-plan:
 fatline-resource-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-resource-phases
 fatline-resource-phases:
-	@$(MAKE) --no-print-directory -j1 -S wisp-go-build fatline-services-configure-logma fatline-resource-logmash-qualify
+	@$(MAKE) --no-print-directory -j1 -S fatline-services-configure-logma fatline-resource-logmash-qualify
 fatline-resource-logmash-qualify:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_logmash.py --resource
 
@@ -564,7 +566,7 @@ fatline-vm-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-vm-phases
 fatline-vm-phases:
 	@$(MAKE) --no-print-directory agni-coreos-plan-check
-	@$(MAKE) --no-print-directory -j1 -S wisp-go-build fatline-vm-start fatline-prepare fatline-start fatline-adapter-refresh fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-configure-logma fatline-resource-logmash-qualify fatline-services-status
+	@$(MAKE) --no-print-directory -j1 -S fatline-vm-start fatline-prepare fatline-start fatline-adapter-refresh fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-configure-logma fatline-resource-logmash-qualify fatline-services-status
 wisp-go-linux:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go linux
 fatline-cross-qualify:
