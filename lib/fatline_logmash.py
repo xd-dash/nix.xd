@@ -39,26 +39,30 @@ def qualify(link, resource=False):
     root = link.root
     result = root / ('resource-logmash-qualification.json' if resource else 'logmash-qualification.json')
     write_json(result, {'result':'running', 'gate':'smoke-logmash-wisp'})
-    selected = link.config.get('hostArtifacts', {}).get('smoke')
-    artifact_flake = os.environ.get('NIX_XD_ARTIFACT_FLAKE', '')
-    if selected:
-        require(not artifact_flake or artifact_flake == selected['flake'],
-                'Artifact flake override differs from selected composition')
-        artifact_flake = selected['flake']
-        app = selected['app']
-        target = selected['target']
-    else:
-        require(artifact_flake, 'Select ARTIFACT_FLAKE for the legacy composition plan')
-        app = 'smoke-host-artifact'
-        target = 'darwin-arm64'
-    artifact = export_executable(link.runtime, artifact_flake, app,
-                                 REPO / '.state/composition-artifacts/smoke', target)
-    binary = Path(artifact['path'])
-    revision = artifact['sourceRevision']
-    if selected:
-        require(revision == selected['sourceRevision'],
-                'Exported tool does not match selected composition')
-    print('FATLINE_SMOKE_ARTIFACT=passed source=' + revision + ' sha256=' + artifact['sha256'], flush=True)
+    try:
+        selected = link.config.get('hostArtifacts', {}).get('smoke')
+        artifact_flake = os.environ.get('NIX_XD_ARTIFACT_FLAKE', '')
+        if selected:
+            require(not artifact_flake or artifact_flake == selected['flake'],
+                    'Artifact flake override differs from selected composition')
+            artifact_flake = selected['flake']
+            app = selected['app']
+            target = selected['target']
+        else:
+            require(artifact_flake, 'Select ARTIFACT_FLAKE for the legacy composition plan')
+            app = 'smoke-host-artifact'
+            target = 'darwin-arm64'
+        artifact = export_executable(link.runtime, artifact_flake, app,
+                                     REPO / '.state/composition-artifacts/smoke', target)
+        binary = Path(artifact['path'])
+        revision = artifact['sourceRevision']
+        if selected:
+            require(revision == selected['sourceRevision'],
+                    'Exported tool does not match selected composition')
+        print('FATLINE_SMOKE_ARTIFACT=passed source=' + revision + ' sha256=' + artifact['sha256'], flush=True)
+    except (ValueError, OSError, subprocess.SubprocessError):
+        write_json(result, {'result':'failed', 'gate':'smoke-logmash-wisp', 'phase':'host-artifact'})
+        raise
     link.guest('status')
     link.guest('check')
     config = json.loads((root / 'credentials/subscriber.json').read_text())
