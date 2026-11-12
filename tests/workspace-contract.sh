@@ -43,6 +43,15 @@ if run open > /dev/null 2>&1; then exit 1; fi
 git -C "$tmp/source" branch v20261113
 NIX_XD_WORKSPACE_VERSION=20261113 NIX_XD_WORKSPACE_BASE=v20261113 run open > /dev/null
 [[ $(git -C "$NIX_XD_WORKSPACE_ROOT/source20261113" branch --show-current) == v20261113 ]]
+# An existing dated remote branch wins over the default branch on a fresh checkout.
+echo dated-remote > "$tmp/source/file"
+git -C "$tmp/source" add file
+git -C "$tmp/source" commit -qm dated-remote
+git -C "$tmp/source" branch v20261114
+git -C "$tmp/source" reset -q --hard HEAD^
+NIX_XD_WORKSPACE_VERSION=20261114 NIX_XD_WORKSPACE_BASE=main run open > /dev/null
+[[ $(cat "$NIX_XD_WORKSPACE_ROOT/source20261114/file") == dated-remote ]]
+[[ $(git -C "$NIX_XD_WORKSPACE_ROOT/source20261114" rev-parse --abbrev-ref '@{upstream}') == origin/v20261114 ]]
 mkdir -p "$NIX_XD_WORKSPACE_ROOT/source" "$NIX_XD_WORKSPACE_ROOT/source-fresh" "$NIX_XD_WORKSPACE_ROOT/source-consolidated"
 mkdir -p "$NIX_XD_WORKSPACE_ROOT/grumble" "$NIX_XD_WORKSPACE_ROOT/source-tools" "$NIX_XD_WORKSPACE_ROOT/source20261201"
 echo stale > "$NIX_XD_WORKSPACE_ROOT/source/file"
@@ -68,8 +77,8 @@ for stale in source source-fresh source-consolidated source20261110 source202611
   [[ ! -e $NIX_XD_WORKSPACE_ROOT/$stale ]]
 done
 if git -C "$tmp/source" worktree list --porcelain | grep -Fq "$NIX_XD_WORKSPACE_ROOT/source20261110"; then exit 1; fi
-for keep in source20261113 source20261201 source-tools grumble; do
+for keep in source20261113 source20261114 source20261201 source-tools grumble; do
   [[ -d $NIX_XD_WORKSPACE_ROOT/$keep ]]
 done
-if NIX_XD_WORKSPACE_VERSION=20261114 run clean > /dev/null 2>&1; then exit 1; fi
+if NIX_XD_WORKSPACE_VERSION=20261115 run clean > /dev/null 2>&1; then exit 1; fi
 echo WORKSPACE_CONTRACT=passed
