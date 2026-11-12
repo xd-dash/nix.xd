@@ -318,6 +318,13 @@ grants-isolation-qualify:
 grants-host-share-qualify:
 	@NIX_XD_MACHINE="$(MACHINE)" NIX_XD_SCOPE="$(SCOPE)" NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-grants-host-share-qualify
 
+PROGRAM ?=
+.PHONY: grants-execute
+grants-execute:
+	@test "$(PROVIDER)" = podman || { echo 'Rootless Podman provider required' >&2; exit 2; }
+	@test -n "$(GRANTS_FILE)" -a -n "$(PROGRAM)" -a -n "$(TARGET)" || { echo 'GRANTS_FILE, PROGRAM and TARGET are required' >&2; exit 2; }
+	@$(TASK_ENV) NIX_XD_IMAGE='$(IMAGE)' NIX_XD_PROGRAM='$(PROGRAM)' NIX_XD_STORE_VOLUME='$(SCOPE)-store' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-grants-execute
+
 .PHONY: grants-plan grants-render grants-verify
 grants-plan grants-render:
 	@test -n "$(GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
@@ -367,6 +374,7 @@ check-static-internal:
 	@bash -n bin/nix-xd-coreos-podman
 	@bash -n bin/nix-xd-guest-9p-seed bin/nix-xd-guest-9p-qualify
 	@bash -n bin/nix-xd-guest-9p-runtime-qualify
+	@bash -n bin/nix-xd-grants-execute
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
