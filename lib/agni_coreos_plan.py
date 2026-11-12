@@ -39,8 +39,7 @@ def resolve(runtime, profile, env=None):
     require(plan["schema"] == 1 and plan["system"] == env["NIX_XD_SYSTEM"] and
             plan["scope"] == "fatline-arm-" + profile and
             plan["sourceSelection"]["immutableRevisionRequired"] and
-            not plan["sourceSelection"]["mutableBranchAllowed"] and
-            not plan["fullFatlineQualified"], "Invalid Agni machine plan binding")
+            not plan["sourceSelection"]["mutableBranchAllowed"], "Invalid Agni machine plan binding")
     manifest = {
         "schema": 1,
         "agniRepository": "dash-xd/agni",
