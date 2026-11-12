@@ -561,6 +561,7 @@ fatline-vm-start:
 fatline-vm-local:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-vm-phases
 fatline-vm-phases:
+	@$(MAKE) --no-print-directory agni-coreos-plan-check
 	@$(MAKE) --no-print-directory -j1 -S fatline-vm-start fatline-prepare fatline-start fatline-adapter-refresh fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-configure-logma fatline-resource-logmash-qualify fatline-services-status
 wisp-go-linux:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go linux
