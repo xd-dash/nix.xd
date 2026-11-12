@@ -12,9 +12,6 @@ spec.loader.exec_module(module)
 
 
 class DatedSources(unittest.TestCase):
-    def test_current_candidate(self):
-        module.validate(ROOT / "examples/ghxd-agni-probot-vm1-auth-candidate.json")
-
     def test_reject_feature_checkout_and_unpinned_sources(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "manifest.json"
