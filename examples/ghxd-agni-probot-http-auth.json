@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "scope": "controller-bootstrap",
+  "sources": {
+    "agni": {
+      "repository": "dash-xd/agni",
+      "revision": "d0b8aa8a8f9df6463aaa240fe9493cd63edb68b5",
+      "checkout": "agni-ghxd-v11"
+    },
+    "skymill": {
+      "repository": "xd-dash/skymill",
+      "revision": "ef1a6d4924ae6e5f359294b8c80ac37552a94aee",
+      "checkout": "skymill-integration-v2"
+    }
+  }
+}
