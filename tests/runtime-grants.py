@@ -49,6 +49,20 @@ class GrantContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Only declared writer"):
             parse(record)
 
+    def test_secret_volume_uses_same_mount_contract(self):
+        record = fixture()
+        record["grants"][0]["volume"] = "nix-xd-state-secret-qualification"
+        record["grants"][0]["writer"] = "secrets-owner"
+        selected = parse(record)
+        self.assertEqual(grants.mounts(selected),
+                         "nix-xd-state-secret-qualification:" + DEST + ":ro")
+        record["grants"][0]["access"] = "rw"
+        with self.assertRaisesRegex(ValueError, "Secret volume writable only"):
+            parse(record)
+        record["grants"][0]["writer"] = SCOPE
+        self.assertEqual(grants.mounts(parse(record)),
+                         "nix-xd-state-secret-qualification:" + DEST + ":rw")
+
     def test_rejects_ambiguous_and_unsafe_grants(self):
         for changed in (
             {"volume": "foreign-tenant-private"},
