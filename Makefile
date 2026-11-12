@@ -36,7 +36,9 @@ SCOPE ?= $(if $(filter arm64,$(ARCH)),nix-xd-arm,nix-xd-amd64)
 IMAGE ?= localhost/nix-xd:$(ARCH)
 WORKSPACES ?= $(abspath $(CURDIR)/..)
 DATA_MOUNTS ?=
+GRANTS_FILE ?=
 export NIX_XD_DATA_MOUNTS = $(DATA_MOUNTS)
+export NIX_XD_GRANTS_FILE = $(GRANTS_FILE)
 REPO ?=
 BRANCH ?= main
 REV ?=
@@ -286,6 +288,15 @@ VM_INSTANCE ?=
 
 vm-state-preflight:
 	@NIX_XD_MACHINE='$(MACHINE)' bash bin/nix-xd-vm-state-preflight '$(VM_CONTAINER)' '$(VM_INSTANCE)'
+
+# Generic declared workload storage grants; never reads volume payloads.
+.PHONY: grants-plan grants-render grants-verify
+grants-plan grants-render:
+	@test -n "$(GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
+	@python3 lib/runtime_grants.py $(patsubst grants-%,%,$@) "$(GRANTS_FILE)"
+grants-verify:
+	@test -n "$(GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
+	@python3 lib/runtime_grants.py verify "$(GRANTS_FILE)" --machine "$(MACHINE)" --scope "$(SCOPE)"
 
 .PHONY: state-volume-plan state-volume-provision state-volume-inspect state-volume-export
 STATE_KIND ?= control
