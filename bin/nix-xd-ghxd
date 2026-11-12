@@ -19,8 +19,8 @@ manifest="${NIX_XD_GHXD_MANIFEST:-}"
 [[ "$flake" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$flake" != *..* ]] || exit 2
 [[ "$build_app" =~ ^#[A-Za-z0-9_-]+$ && "$package" =~ ^#[A-Za-z0-9_-]+$ ]] || exit 2
 [[ "$program" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || exit 2
-[[ "$action" != source-sync || -r "$manifest" ]] || {
-  echo 'GHXD source-sync requires a readable SOURCE_MANIFEST' >&2; exit 2;
+[[ "$action" != source-sync || -n "$manifest" ]] || {
+  echo 'GHXD source-sync requires GHXD_SOURCE_MANIFEST' >&2; exit 2;
 }
 p=(podman --connection "$machine")
 [[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || exit 1
@@ -94,19 +94,25 @@ if [[ "$action" == auth-start ]]; then
 fi
 
 if [[ "$action" == source-sync ]]; then
-  # The manifest contains only public repository metadata and exact SHAs.
-  cat "$manifest" | "${p[@]}" run -i "${common[@]}" "$image" "$action"
-  rows="$(python3 - "$manifest" <<'PY'
+  # The source selector is non-secret; it may be on macOS or in the Nix-Alpine owner.
+  if [[ "$manifest" == /workspaces/* ]]; then
+    [[ "$manifest" =~ ^/workspaces/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*[.]json$ && "$manifest" != *..* ]] || exit 2
+    manifest_payload="$("${p[@]}" exec "$scope" cat "$manifest")"
+  else
+    [[ -r "$manifest" ]] || { echo 'Unreadable source manifest' >&2; exit 2; }
+    manifest_payload="$(cat "$manifest")"
+  fi
+  printf '%s\n' "$manifest_payload" | "${p[@]}" run -i "${common[@]}" "$image" "$action"
+  rows="$(python3 -c '
 import json,re,sys
-d=json.load(open(sys.argv[1]))
+d=json.load(sys.stdin)
 if d.get("schema") != 1 or not isinstance(d.get("sources"),dict): raise SystemExit("Invalid source manifest")
 for item in d["sources"].values():
     checkout=item["checkout"]; sha=item["revision"]
     if not re.fullmatch(r"[a-z][a-z0-9-]{1,63}",checkout): raise SystemExit("Unsafe checkout")
     if not re.fullmatch(r"[0-9a-f]{40}",sha): raise SystemExit("Invalid SHA")
-    print(checkout+"\t"+sha)
-PY
-)"
+    print(checkout+"\\t"+sha)
+' <<< "$manifest_payload")"
   while IFS=$'\t' read -r checkout sha; do
     [[ -n "$checkout" ]] || continue
     destination="/workspaces/$checkout"
