@@ -77,17 +77,53 @@ Host source management belongs in Make. Building and running project flakes
 continues through Nix-Alpine. Shared stores, runtime state and the overridden log
 directory are independent of these dated source paths.
 
-## Private GitHub acquisition through Smoke ghxd (ARM Nix-Alpine)
+## Smoke ghxd source acquisition in Nix-Alpine (no host Git login)
 
-`workspace` and `sync` currently use host Git and are **not** a suitable private-repository bootstrap when macOS has no GitHub credentials. `stage` copies a committed host checkout, it does not fetch one. Do not put GitHub tokens into Git origin URLs, Nix source derivations, CLI argument strings, or Make logs.
+`make workspace` and `make sync` remain developer-facing host Git operations. For authenticated pinned qualification inputs use `make ghxd` instead; it does not invoke host `git clone`, `gh auth login`, or save a macOS Git credential.
 
-Use `make ghxd-auth-inventory PROVIDER=podman MACHINE=... SCOPE=...` to inspect the selected Nix-Alpine owner's likely encrypted GHXD credential paths and known age volume names. This check is read-only, prints metadata only, and **cannot establish token validity or decryptability**. Historical Smoke credentials were held as `.private/sops/ghxd.enc.json`, with a separate age identity; a rebootstrap may have removed either. The Fatline SOPS/age synthetic fixture volume is **not** a GitHub OAuth credential.
+The generic GHXD runner requires a staged application flake with `#ghxd-source-build` and `#ghxd-operator` (Agni's local Fatline flake supplies both). Source build happens **inside the authoritative Nix-Alpine owner** using a pinned Smoke revision and registers a Nix GC root. The separate one-shot Podman operator consumes the same Nix store **read-only**. No GitHub credential, age identity, or decrypted token is mounted into the writer.
 
-The intended next source-acquisition adapter is:
-1. Make selects an application-owned exact source manifest (repository, SHA, checkout name); it never selects the remote head by accident.
-2. In the Nix-Alpine authoritative writer, build the pinned Smoke `github-worktree` implementation and its runtime closure.
-3. A one-shot rootless credential reader mounts only the **actual** GHXD encrypted credential and age identity read-only, plus the writer-built Nix closure read-only. Decrypt at runtime outside Nix, refresh through Smoke ghxd if necessary, and keep `GH_TOKEN` process scoped.
-4. The reader calls Smoke's exact-SHA worktree seeder (no host Git credential) into run-owned temporary storage. Send a verified source archive to `/workspaces/<checkout>` in the Nix-Alpine owner over a Podman copy/stream, without copying the token or age identity. Write the exact SHA marker only after checkout verification.
-5. Agni's `#qualify-integration --scenario probot-webhook` consumes the staged checkouts and refuses a SHA mismatch. No new application-specific Makefile target is necessary.
+One-time volumes (create-only, never delete/reinitialize existing volumes):
 
-The transport in steps 2–4 is **not yet implemented**. Do not claim that `make workspace` or `make sync` does it today. First inventory the old GHXD state; if the age identity/ciphertext is unavailable, reauthorize via Smoke ghxd's browser/device flow in Nix-Alpine and persist a new SOPS/age credential in a dedicated secret volume, not on macOS.
+```sh
+make ghxd-volumes-provision PROVIDER=podman MACHINE=coreos-arm64 SCOPE=nix-xd-arm
+```
+
+Three named labeled volumes are used:
+- `nix-xd-state-secret-ghxd` (SOPS/age identity, encrypted token JSON and temporary device request);
+- `nix-xd-state-control-ghxd-home` (Smoke ghxd Go environment and caches);
+- `nix-xd-state-control-ghxd-workspaces` (exact detached Git worktrees and shared bare object databases).
+
+Select the staged flake and public GitHub OAuth/GitHub App client ID, then authorize through a browser. GitHub must have enabled the device flow for that client:
+
+```sh
+make ghxd PROVIDER=podman ARCH=arm64 MACHINE=coreos-arm64 SCOPE=nix-xd-arm \
+  FLAKE=agni20261111/local/fatline GHXD_ACTION=bootstrap
+
+make ghxd PROVIDER=podman ARCH=arm64 MACHINE=coreos-arm64 SCOPE=nix-xd-arm \
+  FLAKE=agni20261111/local/fatline GHXD_ACTION=auth-start GHXD_CLIENT_ID=Iv1.YOUR_PUBLIC_CLIENT_ID
+
+# Visit the printed verification URL and enter the printed short user code.
+make ghxd PROVIDER=podman ARCH=arm64 MACHINE=coreos-arm64 SCOPE=nix-xd-arm \
+  FLAKE=agni20261111/local/fatline GHXD_ACTION=auth-finish
+```
+
+`auth-finish` polls the device authorization and encrypts the resulting OAuth JSON with SOPS/age before persisting it. Neither access nor refresh tokens are printed or passed through host Git. `GHXD_ACTION=auth-refresh` invokes Smoke's refresh operation using the encrypted refresh token; it is explicit, never triggered automatically while the source graph changes. Refresh token rotation is persisted before the next sync.
+
+The pinned source manifest is an *application-owned*, non-secret JSON file (`schema:1`, `sources`: named maps of `repository`, `revision` and `checkout`). The generic runner must not infer a mutable branch for qualification. Example:
+
+```sh
+make ghxd PROVIDER=podman ARCH=arm64 MACHINE=coreos-arm64 SCOPE=nix-xd-arm \
+  FLAKE=agni20261111/local/fatline GHXD_ACTION=source-sync \
+  GHXD_SOURCE_MANIFEST="$HOME/workspace/agni20261111/local/fatline/qualification/probot-webhook-sources.json"
+```
+
+The operator decrypts only in a private tmpfs, exports `GH_TOKEN` to Smoke's exact-SHA seeding command, and verifies worktree identities. A second, credential-free process streams each checked-out source archive (excluding Git administrative data) into `/workspaces/<checkout>` within Nix-Alpine and records `.nix-xd-source-revision`. Existing destinations with different or unknown revisions fail closed; no host checkout is required. Agni then runs the existing application gate:
+
+```sh
+make qualify PROVIDER=podman ARCH=arm64 MACHINE=coreos-arm64 SCOPE=nix-xd-arm \
+  FLAKE=agni20261111/local/fatline TARGET='#qualify-integration' \
+  ARGS='--scenario probot-webhook --phase preflight'
+```
+
+The `ghxd` commands have not yet been qualified live in the ARM runtime. The bootstrap may need access to public Go dependencies; private source fetching requires a device token with sufficient repository access. The integration preflight does not prove a live GitHub webhook, Skymill settlement or SSE delivery.
