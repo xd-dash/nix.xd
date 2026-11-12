@@ -55,6 +55,7 @@ OS := $(shell uname -s)
 TASK_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
+.PHONY: ghxd-auth-inventory
 .PHONY: help self-update bootstrap plan image-build machine-init machine-check machine-handoff machine-select machine-start machine-stop start stop restart status logs shell exec ps inspect store-info store-diagnose store-roots-inspect store-roots-apply sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan check-static
 
 help:
@@ -76,7 +77,8 @@ help:
 	  'make machine-handoff FROM_MACHINE=... MACHINE=... (transfer CoreOS image, preserve Nix store)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
 	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path]' \
-	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \
+	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \\
+	  'make ghxd-auth-inventory MACHINE=... SCOPE=...  Inspect GHXD ciphertext and age volume presence (no secrets)' \
 	  'make show|check|build|path-info FLAKE=path TARGET=$(HASH)output' \
 	  'make run FLAKE=path TARGET=\x23app ARGS="..."' \
 	  'make compose|qualify|qualify-process|qualify-service|qualify-composition' \
@@ -108,6 +110,10 @@ help:
 	  'make qualify-starwisp-shared COREOS_SSH_KEY=...  Build current store closures and qualify guest 9P' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
 	  'make check-static                            Host-independent static checks'
+
+ghxd-auth-inventory:
+	@test "$(PROVIDER)" = podman || { echo 'GHXD inventory requires Podman' >&2; exit 2; }
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-ghxd-inventory
 
 self-update:
 	@test -z "$(git status --porcelain --untracked-files=no)" || { echo "Tracked edits detected; commit or stash before self-update" >&2; exit 1; }
@@ -402,6 +408,7 @@ check-static-internal:
 	@bash -n bin/nix-xd-guest-9p-runtime-qualify
 	@bash -n bin/nix-xd-grants-execute
 	@bash -n bin/nix-xd-grants-import-credentials bin/nix-xd-grants-transport-qualify
+	@bash -n bin/nix-xd-ghxd-inventory
 	@bash tests/grants-transport-contract.sh
 	@bash tests/grants-execute-contract.sh
 	@python3 tests/fatline-services.py
