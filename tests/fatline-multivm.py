@@ -40,11 +40,14 @@ class Profiles(unittest.TestCase):
             def transport_command(self, place, name):
                 calls.append((place, name))
                 return ['ssh'], {'COREOS_STATE_ROOT':'vm2'}
-        with tempfile.TemporaryDirectory() as directory, patch.object(host, 'REPO', Path(directory)), patch.object(host, 'Runtime', Runtime), patch.dict(os.environ, {'NIX_XD_SYSTEM':'aarch64-linux', 'NIX_XD_FATLINE_PROFILE':'vm2','NIX_XD_FATLINE_SCOPE':'fatline-arm-vm2'}):
+        selection = {'agniRevision':'a'*40, 'profile':'vm2'}
+        with tempfile.TemporaryDirectory() as directory, patch.object(host, 'REPO', Path(directory)), patch.object(host, 'Runtime', Runtime), patch.object(host, 'resolve', return_value=(plan, selection)), patch.dict(os.environ, {'NIX_XD_SYSTEM':'aarch64-linux', 'NIX_XD_FATLINE_PROFILE':'vm2','NIX_XD_FATLINE_SCOPE':'fatline-arm-vm2'}):
             link = host.HostLink()
             self.assertEqual(link.env['COREOS_STATE_ROOT'], 'vm2')
             self.assertEqual(calls[-1], ('vm2', 'transport'))
-            self.assertTrue(any('/flake#fatlinePlans.aarch64-linux.vm2' in call for call in calls))
+            self.assertFalse(any('#fatlinePlans.' in str(call) for call in calls))
+            self.assertEqual(link.selection_manifest, selection)
+            self.assertEqual(link.config['placement']['name'], 'vm2')
 
     def test_credential_environment_is_profile_specific(self):
         env = subscriber_environment({}, 'private', 'us:vm2')
