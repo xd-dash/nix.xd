@@ -86,8 +86,8 @@ class GuestStoreTests(unittest.TestCase):
     def test_vm1_runtime_inventory_uses_pinned_boot_and_does_not_print_secrets(self):
         link=SimpleNamespace(state={"status":"prepared","boot":"11111111-1111-1111-1111-111111111111"},
             command=["ssh","guest"],env={})
-        output=("AGNI_PROBOT_VM1_RUNTIME_INVENTORY=passed profile=installed redis=active application_units=2\\n"
-                "AGNI_PROBOT_VM1_PROFILE=present bootstrap=managed\\n")
+        output=("AGNI_PROBOT_VM1_RUNTIME_INVENTORY=passed profile=installed redis=active application_units=2\n"
+                "AGNI_PROBOT_VM1_PROFILE=present bootstrap=managed\n")
         with patch.object(module,"run",return_value=output) as remote:
             module.runtime_preflight(link)
         script=remote.call_args.args[3]
