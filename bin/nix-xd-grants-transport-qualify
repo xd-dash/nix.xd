@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+owner="${NIX_XD_SCOPE:-nix-xd-arm}"
+system="${NIX_XD_SYSTEM:-aarch64-linux}"
+image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
+manifest="${NIX_XD_GRANTS_FILE:?Select transport grants}"
+flake="${NIX_XD_FLAKE:?Select staged Agni flake}"
+guest="${COREOS_CONTAINER_NAME:-coreos-starwisp}"
+guest_user="${COREOS_GUEST_USER:-wisp}"
+guest_port="${NIX_XD_GUEST_SSH_PORT:-2222}"
+store="${NIX_XD_STORE_VOLUME:-$owner-store}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$owner" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || exit 2
+[[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] || exit 2
+[[ "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || exit 2
+[[ "$store" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$guest" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || exit 2
+[[ "$guest_user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || exit 2
+[[ "$guest_port" =~ ^[0-9]+$ ]] && ((guest_port >= 1 && guest_port <= 65535)) || exit 2
+[[ "$flake" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$flake" != *..* ]] || exit 2
+python3 "$repo/lib/runtime_grants.py" plan "$manifest"
+tuple="$(python3 "$repo/lib/runtime_grants.py" fixture "$manifest")"
+read -r secret evidence qualifier <<< "$tuple"
+[[ "$secret" == nix-xd-state-secret-*-ssh-qualification ]] ||
+  { echo 'Transport gate requires a dedicated SSH qualification secret volume' >&2; exit 2; }
+[[ -n "$evidence" && -n "$qualifier" ]] || exit 2
+p=(podman --connection "$machine")
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || exit 1
+[[ "$("${p[@]}" inspect "$owner" --format '{{.State.Running}}')" == true ]] || {
+  echo 'Nix-Alpine authoritative owner not running' >&2; exit 1;
+}
+[[ "$("${p[@]}" inspect "$owner" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')" == "$store" ]] ||
+  { echo 'Selected Nix store differs from owner volume' >&2; exit 1; }
+[[ "$("${p[@]}" inspect "$guest" --format '{{.State.Running}}')" == true ]] || {
+  echo 'Existing CoreOS runner not running; no VM started' >&2; exit 1;
+}
+"${p[@]}" image exists "$image" || exit 1
+for volume in "$secret" "$evidence"; do
+  labels="$("${p[@]}" volume inspect "$volume" --format '{{json .Labels}}')"
+  python3 - "$volume" "$labels" <<'PY'
+import json,re,sys
+match=re.fullmatch(r"nix-xd-state-(control|secret)-([a-z][a-z0-9-]{0,39})",sys.argv[1])
+labels=json.loads(sys.argv[2])
+if not match or any((
+  labels.get("io.nix-xd.state.version") != "1",
+  labels.get("io.nix-xd.state.kind") != match.group(1),
+  labels.get("io.nix-xd.state.name") != match.group(2),
+)):
+    raise SystemExit("Transport state-volume ownership mismatch")
+PY
+done
+for id in $("${p[@]}" ps -aq); do
+  for volume in "$secret" "$evidence"; do
+    mounted="$("${p[@]}" inspect "$id" --format '{{range .Mounts}}{{if eq .Name "'$volume'"}}{{println .Destination}}{{end}}{{end}}')"
+    [[ -z "$mounted" ]] || { echo "Selected transport volume attached to another container" >&2; exit 1; }
+  done
+done
+
+# Build only inside the authoritative writer, never in the secret-bearing reader.
+build_log="$("${p[@]}" exec "$owner" nix --option system "$system" run --no-write-lock-file \
+  "/workspaces/$flake#resource-preflight" -- --check-build)"
+printf '%s\n' "$build_log"
+binary="$(printf '%s\n' "$build_log" | sed -n 's/^AGNI_NATIVE_SMOKE_BUILD=passed source=[^ ]* store=\([^ ]*\) sha256=[0-9a-f]*$/\1/p' | tail -n 1)"
+[[ "$binary" =~ ^/nix/store/[a-z0-9]{32}-smoke$ ]] || {
+  echo 'Missing Nix store-backed native Smoke artifact' >&2; exit 1;
+}
+package="$("${p[@]}" exec "$owner" nix --option system "$system" build --no-write-lock-file \
+  --no-link --print-out-paths "/workspaces/$flake#native-smoke-qualifier")"
+[[ "$package" =~ ^/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+$ ]] || exit 1
+program="$package/bin/agni-fatline-native-qualifier"
+"${p[@]}" exec "$owner" test -x "$binary" || exit 1
+"${p[@]}" exec "$owner" test -x "$program" || exit 1
+
+# Only transport credentials are present here; the general-purpose Nix owner never mounts them.
+"${p[@]}" run --rm --pull=never --network none --read-only --cap-drop all --user 1000:1000 \
+  --volume "$secret:/ssh:ro,z" --entrypoint /bin/sh "$image" -ec '
+    test "$(stat -c %a /ssh/identity)" = 600
+    test -s /ssh/identity && test -s /ssh/known_hosts
+  '
+"${p[@]}" run --rm --pull=never --network "container:$guest" --read-only --cap-drop all \
+  --user 1000:1000 --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
+  --mount "type=volume,src=$store,dst=/nix,ro" \
+  --volume "$secret:/run/nix-xd/mounts/secrets:ro,z" \
+  --volume "$evidence:/run/nix-xd/mounts/evidence:z" \
+  --env HOME=/tmp \
+  --env AGNI_NATIVE_SMOKE_BINARY="$binary" \
+  --env AGNI_COREOS_ENDPOINT=127.0.0.1 \
+  --env AGNI_COREOS_PORT="$guest_port" \
+  --env AGNI_COREOS_USER="$guest_user" \
+  --env AGNI_COREOS_IDENTITY=/run/nix-xd/mounts/secrets/identity \
+  --env AGNI_COREOS_KNOWN_HOSTS=/run/nix-xd/mounts/secrets/known_hosts \
+  --env AGNI_EVIDENCE_DIR=/run/nix-xd/mounts/evidence \
+  --entrypoint "$program" "$image" --check-transport
+echo 'GRANTS_TRANSPORT_RESULT=passed coreos=existing credentials=volume-readonly'
