@@ -35,7 +35,7 @@ class Runtime:
         self.name = env.get('NIX_XD_COMPOSITION', 'shared-store-matrix')
         require(self.name == 'shared-store-matrix', 'Select a supported composition')
         require(env.get('NIX_XD_PROVIDER') == 'podman', 'Composition adapter requires Podman')
-        self.primary = Path(env.get('COREOS_STATE_ROOT', str(REPO / '.state/coreos'))).resolve()
+        self.primary = Path(env.get('COREOS_STATE_ROOT', str(Path.home() / '.local/state/nix-xd/coreos'))).resolve()
         self.root = REPO / '.state/compositions' / self.scope / self.name
         self.root.mkdir(parents=True, exist_ok=True)
         self.podman = ['podman'] + (['--connection', self.machine] if platform.system() == 'Darwin' else [])
