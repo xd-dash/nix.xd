@@ -1,0 +1,21 @@
+name: Dated Nix-Alpine source contracts
+on:
+  push:
+    branches:
+      - v20261112
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check GHXD dated source manifest
+        run: python3 tests/ghxd-source-version.py
+      - name: Check selected Make entry point
+        run: |
+          make -n fatline-probot-vm1-qualify ARCH=arm64 >/dev/null
+          make ghxd-source-version-check
