@@ -2,7 +2,7 @@ name: Dated Nix-Alpine source contracts
 on:
   push:
     branches:
-      - v20261112
+      - 'v*'
   workflow_dispatch:
 
 permissions:
