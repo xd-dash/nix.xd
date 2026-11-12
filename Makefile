@@ -127,7 +127,7 @@ help:
 	  'make workload-prepare|workload-inspect|workload-activate|workload-stop WORKLOAD=starwisp-probe' \
 	  'make store-roots-inspect|store-roots-apply MACHINE=... SCOPE=...  Inspect or pin Starwisp closures' \
 	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
-	  'make qualify-starwisp-shared COREOS_SSH_KEY=...  Build current store closures and qualify guest 9P' \
+\t  'make qualify-starwisp-shared COREOS_SSH_KEY=...  Build current store closures and qualify guest 9P' \\\n\t  'make guest-app FLAKE=path TARGET=\\x23package GUEST_APP_REV=sha ARGS_JSON=...  Run store-backed guest script' \\
 	  'make self-update                             Fast-forward this nix.xd checkout' \
 	  'make check-static                            Host-independent static checks'
 
@@ -598,14 +598,9 @@ COMPOSITION_FLAKE ?=
 COMPOSITION_REV ?=
 export NIX_XD_COMPOSITION_FLAKE = $(COMPOSITION_FLAKE)
 export NIX_XD_COMPOSITION_REV = $(COMPOSITION_REV)
-FATLINE_PROBE_REV ?=
-export NIX_XD_FATLINE_PROBE_REV = $(FATLINE_PROBE_REV)
 ARTIFACT_FLAKE ?=
 export NIX_XD_ARTIFACT_FLAKE = $(ARTIFACT_FLAKE)
 
-.PHONY: agni-coreos-plan-check
-agni-coreos-plan-check:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/agni_coreos_plan.py
 export NIX_XD_WORKLOAD_GENERATION = $(WORKLOAD_GENERATION)
 .PHONY: workload-prepare workload-inspect workload-activate workload-check workload-status workload-stop
 workload-prepare workload-inspect workload-activate workload-check workload-status workload-stop:
@@ -653,34 +648,11 @@ composition-local:
 composition-local-phases:
 	@$(MAKE) --no-print-directory -j1 -S check-static stage composition-plan composition-prepare composition-start composition-qualify composition-status WORKSPACES="$(abspath $(CURDIR)/..)" CHECKOUT="$(notdir $(CURDIR))"
 
-# Agni owns Fatline service/security templates; this is the host adapter.
-FATLINE_PROFILE ?= vm1
-FATLINE_SCOPE ?= fatline-arm-$(FATLINE_PROFILE)
-export NIX_XD_FATLINE_PROFILE = $(FATLINE_PROFILE)
-export NIX_XD_FATLINE_SCOPE = $(FATLINE_SCOPE)
-.PHONY: fatline-prepare fatline-start fatline-status fatline-qualify fatline-stop fatline-host-link fatline-host-link-phases
-fatline-prepare fatline-start fatline-status fatline-qualify fatline-stop fatline-adapter-refresh:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_host_link.py $(patsubst fatline-%,%,$@)
-fatline-host-link:
-	@bash bin/nix-xd-log "$(SCOPE)" fatline-host-link $(MAKE) --no-print-directory fatline-host-link-phases
-fatline-host-link-phases:
-	@$(MAKE) --no-print-directory -j1 -S fatline-prepare fatline-start fatline-adapter-refresh fatline-qualify fatline-status
-
-# Source-built optional Smoke composition; existing Wisp/Fatline gates remain available.
+# Source-built optional Wisp tooling; application controllers are isolated.
 WISP_SMOKE_REV ?= 66950da9a5e4e5303f5dcd018f9039f9b6fc8496
 .PHONY: wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward
 wisp-go-build wisp-go-check wisp-go-qualify wisp-go-forward:
 	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go $(patsubst wisp-go-%,%,$@)
-
-.PHONY: fatline-logmash fatline-logmash-phases fatline-logmash-qualify
-fatline-logmash:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-logmash-phases
-fatline-logmash-phases:
-	@$(MAKE) --no-print-directory -j1 -S wisp-go-build wisp-go-check fatline-prepare fatline-start fatline-adapter-refresh fatline-logmash-qualify
-fatline-logmash-qualify:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_logmash.py
-
-.PHONY: fatline-adapter-refresh
 
 # Validate an explicitly selected pinned GHXD source manifest.
 GHXD_SOURCE_MANIFEST ?=
@@ -688,18 +660,6 @@ GHXD_SOURCE_MANIFEST ?=
 ghxd-source-version-check:
 	@test -n "$(GHXD_SOURCE_MANIFEST)" || { echo 'GHXD_SOURCE_MANIFEST is required' >&2; exit 2; }
 	@python3 lib/ghxd_source_version.py "$(GHXD_SOURCE_MANIFEST)"
-
-.PHONY: fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop fatline-services-local fatline-services-phases
-fatline-services-prepare fatline-services-refresh fatline-services-probe-refresh fatline-services-configure-logma fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_services.py $(patsubst fatline-services-%,%,$@)
-fatline-services-local:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-services-phases
-fatline-services-phases:
-	@$(MAKE) --no-print-directory -j1 -S fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-logmash-qualify fatline-services-status
-
-.PHONY: fatline-services-refresh
-
-.PHONY: fatline-services-probe-refresh
 
 # Persistent builder store selection; peer aliases map to /peer/<alias>:ro.
 STORE_VOLUME ?= $(SCOPE)-store
@@ -709,27 +669,6 @@ export NIX_XD_PEER_STORES = $(PEER_STORES)
 .PHONY: builder-store-plan
 builder-store-plan:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-store-plan
-
-.PHONY: fatline-resource-local fatline-resource-phases
-fatline-resource-local:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-resource-phases
-fatline-resource-phases:
-	@$(MAKE) --no-print-directory -j1 -S fatline-services-configure-logma project-host-run
-
-.PHONY: fatline-services-configure-logma
-
-.PHONY: fatline-vm-start fatline-vm-local fatline-vm-phases wisp-go-linux fatline-cross-qualify
-fatline-vm-start:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_vm.py
-fatline-vm-local:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-vm-phases
-fatline-vm-phases:
-	@$(MAKE) --no-print-directory agni-coreos-plan-check
-	@$(MAKE) --no-print-directory -j1 -S fatline-vm-start fatline-prepare fatline-start fatline-adapter-refresh fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-configure-logma project-host-run fatline-services-status
-wisp-go-linux:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-wisp-go linux
-fatline-cross-qualify:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_cross.py
 
 PEER_BUILDER_SCOPE ?= nix-xd-grumble
 PEER_BUILDER_VOLUME ?= $(PEER_BUILDER_SCOPE)-store
@@ -741,47 +680,14 @@ export NIX_XD_PEER_BUILDER_ALIAS = $(PEER_BUILDER_ALIAS)
 builder-store-qualify:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/builder_store_qualify.py
 
-.PHONY: fatline-restart-upgrade fatline-restart-recover fatline-restart-diagnose fatline-restart-prepare fatline-restart-qualify fatline-restart-local fatline-restart-phases
-fatline-restart-prepare fatline-restart-qualify fatline-restart-diagnose fatline-restart-upgrade fatline-restart-recover:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_recovery.py $(patsubst fatline-restart-%,%,$@)
-fatline-restart-local:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" $(MAKE) --no-print-directory fatline-restart-phases
-fatline-restart-phases:
-	@$(MAKE) --no-print-directory -j1 -S fatline-restart-prepare fatline-restart-qualify fatline-services-qualify project-host-run fatline-services-status
-
-.PHONY: fatline-reboot-plan fatline-reboot-local fatline-reboot-resume
-fatline-reboot-plan:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_reboot.py plan
-fatline-reboot-local:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_reboot.py run
-fatline-reboot-resume:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_reboot.py resume
-
-.PHONY: fatline-rebootstrap-plan fatline-rebootstrap-local
-fatline-rebootstrap-plan:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py plan
-fatline-rebootstrap-local:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py run
-
-# Sandbox lifecycle: resolve one generation, qualify, then atomically select it.
-SANDBOX_REBOOT ?= 0
-.PHONY: fatline-sandbox-plan fatline-sandbox-local fatline-sandbox-status
-fatline-sandbox-plan:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py plan
-fatline-sandbox-local:
-	@NIX_XD_SANDBOX_REBOOT='$(SANDBOX_REBOOT)' WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py run
-fatline-sandbox-status:
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_rebootstrap.py status
-
-.PHONY: fatline-profile-local
-fatline-profile-local:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_profile.py
-
-.PHONY: fatline-profile-reliability fatline-profile-recover
-fatline-profile-reliability:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_profile.py qualify-reliability
-fatline-profile-recover:
-	@WISP_SMOKE_REV='$(WISP_SMOKE_REV)' bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_profile.py recover
+# Application-specific historical controllers are available only for explicit
+# recovery of old qualified generations. They are not part of the default API.
+ENABLE_LEGACY_APPLICATION_CONTROLLERS ?= 0
+ifeq ($(ENABLE_LEGACY_APPLICATION_CONTROLLERS),1)
+include mk/legacy-application-controllers.mk
+else ifneq ($(ENABLE_LEGACY_APPLICATION_CONTROLLERS),0)
+$(error ENABLE_LEGACY_APPLICATION_CONTROLLERS must be 0 or 1)
+endif
 
 # Make selects the runtime and project; orchestration executes in Nix-Alpine.
 PROJECT_FLAKE ?=
