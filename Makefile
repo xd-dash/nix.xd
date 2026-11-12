@@ -318,6 +318,7 @@ check-static-internal:
 	@python3 tests/fatline-profile.py
 	@python3 tests/fatline-logmash.py
 	@python3 tests/composition-artifact.py
+	@bash tests/project-host-run-contract.sh
 	@python3 tests/fatline-services.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
