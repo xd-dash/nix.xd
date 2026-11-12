@@ -204,9 +204,13 @@ GUEST_APP_REV ?=
 ARGS_JSON ?= []
 COREOS_KNOWN_HOSTS ?=
 COREOS_GUEST_HOST ?= 127.0.0.1
+export NIX_XD_GUEST_APP_REV = $(GUEST_APP_REV)
+export NIX_XD_ARGS_JSON = $(ARGS_JSON)
+export COREOS_KNOWN_HOSTS
+export COREOS_GUEST_HOST
 .PHONY: guest-app
 guest-app:
-	@$(TASK_ENV) NIX_XD_GUEST_APP_REV='$(GUEST_APP_REV)' NIX_XD_ARGS_JSON='$(ARGS_JSON)' COREOS_KNOWN_HOSTS='$(COREOS_KNOWN_HOSTS)' COREOS_GUEST_HOST='$(COREOS_GUEST_HOST)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-app
+	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-app
 
 # Generic host-side project action; project and action identities are caller-selected.
 PROJECT ?=
