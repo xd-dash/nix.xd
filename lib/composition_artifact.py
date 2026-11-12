@@ -14,7 +14,7 @@ SHA = re.compile(r'[a-f0-9]{64}')
 
 
 def export_executable(runtime, flake, app, destination, expected_target):
-    github = re.fullmatch(r'github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[a-f0-9]{40}(?:\\?dir=[A-Za-z0-9_./-]+)?', flake)
+    github = re.fullmatch(r'github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[a-f0-9]{40}(?:[?]dir=[A-Za-z0-9_./-]+)?', flake)
     staged = re.fullmatch(r'/workspaces/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_./-]+)?', flake)
     require(github or staged, 'Select a staged or exact-revision composition artifact flake')
     require(re.fullmatch(r'[a-z0-9][a-z0-9-]*', app), 'Invalid artifact app')
