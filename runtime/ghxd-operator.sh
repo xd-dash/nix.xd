@@ -18,6 +18,7 @@ pending="$credentials/device-request.json"
 client_id_file="$credentials/client-id"
 mkdir -p "$HOME/.cache/ghxd"
 export GOCACHE="$HOME/.cache/ghxd/go-build" GOMODCACHE="$HOME/.cache/ghxd/go-mod"
+export CGO_ENABLED=0 GOOS=linux
 export GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1
 if [[ -e "$identity" ]]; then
   [[ ! -L "$identity" && -s "$identity" && "$(stat -c %a "$identity")" == 600 ]] || exit 1
