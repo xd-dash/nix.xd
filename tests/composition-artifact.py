@@ -39,6 +39,14 @@ class Artifact(unittest.TestCase):
             self.assertEqual(result['sha256'], hashlib.sha256(PAYLOAD).hexdigest())
             self.assertEqual(calls[0][0:4], ('nix', 'run', '--no-write-lock-file', '--no-update-lock-file'))
 
+    def test_mutable_artifact_flake_ref_is_rejected_before_execution(self):
+        runtime = SimpleNamespace(scope='owner', podman=['podman'], env={},
+                                  owner=lambda *args: self.fail('owner must not run'))
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, 'exact-revision'):
+                export_executable(runtime, 'github:dash-xd/agni/main?dir=local/fatline',
+                                  'smoke-host-artifact', Path(directory) / 'smoke', 'darwin-arm64')
+
     def test_tampered_copy_is_never_published(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / 'smoke'
