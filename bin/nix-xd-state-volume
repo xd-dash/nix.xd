@@ -8,8 +8,8 @@ machine="${NIX_XD_MACHINE:-coreos-arm64}"
 image="${NIX_XD_STATE_EXPORT_IMAGE:-docker.io/library/alpine:3.23}"
 fail() { printf 'error: %s\n' "$*" >&2; exit 2; }
 
-[[ "$action" =~ ^(plan|provision|inspect|export)$ ]] || fail 'Usage: nix-xd-state-volume plan|provision|inspect|export control|vm|application NAME [EXPORT_PATH]'
-[[ "$kind" =~ ^(control|vm|application)$ ]] || fail 'State kind must be control, vm or application'
+[[ "$action" =~ ^(plan|provision|inspect|export)$ ]] || fail 'Usage: nix-xd-state-volume plan|provision|inspect|export control|vm|application|secret NAME [EXPORT_PATH]'
+[[ "$kind" =~ ^(control|vm|application|secret)$ ]] || fail 'State kind must be control, vm, application or secret'
 [[ "$name" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid state name'
 [[ "$machine" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || fail 'Invalid machine name'
 command -v podman >/dev/null 2>&1 || fail 'Podman is required'
