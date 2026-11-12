@@ -56,12 +56,15 @@ def preflight(data, machine):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("plan", "preflight"))
+    parser.add_argument("action", choices=("plan", "preflight", "pairs"))
     parser.add_argument("manifest")
     parser.add_argument("--machine", default="")
     options = parser.parse_args()
     data = load(options.manifest)
-    if options.action == "plan":
+    if options.action == "pairs":
+        for entry in data["exports"]:
+            print(entry["volume"] + " " + entry["tag"])
+    elif options.action == "plan":
         for entry in data["exports"]:
             print("GUEST_9P_GRANT=" + entry["volume"] + " tag=" +
                   entry["tag"] + " access=ro")
