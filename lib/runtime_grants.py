@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 IDENTITY = re.compile(r"[a-z][a-z0-9-]{0,39}")
-VOLUME = re.compile(r"nix-xd-state-(control|vm|application)-([a-z][a-z0-9-]{0,39})")
+VOLUME = re.compile(r"nix-xd-state-(control|vm|application|secret)-([a-z][a-z0-9-]{0,39})")
 MOUNT = re.compile(r"/run/nix-xd/mounts/([a-z][a-z0-9-]{0,39})")
 
 
@@ -27,12 +27,15 @@ def load(path):
     require(type(grants) is list and bool(grants), "Expected explicit nonempty grant list")
     seen_paths = set()
     writers = {}
+    seen_volumes = set()
     for grant in grants:
         require(type(grant) is dict and set(grant) == {
             "volume", "destination", "access", "writer", "reader"
         }, "Invalid grant fields")
         volume = grant["volume"]
         require(type(volume) is str and VOLUME.fullmatch(volume), "Only labeled state volumes may be granted")
+        require(volume not in seen_volumes, "Duplicate volume grant in one runtime")
+        seen_volumes.add(volume)
         destination = grant["destination"]
         require(type(destination) is str and MOUNT.fullmatch(destination), "Invalid runtime grant destination")
         require(destination not in seen_paths, "Duplicate grant destination")
@@ -43,6 +46,9 @@ def load(path):
                 "Invalid grant reader or writer")
         require(reader == scope, "Grant reader must match selected runtime scope")
         access = grant["access"]
+        if VOLUME.fullmatch(volume).group(1) == "secret":
+            require(access == "ro" or reader == writer,
+                    "Secret volume writable only by its owner")
         require(access in ("ro", "rw"), "Grant access must be ro or rw")
         if access == "rw":
             require(reader == writer, "Only declared writer may receive writable grant")
