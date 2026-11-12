@@ -67,6 +67,11 @@ def verify(record, machine, scope):
     containers = json.loads(raw)
     require(len(containers) == 1, "Expected one Nix-Alpine runtime")
     actual = containers[0].get("Mounts", [])
+    expected_paths = {grant["destination"] for grant in record["grants"]}
+    actual_grants = {m.get("Destination") for m in actual
+                     if str(m.get("Destination", "")).startswith("/run/nix-xd/mounts/")}
+    require(actual_grants == expected_paths,
+            "Active runtime grants differ from selected declaration")
     for grant in record["grants"]:
         volume = grant["volume"]
         label_raw = subprocess.check_output(
