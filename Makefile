@@ -95,7 +95,7 @@ help:
 	  'make builder-runtime-inventory|builder-store-profile-qualify-clean  Inventory and scoped cleanup' \
 	  'make workspace-inventory  Read-only Git worktree and stale workspace metadata inspection' \
 	  'make nix-store-check|maintenance-review  Combined store contracts and read-only cleanup review' \
-	  'make state-volume-plan|state-volume-provision|state-volume-inspect STATE_KIND=control|vm|application STATE_NAME=... MACHINE=...' \
+	  'make state-volume-plan|state-volume-provision|state-volume-inspect STATE_KIND=control|vm|application|secret STATE_NAME=... MACHINE=...' \
 	  'make state-volume-export STATE_KIND=... STATE_NAME=... STATE_EXPORT_PATH=/absolute/path.tar MACHINE=...' \
 	  'make builder-image-prune-dangling DANGLING_PRUNE_CONFIRM=YES  Remove dangling images only' \
 	  'make store-isolation-static|store-isolation-check  Independent Nix-Alpine writer checks' \
