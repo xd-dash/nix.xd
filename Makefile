@@ -127,7 +127,8 @@ help:
 	  'make workload-prepare|workload-inspect|workload-activate|workload-stop WORKLOAD=starwisp-probe' \
 	  'make store-roots-inspect|store-roots-apply MACHINE=... SCOPE=...  Inspect or pin Starwisp closures' \
 	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
-\t  'make qualify-starwisp-shared COREOS_SSH_KEY=...  Build current store closures and qualify guest 9P' \\\n\t  'make guest-app FLAKE=path TARGET=\\x23package GUEST_APP_REV=sha ARGS_JSON=...  Run store-backed guest script' \\
+	  'make qualify-starwisp-shared COREOS_SSH_KEY=...  Build current store closures and qualify guest 9P' \
+	  'make guest-app FLAKE=path TARGET=$(HASH)package GUEST_APP_REV=sha ARGS_JSON=...  Run store-backed guest script' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
 	  'make check-static                            Host-independent static checks'
 
