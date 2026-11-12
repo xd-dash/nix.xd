@@ -666,6 +666,10 @@ fatline-logmash-qualify:
 
 .PHONY: fatline-adapter-refresh
 
+.PHONY: fatline-probot-vm1-store-check
+fatline-probot-vm1-store-check:
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_probot.py store-check
+
 .PHONY: fatline-services-prepare fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop fatline-services-local fatline-services-phases
 fatline-services-prepare fatline-services-refresh fatline-services-probe-refresh fatline-services-configure-logma fatline-services-activate fatline-services-qualify fatline-services-status fatline-services-stop:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/fatline_services.py $(patsubst fatline-services-%,%,$@)
