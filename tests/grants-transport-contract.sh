@@ -43,7 +43,11 @@ assert 'NIX_XD_TRANSPORT_KNOWN_HOSTS=' in runner
 assert "NIX_XD_NATIVE_ARTIFACT=" in runner
 assert "podman cp" not in runner
 importer = (root / "bin/nix-xd-grants-import-credentials").read_text()
-assert 'Credential volume not empty; refusing import' in importer
+assert 'CREDENTIAL_RECONCILE' in importer
+assert 'verify_root_hashes' in importer
+assert 'normalize_owner' in importer
+assert "Stored SSH identity differs from selected source; refusing changes" in importer
+assert "Stored known_hosts differs from selected source; refusing changes" in importer
 assert '"$cid:/ssh/identity"' in importer
 assert 'chmod 0600 /ssh/identity' in importer
 print("GRANTS_NATIVE_TRANSPORT_STATIC=passed")
