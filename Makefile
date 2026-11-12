@@ -433,6 +433,7 @@ check-static-internal:
 	@bash tests/grants-transport-contract.sh
 	@bash tests/grants-execute-contract.sh
 	@python3 tests/fatline-services.py
+	@python3 tests/fatline-probot.py
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
 	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence bin/nix-xd-builder-store-qualify-fresh bin/nix-xd-builder-store-maintenance
