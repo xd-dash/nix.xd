@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+manifest="${COREOS_9P_GRANTS_FILE:?Select a guest 9P grant manifest}"
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
+[[ "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || exit 2
+python3 "$repo/lib/guest_9p_grants.py" preflight "$manifest" --machine "$machine"
+p=(podman --connection "$machine")
+"${p[@]}" image exists "$image" || { echo "Cached image missing: $image" >&2; exit 1; }
+while read -r volume tag; do
+  [[ "$volume" == nix-xd-state-control-* ]] || {
+    echo 'Fixture seed is restricted to control volumes, not secret volumes' >&2
+    exit 2
+  }
+  "${p[@]}" run --rm --pull=never --network none --read-only --cap-drop all \
+    --mount "type=volume,src=$volume,dst=/fixture" --entrypoint /bin/sh "$image" -ec '
+      set -eu
+      marker="/fixture/nix-xd-9p-canary"
+      value="nix-xd-9p-fixture-v1"
+      if [ -e "$marker" ]; then
+        [ "$(cat "$marker")" = "$value" ] || exit 1
+      else
+        umask 022
+        printf "%s" "$value" > "$marker"
+        chmod 0644 "$marker"
+      fi
+      test "$(cat "$marker")" = "$value"
+    '
+  printf 'GUEST_9P_FIXTURE_SEEDED=passed volume=%s tag=%s\n' "$volume" "$tag"
+done < <(python3 "$repo/lib/guest_9p_grants.py" pairs "$manifest")
