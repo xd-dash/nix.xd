@@ -23,7 +23,11 @@ case "$1 $2" in
   'volume inspect')
     [[ -e "$MOCK_VOLUME" ]] || exit 1
     if [[ "$*" == *"--format"* ]]; then
-      printf '%s\n' '{"io.nix-xd.state.version":"1","io.nix-xd.state.kind":"control","io.nix-xd.state.name":"orchestrator"}'
+      if [[ "$3" == nix-xd-state-secret-qualification ]]; then
+        printf '%s\n' '{"io.nix-xd.state.version":"1","io.nix-xd.state.kind":"secret","io.nix-xd.state.name":"qualification"}'
+      else
+        printf '%s\n' '{"io.nix-xd.state.version":"1","io.nix-xd.state.kind":"control","io.nix-xd.state.name":"orchestrator"}'
+      fi
     else
       printf '%s\n' '[{"Name":"nix-xd-state-control-orchestrator"}]'
     fi
@@ -57,6 +61,15 @@ if bash "$runner" plan vm orchestrator >/dev/null 2>&1; then
 fi
 if bash "$runner" provision control '../bad' >/dev/null 2>&1; then
   echo 'Invalid volume identity must fail closed' >&2
+  exit 1
+fi
+export MOCK_VOLUME="$tmp/secret-volume"
+bash "$runner" plan secret qualification | grep -q 'STATE_VOLUME_PLAN=absent'
+bash "$runner" provision secret qualification | grep -q 'STATE_VOLUME_PROVISION=passed'
+grep -Fq -- '--label io.nix-xd.state.kind=secret' "$MOCK_VOLUME"
+bash "$runner" plan secret qualification | grep -q 'STATE_VOLUME_PLAN=existing'
+if bash "$runner" plan application qualification >/dev/null 2>&1; then
+  echo 'Secret volume must not be adopted as another kind' >&2
   exit 1
 fi
 printf 'STATE_VOLUME_STATIC_RESULT=passed\n'
