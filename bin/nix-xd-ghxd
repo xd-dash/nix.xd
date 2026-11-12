@@ -111,7 +111,7 @@ for item in d["sources"].values():
     checkout=item["checkout"]; sha=item["revision"]
     if not re.fullmatch(r"[a-z][a-z0-9-]{1,63}",checkout): raise SystemExit("Unsafe checkout")
     if not re.fullmatch(r"[0-9a-f]{40}",sha): raise SystemExit("Invalid SHA")
-    print(checkout+"\\t"+sha)
+    print(checkout+chr(9)+sha)
 ' <<< "$manifest_payload")"
   while IFS=$'\t' read -r checkout sha; do
     [[ -n "$checkout" ]] || continue
