@@ -404,8 +404,6 @@ check-static-internal:
 	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence bin/nix-xd-builder-store-qualify-fresh bin/nix-xd-builder-store-maintenance
 	@python3 tests/wisp-go-owner.py
 	@python3 tests/nix-task-contract.py
-	@python3 tests/redis-application.py
-	@bash -n qualifiers/redis-application.sh
 	@bash tests/project-run-contract.sh
 	@python3 tests/chroot-attach.py
 	@python3 tests/runtime-primitives.py
@@ -428,6 +426,8 @@ check-static-internal:
 # Historical application fixtures remain opt-in and never gate infrastructure.
 .PHONY: check-legacy
 check-legacy:
+	@python3 tests/redis-application.py
+	@bash -n qualifiers/redis-application.sh
 	@python3 tests/shoal-contract.py
 	@python3 tests/shoal-runtime.py
 	@$(MAKE) --no-print-directory legacy-application-check-static ENABLE_LEGACY_APPLICATION_CONTROLLERS=1
