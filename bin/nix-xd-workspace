@@ -45,7 +45,10 @@ def names(v):
     return "cal/0." + v, root / (name + v)
 
 branch, target = names(version)
-if action in ("plan", "path"):
+if action == "path":
+    print(target)
+    sys.exit(0)
+if action == "plan":
     print(f"WORKSPACE_PATH={target}\nWORKSPACE_BRANCH={branch}\nWORKSPACE_STORE={store}")
     sys.exit(0)
 
