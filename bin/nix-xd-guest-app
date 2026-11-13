@@ -10,13 +10,13 @@ flake=${NIX_XD_FLAKE:?Select an immutable staged flake}
 target=${NIX_XD_TARGET:?Select an output containing guest.sh}
 revision=${NIX_XD_GUEST_APP_REV:?Pin the staged source commit}
 args_json=${NIX_XD_ARGS_JSON:-[]}
-port=${COREOS_SSH_PORT:-2222}
-user=${COREOS_GUEST_USER:-wisp}
-host=${COREOS_GUEST_HOST:-127.0.0.1}
-key=${COREOS_SSH_KEY:?Specify guest SSH identity}
-state=${COREOS_STATE_ROOT:-$HOME/.local/state/nix-xd/coreos}
-profile=${COREOS_PROFILE:-starwisp}
-known_hosts=${COREOS_KNOWN_HOSTS:-$state/$profile/known_hosts}
+port=${GUEST_SSH_PORT:-2222}
+user=${GUEST_SSH_USER:-wisp}
+host=${GUEST_SSH_HOST:-127.0.0.1}
+key=${GUEST_SSH_KEY:?Specify guest SSH identity}
+state=${GUEST_STATE_ROOT:-$HOME/.local/state/nix-xd/vms}
+profile=${GUEST_VM_INSTANCE:?Specify selected VM instance}
+known_hosts=${GUEST_KNOWN_HOSTS:-$state/$profile/known_hosts}
 
 fail() { echo "Guest app error: $*" >&2; exit 1; }
 [[ "$provider" == podman || "$provider" == container ]] || fail 'Unknown owner provider'
