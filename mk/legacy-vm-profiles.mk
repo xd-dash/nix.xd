@@ -70,9 +70,6 @@ export COREOS_GUEST_NIX_EXECUTABLE
 export COREOS_CONTAINER_NAME
 
 .PHONY: store-export-check coreos-container-build coreos-ignition-build coreos-preflight coreos-boot coreos-stop coreos-qualify coreos-reset-failed qualify-starwisp qualify-starwisp-shared
-store-export-check:
-	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_IMAGE='$(IMAGE)' COREOS_NIX_STORE_VOLUME='$(if $(COREOS_NIX_STORE_VOLUME),$(COREOS_NIX_STORE_VOLUME),$(SCOPE)-store)' bash bin/nix-xd-log "$(SCOPE)" store-export-check bash bin/nix-xd-store-export-check
-
 coreos-container-build:
 	@test "$(VMM)" = podman || { echo 'coreos-container-build requires VMM=podman' >&2; exit 2; }
 	@bash bin/nix-xd-log "$(SCOPE)" coreos-container-build bash bin/nix-xd-coreos-podman build
