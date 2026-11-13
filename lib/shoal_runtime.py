@@ -137,7 +137,7 @@ def main():
     parser.add_argument("--gate", choices=("storage", "network", "all"), default="all")
     parser.add_argument("--owner", default="nix-xd-arm")
     parser.add_argument("--machine", default="coreos-arm64")
-    parser.add_argument("--provider", choices=("podman", "container"), default="container")
+    parser.add_argument("--provider", choices=("podman", "container"), default="podman")
     parser.add_argument("--flake", default="/workspaces/nix.xd20261112")
     parser.add_argument("--ssh-key", default=str(Path.home() / ".ssh/starwisp-test"))
     parser.add_argument("--ssh-user", default="wisp")
