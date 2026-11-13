@@ -80,8 +80,8 @@ jobs:
         run: bash tests/make-contract.sh
       - name: Check workspace staging contract
         run: bash tests/stage-workspace-contract.sh
-      - name: Check host CoreOS adapter contract
-        run: bash tests/coreos-host-contract.sh
+      - name: Check generic guest execution contract
+        run: bash tests/guest-app-contract.sh
       - name: Verify both provider command interfaces
         run: |
           make help

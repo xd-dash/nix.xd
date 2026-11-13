@@ -1,97 +1,162 @@
-#!/usr/bin/env bash
-set -euo pipefail
-die() { echo "Workspace error: $*" >&2; exit 1; }
-action=${1:-open}
-root=${NIX_XD_WORKSPACE_ROOT:-$HOME/workspace}
-repo=${NIX_XD_WORKSPACE_REPO:-xd-dash/nix.xd}
-version=${NIX_XD_WORKSPACE_VERSION:-$(date +%Y%m%d)}
-base=${NIX_XD_WORKSPACE_BASE:-}
-[[ $action == open || $action == plan || $action == path || $action == clean || $action == clean-plan ]] || die 'Expected open, plan, path, clean or clean-plan'
-[[ $root == /* && $root != / ]] || die 'Root must be an absolute workspace directory'
-[[ $version =~ ^[0-9]{8}$ ]] || die 'Version must be YYYYMMDD'
-year=$((10#${version:0:4})); month=$((10#${version:4:2})); day=$((10#${version:6:2}))
-[[ $year -ge 1970 && $month -ge 1 && $month -le 12 ]] || die 'Invalid calendar date'
-days=(31 28 31 30 31 30 31 31 30 31 30 31)
-if (( year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) )); then days[1]=29; fi
-(( day >= 1 && day <= days[month-1] )) || die 'Invalid calendar date'
-case "$repo" in
-  https://*|ssh://*|git@*:*|file://*) url=$repo ;;
-  *) [[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die 'Use owner/repo or a Git URL'
-     url="https://github.com/$repo.git" ;;
-esac
-name=${repo##*/}; name=${name##*:}; name=${name%.git}
-[[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || die 'Invalid repository name'
-target="${root%/}/$name$version"
-branch="v$version"
-if [[ $action == clean || $action == clean-plan ]]; then
-  [[ -d $root ]] || die 'Workspace root does not exist'
-  root=$(cd "$root" && pwd -P)
-  target="$root/$name$version"
-  [[ -d $target/.git && ! -L $target ]] || die "Create the retained checkout first: $target"
-  count=0
-  current=$(pwd -P)
-  for candidate in "$root/$name"*; do
-    [[ -d $candidate && ! -L $candidate ]] || continue
-    leaf=${candidate##*/}
-    [[ $candidate != "$target" ]] || continue
-    selected=0
-    case "$leaf" in
-      "$name"|"$name-fresh"|"$name-consolidated") selected=1 ;;
-      *) suffix=${leaf#"$name"}
-         if [[ $suffix =~ ^[0-9]{8}$ && $suffix < $version ]]; then selected=1; fi ;;
-    esac
-    [[ $selected == 1 ]] || continue
-    case "$current/" in "$candidate/"*) die "Run cleanup from the retained checkout, not $candidate" ;; esac
-    [[ ! -e $candidate.lock ]] || die "Workspace operation holds $candidate.lock"
-    printf 'WORKSPACE_REMOVE=%s\n' "$candidate"
-    if [[ $action == clean ]]; then
-      # Read-only dependency cache directories prevent unlinking their contents.
-      find "$candidate" -type d -exec chmod u+rwx {} \;
-      if [[ -f $candidate/.git ]]; then
-        git -C "$candidate" worktree remove --force "$candidate"
-      else
-        rm -rf -- "$candidate"
-      fi
-      [[ ! -e $candidate && ! -L $candidate ]] || die "Cleanup left a directory behind: $candidate"
-    fi
-    count=$((count+1))
-  done
-  printf 'WORKSPACE_CLEAN_RESULT=passed action=%s count=%s retained=%s\n' "$action" "$count" "$target"
-  exit 0
-fi
-git check-ref-format --branch "$branch" >/dev/null
-if [[ -n $base ]]; then git check-ref-format "refs/heads/$base" >/dev/null; fi
-if [[ $action == path ]]; then printf '%s\n' "$target"; exit; fi
-printf 'WORKSPACE_PATH=%s\nWORKSPACE_BRANCH=%s\n' "$target" "$branch"
-[[ $action != plan ]] || exit 0
-mkdir -p "$root"
-lock="$target.lock"
-mkdir "$lock" 2>/dev/null || die "Another workspace operation holds $lock"
-tmp=
-cleanup() { [[ -z $tmp ]] || rm -rf -- "$tmp"; rmdir "$lock"; }
-trap cleanup EXIT
-if [[ -e $target || -L $target ]]; then
-  [[ -d $target/.git && ! -L $target ]] || die "Destination is not an independent checkout: $target"
-  actual=$(git -C "$target" remote get-url origin)
-  [[ $actual == "$url" ]] || die 'Existing checkout has a different origin'
-  current=$(git -C "$target" symbolic-ref --short HEAD) || die 'Checkout has detached HEAD'
-  [[ $current == "$branch" ]] || die "Expected version branch $branch; current branch is $current"
-  echo WORKSPACE_RESULT=reused
-else
-  tmp=$(mktemp -d "$root/.$name$version.XXXXXX")
-  args=(clone --no-checkout)
-  [[ -z $base ]] || args+=(--branch "$base")
-  git "${args[@]}" -- "$url" "$tmp"
-  if [[ -n $base ]]; then start="refs/remotes/origin/$base"; else start=refs/remotes/origin/HEAD; fi
-  if git -C "$tmp" show-ref --verify --quiet "refs/heads/$branch"; then
-    git -C "$tmp" switch "$branch"
-  elif git -C "$tmp" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-    git -C "$tmp" switch --track -c "$branch" "origin/$branch"
-  else
-    git -C "$tmp" switch --no-track -c "$branch" "$start"
-  fi
-  mv "$tmp" "$target"
-  tmp=
-  echo WORKSPACE_RESULT=created
-fi
-printf 'Enter: cd "%s"\n' "$target"
+#!/usr/bin/env python3
+"""Host-only CalVer worktree management. No Nix or guest side effects."""
+import datetime
+import os
+import pathlib
+import re
+import subprocess
+import sys
+
+def die(message):
+    raise SystemExit(f"Workspace error: {message}")
+
+def git(*args, cwd=None, check=True):
+    return subprocess.run(["git", *map(str, args)], cwd=cwd, text=True,
+                          capture_output=True, check=check)
+
+action = sys.argv[1] if len(sys.argv) > 1 else "list"
+root = pathlib.Path(os.environ.get("NIX_XD_WORKSPACE_ROOT", str(pathlib.Path.home() / "workspace"))).expanduser()
+repo = os.environ.get("NIX_XD_WORKSPACE_REPO", "xd-dash/nix.xd")
+version = os.environ.get("NIX_XD_WORKSPACE_VERSION", datetime.date.today().strftime("%Y%m%d") + ".0")
+base = os.environ.get("NIX_XD_WORKSPACE_BASE", "")
+if not root.is_absolute() or root == pathlib.Path("/"):
+    die("Workspace root must be an absolute non-root path")
+match = re.fullmatch(r"([0-9]{8})\.([0-9]+)", version)
+if not match or (len(match[2]) > 1 and match[2][0] == "0"):
+    die("Version must be YYYYMMDD.N")
+try:
+    datetime.datetime.strptime(match[1], "%Y%m%d")
+except ValueError:
+    die("Invalid calendar date")
+if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+    url = f"https://github.com/{repo}.git"
+elif repo.startswith(("file://", "https://", "ssh://", "git@")):
+    url = repo
+else:
+    die("Expected owner/repo or Git URL")
+name = repo.rsplit("/", 1)[-1].removesuffix(".git")
+if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+    die("Invalid repo name")
+store = root / ".repos" / (name + ".git")
+def store_git(*args, check=True):
+    return git("--git-dir", store, *args, check=check)
+
+def names(v):
+    return "cal/0." + v, root / (name + v)
+
+branch, target = names(version)
+if action == "path":
+    print(target)
+    sys.exit(0)
+if action == "plan":
+    print(f"WORKSPACE_PATH={target}\nWORKSPACE_BRANCH={branch}\nWORKSPACE_STORE={store}")
+    sys.exit(0)
+
+def initialize():
+    store.parent.mkdir(parents=True, exist_ok=True)
+    if not store.exists():
+        git("init", "--bare", "-q", store)
+        store_git("remote", "add", "origin", url)
+    if store_git("rev-parse", "--is-bare-repository").stdout.strip() != "true":
+        die("Expected a bare repository")
+    if store_git("remote", "get-url", "origin").stdout.strip() != url:
+        die("Canonical store origin differs")
+    store_git("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+
+def fetch():
+    store_git("fetch", "origin", "+refs/heads/*:refs/remotes/origin/*")
+
+def exists_ref(ref):
+    return store_git("show-ref", "--verify", "--quiet", ref, check=False).returncode == 0
+
+def base_revision():
+    if base:
+        ref = "refs/remotes/origin/" + base
+    else:
+        remote = git("ls-remote", "--symref", url, "HEAD").stdout
+        match = re.search(r"^ref: refs/heads/(\S+)\s+HEAD$", remote, re.M)
+        if not match:
+            die("Select WORKSPACE_BASE explicitly")
+        ref = "refs/remotes/origin/" + match[1]
+    if not exists_ref(ref):
+        die(f"Base branch missing: {ref}")
+    return store_git("rev-parse", ref).stdout.strip()
+
+def verify_worktree():
+    if not (target / ".git").exists():
+        die(f"Missing linked worktree: {target}")
+    if git("-C", target, "branch", "--show-current").stdout.strip() != branch:
+        die("Worktree branch differs")
+    common = git("-C", target, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
+    if pathlib.Path(common).resolve() != store.resolve():
+        die("Worktree belongs to a different Git store")
+
+def open_worktree():
+    if target.exists():
+        verify_worktree()
+        print(f"WORKSPACE_RESULT=reused path={target} branch={branch}")
+        return
+    remote_ref = "refs/remotes/origin/" + branch
+    start = remote_ref if exists_ref(remote_ref) else base_revision()
+    store_git("worktree", "add", "-b", branch, target, start)
+    print(f"WORKSPACE_RESULT=created path={target} branch={branch}")
+
+if action == "init":
+    initialize()
+    print(f"WORKSPACE_STORE=ready path={store}")
+elif action in ("open", "refresh"):
+    initialize()
+    lock = store / ".nix-xd-workspace.lock"
+    try:
+        lock.mkdir()
+    except FileExistsError:
+        die("Concurrent workspace operation")
+    try:
+        fetch()
+        if action == "refresh":
+            datepart = version.split(".")[0]
+            counter = 0
+            while True:
+                version = f"{datepart}.{counter}"
+                branch, target = names(version)
+                if not target.exists() and not exists_ref("refs/heads/" + branch) and not exists_ref("refs/remotes/origin/" + branch):
+                    break
+                counter += 1
+        open_worktree()
+    finally:
+        lock.rmdir()
+elif action == "list":
+    if store.exists():
+        print(store_git("worktree", "list", "--porcelain").stdout, end="")
+    else:
+        print(f"WORKSPACE_STORE=missing path={store}")
+elif action == "pr":
+    base_pr = os.environ.get("NIX_XD_WORKSPACE_PR_BASE")
+    if not base_pr or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+        die("PR requires owner/repo and WORKSPACE_PR_BASE")
+    verify_worktree()
+    if git("-C", target, "status", "--porcelain").stdout:
+        die("Commit changes before opening PR")
+    subprocess.run(["git", "-C", str(target), "push", "-u", "origin", branch], check=True)
+    found = subprocess.run(["gh", "-R", repo, "pr", "view", branch, "--json", "url", "--jq", ".url"], check=False)
+    if found.returncode:
+        subprocess.run(["gh", "-R", repo, "pr", "create", "--draft", "--head", branch, "--base", base_pr,
+                        "--title", f"CalVer {version} qualification candidate",
+                        "--body", "Draft: exact revisions and required qualification gates must be verified before merge."], check=True)
+elif action in ("remove-plan", "remove"):
+    verify_worktree()
+    if git("-C", target, "status", "--porcelain").stdout:
+        die("Worktree has uncommitted changes")
+    print(f"WORKSPACE_REMOVE_CANDIDATE={target}")
+    if action == "remove":
+        if os.environ.get("NIX_XD_WORKSPACE_REMOVE_CONFIRM") != branch:
+            die("Set exact branch confirmation")
+        merged = subprocess.run(["gh", "-R", repo, "pr", "view", branch, "--json", "mergedAt",
+                                 "--jq", ".mergedAt"], capture_output=True, text=True, check=True).stdout.strip()
+        if not merged or merged == "null":
+            die("PR is not merged")
+        store_git("worktree", "remove", target)
+elif action in ("clean", "clean-plan"):
+    die("Automatic cleanup retired; remove only after verified PR merge")
+else:
+    die("Actions: init|open|refresh|list|plan|path|pr|remove-plan|remove")

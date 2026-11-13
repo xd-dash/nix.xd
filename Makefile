@@ -75,8 +75,11 @@ help:
 	  'make arm-rebootstrap MACHINE=... SCOPE=... ARM_RESET_CONFIRM=ERASE:<machine>:<scope>:<scope>-store' \
 	  'make machine-handoff FROM_MACHINE=... MACHINE=... TRANSFER_IMAGE=... (transfer selected image)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
-	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path]' \
-	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \\
+	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path] (shared Git store)' \
+	  'make workspace-init|workspace|workspace-refresh|workspace-list WORKSPACE_VERSION=YYYYMMDD.N' \
+	  'make workspace-pr WORKSPACE_PR_BASE=v20261112 (opens or reuses draft PR via gh)' \
+	  'make workspace-remove-plan|workspace-remove (explicit post-merge cleanup only)' \
+	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \
 	  'make show|check|build|path-info FLAKE=path TARGET=$(HASH)output' \
 	  'make run FLAKE=path TARGET=\x23app ARGS="..."' \
 	  'make compose|qualify|qualify-process|qualify-service|qualify-composition' \
@@ -104,7 +107,7 @@ help:
 	  'make store-isolation-static|store-isolation-check  Independent Nix-Alpine writer checks' \
 	  'make guest-app FLAKE=path TARGET=$(HASH)package GUEST_APP_REV=sha GUEST_VM_INSTANCE=...  Run store-backed guest script' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
-	  'make shoal-qualify SHOAL_STAGE=farcaster|world1 SHOAL_GATE=storage|all  Read-only runtime 9P checks' \
+	  'make project-host-run PROJECT=agni20261112 APPLICATION=shoal ACTION=bind  Agni-owned VM binding' \
 	  'make check-static                            Host-independent static checks'
 
 self-update:
@@ -165,7 +168,7 @@ plan:
 
 sync clone:
 	@test -n "$(REPO)" || { echo "REPO=owner/repo required" >&2; exit 2; }
-	@bash bin/nix-xd-log "$(SCOPE)" sync bash bin/nix-xd-sync "$(REPO)" "$(BRANCH)" "$(WORKSPACES)" "$(SYNC_NAME)" "$(REV)"
+	@bash bin/nix-xd-log "$(SCOPE)" sync python3 bin/nix-xd-sync "$(REPO)" "$(BRANCH)" "$(WORKSPACES)" "$(SYNC_NAME)" "$(REV)"
 
 stage show check build path-info run:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-task "$@"
@@ -384,6 +387,7 @@ check-static:
 check-static-internal:
 	@python3 tests/tenant-storage.py
 	@python3 tests/bootstrap-profile.py
+	@python3 -c 'import ast; [ast.parse(open(p).read()) for p in ("bin/nix-xd-workspace", "bin/nix-xd-sync")]'
 	@bash tests/workspace-contract.sh
 	@python3 tests/composition-artifact.py
 	@bash tests/project-host-run-contract.sh
@@ -398,33 +402,38 @@ check-static-internal:
 	@bash tests/grants-transport-contract.sh
 	@bash tests/grants-execute-contract.sh
 	@bash -n bin/nix-xd-guest-app
+	@bash tests/guest-app-contract.sh
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
 	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence bin/nix-xd-builder-store-qualify-fresh bin/nix-xd-builder-store-maintenance
 	@python3 tests/wisp-go-owner.py
 	@python3 tests/nix-task-contract.py
-	@python3 tests/redis-application.py
-	@bash -n qualifiers/redis-application.sh
 	@bash tests/project-run-contract.sh
 	@python3 tests/chroot-attach.py
 	@python3 tests/runtime-primitives.py
 	@bash tests/runtime-resource-contract.sh
 	@python3 tests/compositions.py
-	@python3 tests/shoal-contract.py
-	@python3 tests/shoal-runtime.py
 	@python3 tests/guest-executor.py
 	@python3 tests/workload-transport.py
 	@python3 tests/workloads.py
 	@bash -n bin/nix-xd-workload bin/nix-xd-workload-start bin/nix-xd-workload-qualify
 	@bash tests/store-roots-contract.sh
 	@bash tests/store-diagnose-contract.sh
-	@bash -n bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-guest-store-exec
+	@bash -n bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-task bin/nix-xd-log bin/nix-xd-guest-store-exec
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/bootstrap-architecture-contract.sh
 	@bash tests/qualification-modules.sh
 	@bash tests/machine-contract.sh
 	@echo 'Static command checks passed; no ARM runtime executed.'
+
+# Historical application fixtures remain opt-in and never gate infrastructure.
+.PHONY: check-legacy
+check-legacy:
+	@python3 tests/redis-application.py
+	@bash -n qualifiers/redis-application.sh
+	@$(MAKE) --no-print-directory legacy-application-check-static ENABLE_LEGACY_APPLICATION_CONTROLLERS=1
+	@$(MAKE) --no-print-directory legacy-vm-profile-static-check ENABLE_LEGACY_VM_PROFILES=1
 
 # VM image/boot/qualification profiles are application-owned. Generic host
 # execution is via project-host-run, with the selected project's action.
@@ -477,27 +486,9 @@ PROFILE_MODE ?= store
 export NIX_XD_PROFILE_MODE = $(PROFILE_MODE)
 PROFILE_SAMPLES ?= 1
 export NIX_XD_PROFILE_SAMPLES = $(PROFILE_SAMPLES)
-# Shoal is a regional Farcaster/World contract; storage checks reuse running guests.
-# Network qualification remains blocked until routed dual-stack Shoal networking exists.
-SHOAL_STAGE ?= farcaster
-SHOAL_GATE ?= all
-SHOAL_FARCASTER_PORT ?= 2222
-SHOAL_WORLD1_PORT ?= 2223
-SHOAL_SSH_KEY ?= $(HOME)/.ssh/starwisp-test
-SHOAL_SSH_USER ?= wisp
-SHOAL_STATE_ROOT ?= $(GUEST_STATE_ROOT)
-.PHONY: shoal-qualify
-shoal-qualify:
-	@$(MAKE) --no-print-directory stage CHECKOUT="$(notdir $(CURDIR))"
-	@bash bin/nix-xd-log "$(SCOPE)" shoal-qualify "$(PYTHON)" lib/shoal_runtime.py \
-	  --stage "$(SHOAL_STAGE)" --gate "$(SHOAL_GATE)" \
-	  --provider "$(PROVIDER)" --machine "$(MACHINE)" --owner "$(SCOPE)" \
-	  --flake "/workspaces/$(notdir $(CURDIR))" \
-	  --ssh-key "$(SHOAL_SSH_KEY)" --ssh-user "$(SHOAL_SSH_USER)" \
-	  --state-root "$(SHOAL_STATE_ROOT)" \
-	  --farcaster-port "$(SHOAL_FARCASTER_PORT)" \
-	  --world1-port "$(SHOAL_WORLD1_PORT)"
-
+# Shoal deployment and qualification are Agni-owned. The generic host runner
+# executes an exact selected Agni checkout without translating topology names.
+# Use: make project-host-run PROJECT=agni20261112 APPLICATION=shoal ACTION=bind
 COMPOSITION ?= shared-store-matrix
 export NIX_XD_COMPOSITION = $(COMPOSITION)
 .PHONY: composition-plan composition-prepare composition-start composition-status composition-qualify composition-stop composition-cancel composition-profile composition-application
@@ -523,7 +514,7 @@ export NIX_XD_PEER_STORES = $(PEER_STORES)
 builder-store-plan:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-store-plan
 
-PEER_BUILDER_SCOPE ?= nix-xd-grumble
+PEER_BUILDER_SCOPE ?= nix-xd-grumble-arm
 PEER_BUILDER_VOLUME ?= $(PEER_BUILDER_SCOPE)-store
 PEER_BUILDER_ALIAS ?= agni
 export NIX_XD_PEER_BUILDER_SCOPE = $(PEER_BUILDER_SCOPE)

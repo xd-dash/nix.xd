@@ -3,7 +3,7 @@ set -euo pipefail
 scope=${1:?Builder scope} volume=${2:?Primary volume}
 [[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ && $volume =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
 [[ $(getenforce) == Enforcing ]] || { echo 'SELinux must be enforcing' >&2; exit 1; }
-if command -v rpm >/dev/null 2>&1; then rpm -q container-selinux; fi
+if [[ -f /etc/redhat-release ]] && command -v rpm >/dev/null 2>&1; then rpm -q container-selinux; fi
 [[ $(podman info --format '{{.Host.Security.Rootless}}') == true ]]
 [[ $(podman inspect "$scope" --format '{{.State.Running}}') == true ]]
 before=$(podman inspect "$scope" --format '{{.Id}}')

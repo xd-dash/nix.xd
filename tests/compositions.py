@@ -37,6 +37,20 @@ def plan():
 
 
 class Contracts(unittest.TestCase):
+    def test_persistent_state_is_not_checkout_local(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = {'NIX_XD_SCOPE': 'nix-xd-arm', 'NIX_XD_MACHINE': 'coreos-arm64',
+                   'NIX_XD_PROVIDER': 'podman', 'NIX_XD_STATE_ROOT': directory}
+            runtime = Runtime(env)
+            self.assertEqual(runtime.root,
+                             Path(directory).resolve() / 'compositions/nix-xd-arm/shared-store-matrix')
+            self.assertTrue(runtime.root.is_dir())
+
+    def test_relative_state_root_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'must be absolute'):
+            Runtime({'NIX_XD_SCOPE': 'nix-xd-arm',
+                     'NIX_XD_PROVIDER': 'podman', 'NIX_XD_STATE_ROOT': './runtime'})
+
     def test_valid_ownership_shapes(self):
         self.assertEqual(len(validate(plan())['workloads']), 6)
 

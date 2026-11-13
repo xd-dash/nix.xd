@@ -9,8 +9,9 @@ prepare the primary and alternate chroot stores before the builder first starts.
 `make bootstrap-profile-local BUILDER_CHROOT_STORES="name=volume"` validates,
 bootstraps and qualifies that generic environment as one logged operation.
 
-Use [daily workspaces](docs/workspaces.md) through `make workspace` to create
-`~/workspace/nix.xdYYYYMMDD` and date-scoped development branches.
+Use [CalVer worktrees](docs/workspaces.md) through `make workspace` to create
+`~/workspace/nix.xdYYYYMMDD.N` on `cal/0.YYYYMMDD.N` branches backed by a shared Git store.
+Existing dated checkouts are preserved.
 
 Generic Nix execution and bootstrap capabilities, selected through Make.
 

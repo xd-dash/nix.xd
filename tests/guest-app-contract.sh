@@ -2,6 +2,10 @@
 set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 bash -n bin/nix-xd-guest-app
+grep -Fq 'state=${GUEST_STATE_ROOT:-$HOME/.local/state/nix-xd/coreos}' bin/nix-xd-guest-app || {
+  echo 'Direct guest-app state root drifted from Make' >&2
+  exit 1
+}
 if grep -Eiq 'fatline|probot|skymill|logma|agni' bin/nix-xd-guest-app; then
   echo 'Generic guest executor contains an application name' >&2
   exit 1
