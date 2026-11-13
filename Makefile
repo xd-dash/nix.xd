@@ -200,7 +200,7 @@ export NIX_XD_HOST_WORKSPACES = $(WORKSPACES)
 export NIX_XD_RUNTIME_REPO = $(CURDIR)
 .PHONY: project-host-run
 project-host-run:
-	@$(TASK_ENV) NIX_XD_IMAGE='$(IMAGE)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-project-host-run
+	@$(TASK_ENV) NIX_XD_IMAGE='$(IMAGE)' NIX_XD_LOG_COMPOSITION='project-$(PROJECT)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-project-host-run
 
 develop shell exec ps inspect store-info:
 	@$(TASK) $@
@@ -536,7 +536,7 @@ export NIX_XD_PROJECT_ARGS_JSON = $(PROJECT_ARGS_JSON)
 export NIX_XD_PROJECT_RUNTIME_FLAKE = $(PROJECT_RUNTIME_FLAKE)
 .PHONY: project-run
 project-run:
-	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-task project-run
+	@$(TASK_ENV) NIX_XD_LOG_COMPOSITION='project-$(notdir $(PROJECT_FLAKE))' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-task project-run
 
 PROJECT_STORE ?= local
 CHROOT_NAME ?= grumble
