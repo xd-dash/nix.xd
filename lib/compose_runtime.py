@@ -36,7 +36,11 @@ class Runtime:
         require(self.name == 'shared-store-matrix', 'Select a supported composition')
         require(env.get('NIX_XD_PROVIDER') == 'podman', 'Composition adapter requires Podman')
         self.primary = Path(env.get('COREOS_STATE_ROOT', str(Path.home() / '.local/state/nix-xd/coreos'))).resolve()
-        self.root = REPO / '.state/compositions' / self.scope / self.name
+        base = Path(env.get('NIX_XD_STATE_ROOT') or
+                    (Path(env.get('XDG_STATE_HOME') or Path.home() / '.local/state') / 'nix-xd')).expanduser()
+        require(base.is_absolute(), 'Persistent runtime state root must be absolute')
+        self.state_home = base.resolve()
+        self.root = self.state_home / 'compositions' / self.scope / self.name
         self.root.mkdir(parents=True, exist_ok=True)
         self.podman = ['podman'] + (['--connection', self.machine] if platform.system() == 'Darwin' else [])
         self.plan = None
@@ -97,7 +101,7 @@ class Runtime:
         declaration = self.plan['placements'][name]
         if declaration['kind'] != 'coreos':
             return declaration, None
-        path = REPO / '.state/vm-bindings' / self.scope / (name + '.json')
+        path = getattr(self, 'state_home', Path.home() / '.local/state/nix-xd') / 'vm-bindings' / self.scope / (name + '.json')
         binding = getattr(self, 'binding_overrides', {}).get(name)
         if binding is None and path.exists():
             binding = json.loads(path.read_text())
