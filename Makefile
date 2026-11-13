@@ -168,7 +168,7 @@ plan:
 
 sync clone:
 	@test -n "$(REPO)" || { echo "REPO=owner/repo required" >&2; exit 2; }
-	@bash bin/nix-xd-log "$(SCOPE)" sync bash bin/nix-xd-sync "$(REPO)" "$(BRANCH)" "$(WORKSPACES)" "$(SYNC_NAME)" "$(REV)"
+	@bash bin/nix-xd-log "$(SCOPE)" sync python3 bin/nix-xd-sync "$(REPO)" "$(BRANCH)" "$(WORKSPACES)" "$(SYNC_NAME)" "$(REV)"
 
 stage show check build path-info run:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-task "$@"
