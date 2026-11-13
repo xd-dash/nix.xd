@@ -1,112 +1,59 @@
-# Daily source workspaces
+# CalVer source worktrees
 
-One checkout per repository and local calendar day: `<repository>YYYYMMDD`.
-For example, `~/workspace/nix.xd20261111`. The date defaults to the host's local
-timezone; WORKSPACE_VERSION explicitly selects a date for reproducibility.
+Use ZeroVer CalVer candidate branches of form cal/0.YYYYMMDD.N.
+Matching worktrees are ~/workspace/<repository>YYYYMMDD.N.
+Qualification evidence pins exact commits, flake inputs, VM binding and artifact digests.
+Tags v0.YYYYMMDD.N are reserved for qualified release identities.
 
-```sh
-make workspace WORKSPACE_BASE=v20261111
-cd "$(make -s workspace-path)"
-```
+The host canonical bare store is ~/workspace/.repos/<repository>.git.
+Worktrees share Git objects and refs but have separate indexes and branches.
+Existing full clones and older dated workspaces are preserved.
 
-Run workspace-path from the controller checkout before changing directory, or
-use the absolute path printed by workspace. Make cannot change its parent shell's
-working directory. A fresh checkout does not inherit the controller's untracked
-nix-xd.local.mk; copy the generic example or set runtime variables explicitly.
+From an existing nix.xd Make controller:
 
-The generic interface also supports other repositories:
+    make workspace-init WORKSPACE_REPO=xd-dash/nix.xd
+    make workspace WORKSPACE_REPO=xd-dash/nix.xd WORKSPACE_VERSION=20261113.0 WORKSPACE_BASE=cal/0.20261113.0
+    make workspace-list WORKSPACE_REPO=xd-dash/nix.xd
 
-```sh
-make workspace WORKSPACE_REPO=xd-dash/grumble
-make workspace WORKSPACE_REPO=dash-xd/agni
-```
+Workspace opens an exact candidate. A remote branch of the same name wins,
+otherwise WORKSPACE_BASE supplies the starting commit. Refresh always
+allocates the next unused sequence for the selected calendar day:
 
-An omitted WORKSPACE_BASE uses the remote default branch for a new checkout.
-A new checkout uses the existing remote `vYYYYMMDD` branch if present,
-tracking `origin/vYYYYMMDD`. Otherwise it creates `vYYYYMMDD` from the
-selected starting revision. This prevents an already-published dated branch
-from being silently replaced with the repository default branch.
-Same-day calls reuse that checkout without fetching, pulling or resetting it.
-A checkout on another branch is rejected; this interface does not create feature
-branches. WORKSPACE_BASE only selects the starting revision of a new checkout.
+    make workspace-refresh WORKSPACE_VERSION=20261113.0 WORKSPACE_BASE=cal/0.20261113.0
 
-The next day's invocation creates a separate checkout from the selected remote
-branch. Commit and push work needed by the next day before creating that checkout.
-Old checkouts remain until explicitly removed. No symlink, `fresh` alias,
-automatic prune, store deletion or credential copying is performed.
+Refresh never deletes an earlier branch, checkout or state directory.
+The current checkout is not silently advanced. A same-day .N sequence is
+allocated per repository, not globally across the organization.
 
-Targets:
+PR creation (requires authenticated GitHub CLI):
 
-- `workspace`: create/reuse today's checkout and print its path.
-- `workspace-plan`: report the intended path and branch without creating them.
-- `workspace-path`: print only the path, suitable for shell substitution.
-- `workspace-check`: exercise checkout reuse, version-only branches, next-day separation
-  and invalid/colliding destinations using a temporary local Git repository.
-- `workspace-clean-plan`: list stale directories for the selected repository.
-- `workspace-clean`: delete those directories, including uncommitted and untracked
-  contents. Keep the selected dated checkout. Linked Git worktrees are removed
-  through Git so their registration is also cleaned up.
+    make workspace-pr WORKSPACE_VERSION=20261113.0 WORKSPACE_PR_BASE=v20261112
 
-Cleanup selects only direct children of WORKSPACE_ROOT named exactly like the
-repository, `<repository>-fresh`, `<repository>-consolidated`, or
-`<repository>YYYYMMDD` with a date older than WORKSPACE_VERSION. It leaves other
-repositories, the retained version and future versions alone. Symlinks are not
-followed. A retained dated checkout must already exist. Run cleanup from that
-checkout, not from a directory being removed. No dirty-work preservation or
-additional confirmation is required: workspace-clean explicitly requests deletion.
-Before removal, cleanup restores owner read/write/search permission on directories
-inside each selected stale checkout. This handles read-only Go module-cache
-directories without changing file contents or following symlinks. The plan does
-not change permissions. Cleanup verifies that each selected path was removed.
+It pushes the selected branch and opens or reuses its draft PR.
+Remote CI can qualify it. A PR is not itself qualification evidence.
+To remove a worktree AFTER its PR merged, explicitly run:
 
-```sh
-export NIX_XD_LOG_DIR="$HOME/.local/nix.xd/logs"
-make workspace-clean-plan
-make workspace-clean
-```
+    make workspace-remove-plan WORKSPACE_VERSION=20261113.0
+    make workspace-remove WORKSPACE_VERSION=20261113.0 WORKSPACE_REMOVE_CONFIRM=cal/0.20261113.0
 
-Use the shared log override before cleanup; an old shell override pointing into
-an obsolete checkout can otherwise recreate that directory on later commands.
-Runtime containers and volumes have separate lifecycles and are not removed by
-source-checkout cleanup.
+Removal retains the Git branch and canonical store; closed-unmerged PRs
+are not eligible. The old workspace-clean targets now fail closed.
 
-WORKSPACE_ROOT defaults to `$HOME/workspace`. WORKSPACE_REPO accepts owner/repo,
-HTTPS or SSH Git URLs. Ordinary Git authentication is reused. Branches outside the checkout's date are rejected by this interface. Direct Git commands remain under the developer's control.
+Make sync uses the canonical store for newly created immutable source
+checkouts; the source is detached at the selected branch head and must
+match REV when supplied. An existing independent checkout is never
+silently reset or migrated. Make stage accepts linked worktrees and
+archives only committed source into Nix-Alpine.
 
-Host source management belongs in Make. Building and running project flakes
-continues through Nix-Alpine. Shared stores, runtime state and the overridden log
-directory are independent of these dated source paths.
+Development worktrees are distinct from Smoke's future pinned,
+multi-repository qualification workspace. Android repo manifests record
+qualified source SHAs and do not substitute for flake.lock or go.mod.
 
-## Source acquisition through a versioned project
+Source remains in ~/workspace; persistent state belongs outside Git in
+~/.local/state/nix-xd, and host logs retain the configured
+~/.local/nix.xd/logs path. VM overlays, Podman volumes and GC roots have
+separate installation ownership; their uninstall contracts are not
+implemented by worktree deletion.
 
-Nix-Alpine does not own GitHub device authentication, worktree seeding, or
-GHXD manifests. Those are Smoke application responsibilities.
-
-Select the dated Smoke checkout with the existing generic workspace interface.
-Stage its exact committed source, then use `project-host-run` to dispatch
-Smoke's own host actions. Nix-Alpine provides only the selected container,
-store and host execution context.
-
-```sh
-make workspace WORKSPACE_REPO=xd-dash/smoke WORKSPACE_VERSION=20261112
-make stage CHECKOUT=smoke20261112
-
-make project-host-run PROJECT=smoke20261112 APPLICATION=ghxd ACTION=provision
-make project-host-run PROJECT=smoke20261112 APPLICATION=ghxd ACTION=inventory
-```
-
-Smoke's versioned source checkout contains `local/ghxd/flake.nix`, its
-private OAuth/SOPS operator, credential-volume selection, and source manifest
-validation. The source manifest is selected by the caller, typically from an
-application/worktree authority such as Agni or Huram. No Smoke source SHA,
-GHXD principal, auth action or state-volume name is fixed in the nix.xd flake
-or Makefile.
-
-The existing three GHXD Podman volumes retain their identifiers and encrypted
-contents during this source-level ownership migration. No credential copy or
-new device authorization is performed by the generic host dispatcher.
-The current Smoke host adapter supports the previously qualified Podman
-provider; Apple container-provider compatibility requires separate qualification.
-
-See Smoke's `local/ghxd/README.md` for the exact source sync and authorization
-commands, and [Nix-Alpine idioms](nix-alpine-idioms.md) for execution ownership.
+This source lifecycle neither modifies the running CoreOS Starwisp VM
+nor establishes Shoal networking, Fatline services or Grml equivalence.
