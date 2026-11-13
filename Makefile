@@ -19,7 +19,7 @@ $(error Unsupported ARCH=$(ARCH); expected arm64 or amd64)
 endif
 MODULES ?=
 QUALIFY_APP ?= $(if $(strip $(MODULES)),0,1)
-MACHINE ?= $(or $(shell podman system connection list --format '{{.Name}} {{.Default}}' 2>/dev/null | awk '$2 == "true" { print $1; exit }'),podman-machine-default)
+MACHINE ?= $(or $(shell podman system connection list --format '{{if .Default}}{{.Name}}{{end}}' 2>/dev/null | sed -n '1p'),podman-machine-default)
 FROM_MACHINE ?= podman-machine-default
 TRANSFER_IMAGE ?=
 MACHINE_PROVIDER ?= applehv
