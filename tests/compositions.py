@@ -43,7 +43,7 @@ class Contracts(unittest.TestCase):
                    'NIX_XD_PROVIDER': 'podman', 'NIX_XD_STATE_ROOT': directory}
             runtime = Runtime(env)
             self.assertEqual(runtime.root,
-                             Path(directory) / 'compositions/nix-xd-arm/shared-store-matrix')
+                             Path(directory).resolve() / 'compositions/nix-xd-arm/shared-store-matrix')
             self.assertTrue(runtime.root.is_dir())
 
     def test_relative_state_root_rejected(self):
