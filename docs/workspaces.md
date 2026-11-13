@@ -5,7 +5,7 @@ For example, `~/workspace/nix.xd20261111`. The date defaults to the host's local
 timezone; WORKSPACE_VERSION explicitly selects a date for reproducibility.
 
 ```sh
-make workspace WORKSPACE_BASE=codex/generic-runtime-state
+make workspace WORKSPACE_BASE=v20261111
 cd "$(make -s workspace-path)"
 ```
 
