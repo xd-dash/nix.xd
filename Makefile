@@ -79,7 +79,7 @@ help:
 	  'make workspace-init|workspace|workspace-refresh|workspace-list WORKSPACE_VERSION=YYYYMMDD.N' \
 	  'make workspace-pr WORKSPACE_PR_BASE=v20261112 (opens or reuses draft PR via gh)' \
 	  'make workspace-remove-plan|workspace-remove (explicit post-merge cleanup only)' \
-	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \\
+	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \
 	  'make show|check|build|path-info FLAKE=path TARGET=$(HASH)output' \
 	  'make run FLAKE=path TARGET=\x23app ARGS="..."' \
 	  'make compose|qualify|qualify-process|qualify-service|qualify-composition' \
