@@ -104,7 +104,7 @@ help:
 	  'make store-isolation-static|store-isolation-check  Independent Nix-Alpine writer checks' \
 	  'make guest-app FLAKE=path TARGET=$(HASH)package GUEST_APP_REV=sha GUEST_VM_INSTANCE=...  Run store-backed guest script' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
-	  'make shoal-qualify SHOAL_STAGE=farcaster|world1 SHOAL_GATE=storage|all  Read-only runtime 9P checks' \
+	  'make project-host-run PROJECT=agni20261112 APPLICATION=shoal ACTION=bind  Agni-owned VM binding' \
 	  'make check-static                            Host-independent static checks'
 
 self-update:
