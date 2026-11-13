@@ -307,22 +307,6 @@ VM_INSTANCE ?=
 vm-state-preflight:
 	@NIX_XD_MACHINE='$(MACHINE)' bash bin/nix-xd-vm-state-preflight '$(VM_CONTAINER)' '$(VM_INSTANCE)'
 
-# Generic declared workload storage grants; never reads volume payloads.
-# Read-only validation of a declared future CoreOS 9P export.
-.PHONY: guest-9p-runtime-qualify
-guest-9p-runtime-qualify:
-	@test "$(VMM)" = podman || { echo 'Guest 9P runtime gate requires Podman' >&2; exit 2; }
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-9p-runtime-qualify
-
-.PHONY: guest-9p-seed guest-9p-qualify
-guest-9p-seed:
-	@test -n "$(COREOS_9P_GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
-	@NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-9p-seed
-
-guest-9p-qualify:
-	@test -n "$(COREOS_9P_GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
-	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-9p-qualify
-
 .PHONY: guest-9p-plan guest-9p-preflight
 guest-9p-plan guest-9p-preflight:
 	@test -n "$(GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
