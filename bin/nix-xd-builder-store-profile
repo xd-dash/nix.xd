@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+action=${1:-plan}
+[[ $action == plan || $action == apply ]] || exit 2
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+scope=${NIX_XD_SCOPE:-nix-xd-arm}
+authoritative=${NIX_XD_STORE_VOLUME:-$scope-store}
+specs=${BUILDER_CHROOT_STORES:-}
+namespace=${BUILDER_CHROOT_NAMESPACE:-1}
+syscalls=${BUILDER_CHROOT_SYSCALLS:-1}
+selinux=${NIX_XD_CHROOT_SELINUX:-keep}
+peers=${NIX_XD_PEER_STORES:-}
+
+fail() { printf 'error: %s\n' "$*" >&2; exit 2; }
+[[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid builder scope'
+[[ $authoritative =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Invalid authoritative volume'
+[[ $namespace == 0 || $namespace == 1 ]] || fail 'BUILDER_CHROOT_NAMESPACE must be 0 or 1'
+[[ $syscalls == 0 || $syscalls == 1 ]] || fail 'BUILDER_CHROOT_SYSCALLS must be 0 or 1'
+[[ $selinux == keep || $selinux == disabled ]] || fail 'CHROOT_SELINUX must be keep or disabled'
+[[ $namespace == 1 || $syscalls == 0 ]] || fail 'Syscall profile requires the namespace profile'
+[[ $namespace == 1 || $selinux == keep ]] || fail 'SELinux comparison requires the namespace profile'
+[[ $specs != *$'\n'* && $peers != *$'\n'* ]] || fail 'Store selections must be single-line lists'
+
+# Bash 3.2 compatible, without word splitting or pathname expansion of store specifications.
+names=() volumes=()
+seen_names=' ' seen_volumes=' '
+read -r -a selections <<< "$specs"
+for spec in ${selections[@]+"${selections[@]}"}; do
+  [[ $spec == *=* ]] || fail "Expected name=volume: $spec"
+  name=${spec%%=*}; volume=${spec#*=}
+  [[ $name =~ ^[a-z][a-z0-9-]{0,39}$ && $volume =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid chroot store: $spec"
+  [[ $seen_names != *" $name "* && $seen_volumes != *" $volume "* ]] || fail "Duplicate chroot name or volume: $spec"
+  [[ $volume != "$authoritative" ]] || fail 'Chroot volume cannot equal the authoritative store'
+  seen_names="$seen_names$name "
+  seen_volumes="$seen_volumes$volume "
+  names+=("$name"); volumes+=("$volume")
+done
+[[ ${#names[@]} -gt 0 ]] || fail 'BUILDER_CHROOT_STORES requires at least one name=volume'
+
+# A peer store is always read-only, never a writable chroot in this profile.
+source "$repo/lib/builder-stores.sh"
+builder_stores_init "$scope"
+for ((i=0;i<${#volumes[@]};i++)); do
+  for ((j=0;j<builder_peer_count;j++)); do
+    [[ ${volumes[i]} != "${builder_peer_volumes[j]}" ]] ||
+      fail "Chroot volume also selected read-only as peer: ${volumes[i]}"
+  done
+done
+
+if [[ $action == plan ]]; then
+  printf 'BUILDER_STORE_PROFILE owner=%s authoritative=%s namespace=%s syscalls=%s selinux=%s\n' "$scope" "$authoritative" "$namespace" "$syscalls" "$selinux"
+  for ((i=0;i<${#names[@]};i++)); do
+    printf 'CHROOT_STORE name=%s volume=%s path=/stores/%s rw=true\n' "${names[i]}" "${volumes[i]}" "${names[i]}"
+  done
+  for ((i=0;i<builder_peer_count;i++)); do
+    printf 'PEER_STORE alias=%s volume=%s path=/peer/%s rw=false\n' "${builder_peer_apps[i]}" "${builder_peer_volumes[i]}" "${builder_peer_apps[i]}"
+  done
+  exit 0
+fi
+
+[[ ${NIX_XD_PROVIDER:-podman} == podman ]] || fail 'Chroot builder profile requires Podman'
+for ((i=0;i<${#names[@]};i++)); do
+  NIX_XD_CHROOT_NAME="${names[i]}" NIX_XD_CHROOT_VOLUME="${volumes[i]}" bash "$repo/bin/nix-xd-chroot-attach"
+done
+if [[ $namespace == 1 ]]; then
+  NIX_XD_CHROOT_SELINUX="$selinux" bash "$repo/bin/nix-xd-builder-profile" apply
+fi
+if [[ $syscalls == 1 ]]; then
+  bash "$repo/bin/nix-xd-builder-profile" syscalls
+fi
+printf 'BUILDER_STORE_PROFILE_RESULT=passed stores=%s\n' "${#names[@]}"

@@ -1,0 +1,5 @@
+# name flake-output; paths resolved by the authoritative Nix-Alpine owner
+nix storeProbeNix
+rootfs storeProbeRootfs
+dynamic-probe storeProbeDynamic
+oci-archive storeProbeOciArchive

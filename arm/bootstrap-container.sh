@@ -13,6 +13,7 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
 volume="$scope-store"
+[[ -z "${NIX_XD_PEER_STORES:-}" && "${NIX_XD_STORE_VOLUME:-$volume}" == "$volume" ]] || die "Builder store overrides currently require PROVIDER=podman"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
 
 if ! command -v container >/dev/null 2>&1; then
@@ -34,10 +35,9 @@ container run --rm docker.io/library/alpine:3.23 uname -m | grep -qx aarch64 ||
 
 say "Building ARM Nix-Alpine"
 container build --platform linux/arm64 -t "$image" "$repo/arm"
-container run --rm "$image" nix --version
 
-# Reuse the sole store owner before attempting any temporary volume mount.
-# Apple Container does not permit concurrent named-volume attachments.
+# Never copy the image store into the volume: the image contains no Nix store.
+# An existing pre-direct-volume store must be redeployed explicitly, never migrated.
 if container inspect "$scope" >/dev/null 2>&1; then
   say "Reusing existing ARM Nix-Alpine container: $scope"
   details="$(container inspect "$scope")"
@@ -45,40 +45,39 @@ if container inspect "$scope" >/dev/null 2>&1; then
     die "Existing container $scope does not attach expected store volume $volume"
   grep -Fq '"reference" : "'"$image"'"' <<< "$details" ||
     die "Existing container $scope uses an unexpected image; refusing implicit replacement"
-  if ! container exec "$scope" /bin/true >/dev/null 2>&1; then
-    container start "$scope"
-  fi
-  container exec "$scope" /bin/bash -ec '
-    grep -Eq "[[:space:]]/nix[[:space:]]ext4[[:space:]]rw" /proc/mounts
-    test -f /nix/.nix-xd-seeded
-  ' || die "Existing container store is unmounted or unseeded; refusing destructive repair"
+  container exec "$scope" /bin/true >/dev/null 2>&1 || container start "$scope"
 else
   if ! container volume inspect "$volume" >/dev/null 2>&1; then
-    say "Creating persistent Nix store volume: $volume"
     container volume create --opt size="${NIX_XD_STORE_SIZE:-40G}" "$volume"
   fi
-
-  # Seed only when no persistent runner owns the volume.
-  say "Initializing Nix store volume if needed"
-  container run --rm --user 0 --volume "$volume:/seed" "$image" \
-    /bin/bash -ec '
-      if [ ! -e /seed/.nix-xd-seeded ]; then
-        if [ -n "$(find /seed -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]; then
-          echo "Refusing to overwrite existing unmarked volume" >&2
-          exit 1
-        fi
-        cp -a /nix/. /seed/
-        chown -R 1000:1000 /seed
-        touch /seed/.nix-xd-seeded
-      fi
-    '
-
-  say "Starting persistent ARM Nix-Alpine container"
-  container run -d --name "$scope" \
-    --volume "$volume:/nix" \
-    "$image" sleep infinity
+  # Only prepare the mountpoint of a new/empty volume. No recursive changes.
+  container run --rm --user 0 --volume "$volume:/nix" --entrypoint /bin/sh "$image" -ec '
+    test -z "$(find /nix -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" || {
+      test -f /nix/.nix-xd-direct-volume-v2 || {
+        echo "Nonempty unmarked Nix store: explicit redeployment required" >&2; exit 1;
+      }
+    }
+    if test ! -f /nix/.nix-xd-direct-volume-v2; then
+      chown 1000:1000 /nix
+    fi
+  '
+  say "Starting direct-volume ARM Nix-Alpine bootstrap"
+  container run -d --name "$scope" --volume "$volume:/nix" "$image" sleep infinity
 fi
-
+ready=0
+for attempt in $(seq 1 120); do
+  if container exec "$scope" /bin/sh -c 'test -f /nix/.nix-xd-direct-volume-v2 && nix --version >/dev/null' 2>/dev/null; then
+    ready=1
+    break
+  fi
+  sleep 5
+done
+[[ "$ready" == 1 ]] || die "Direct-volume Nix bootstrap not ready; inspect container logs"
+container exec "$scope" /bin/sh -ec '
+  grep -Eq " /nix rw(,| )" /proc/self/mountinfo
+  test -f /nix/.nix-xd-direct-volume-v2
+  nix store info >/dev/null
+' || die "Direct-volume Nix store validation failed"
 container exec "$scope" nix --version
 say "Apple container provider ready: $scope"
 say "Use: make status PROVIDER=container; make shell PROVIDER=container"

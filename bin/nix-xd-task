@@ -15,15 +15,38 @@ cmd="${NIX_XD_CMD:-nix --version}"
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$provider" == podman || "$provider" == container ]] || fail "Unsupported provider: $provider"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid scope"
-[[ "$system" == aarch64-linux ]] || fail "ARM runner requires aarch64-linux"
+[[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] || fail "Unsupported Nix system: $system"
 runtime="$provider"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+if [[ "$provider" == podman ]]; then
+  [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid machine"
+fi
 if [[ "$provider" == container ]]; then
   [[ "$(uname -s)" == Darwin ]] || fail "Apple container requires macOS"
 fi
 command -v "$runtime" >/dev/null || fail "Runtime not installed: $runtime"
 
-inside() { "$runtime" exec "$scope" "$@"; }
-interactive() { "$runtime" exec -it "$scope" "$@"; }
+runtime_cmd() {
+  if [[ "$provider" == podman ]]; then
+    if [[ "$(uname -s)" == Darwin ]]; then
+      podman --connection "$machine" "$@"
+    else
+      podman "$@"
+    fi
+  else
+    container "$@"
+  fi
+}
+inside() { runtime_cmd exec "$scope" "$@"; }
+validate_runtime_arch() {
+  local actual
+  actual="$(inside uname -m)" || fail "Cannot inspect runtime architecture"
+  case "$system:$actual" in
+    aarch64-linux:aarch64|aarch64-linux:arm64|x86_64-linux:x86_64) ;;
+    *) fail "Runtime system mismatch: requested $system, runtime $actual" ;;
+  esac
+}
+interactive() { runtime_cmd exec -it "$scope" "$@"; }
 
 validate_checkout() {
   [[ -n "$checkout" && "$checkout" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ && "$checkout" != *..* ]] ||
@@ -31,17 +54,30 @@ validate_checkout() {
 }
 stage() {
   validate_checkout
-  local src="$root/$checkout" tmp
-  [[ -d "$src/.git" ]] || fail "Missing Git checkout: $src"
+  local src="$root/$checkout"
+  [[ -e "$src/.git" ]] && git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+    fail "Missing Git checkout: $src"
   [[ -z "$(git -C "$src" status --porcelain --untracked-files=no)" ]] ||
     fail "Tracked changes in $src; commit before staging"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   # Stage only committed files; no .git, credentials or unrelated host directories.
   git -C "$src" archive HEAD | tar -xf - -C "$tmp"
+  git -C "$src" rev-parse HEAD > "$tmp/.nix-xd-source-revision"
+  # Bootstrap images may predate the workspace mount point. Initialize only
+  # the staging root as container root, then keep all staged content owned
+  # by the ordinary Nix executor UID. No host ownership or store mutation.
+  if ! inside test -d /workspaces; then
+    if [[ "$provider" == podman ]]; then
+      runtime_cmd exec --user 0 "$scope" install -d -m 0755 -o 1000 -g 1000 /workspaces
+    else
+      fail "Missing /workspaces; rebuild the Apple container image with a writable workspace root"
+    fi
+  fi
+  inside test -w /workspaces || fail "/workspaces is not writable by the Nix executor"
   inside mkdir -p "/workspaces/$checkout"
   inside find "/workspaces/$checkout" -mindepth 1 -maxdepth 1 -exec rm -rf -- '{}' +
-  "$runtime" cp "$tmp/." "$scope:/workspaces/$checkout/"
+  runtime_cmd cp "$tmp/." "$scope:/workspaces/$checkout/"
   printf 'Staged %s at %s\n' "$checkout" "$(git -C "$src" rev-parse HEAD)"
 }
 flake_ref() {
@@ -76,12 +112,23 @@ nix_task() {
 }
 
 case "$action" in
+  project-run|stage|show|check|build|path-info|run|qualify|develop|shell|exec|store-info|store-diagnose) validate_runtime_arch ;;
+esac
+
+case "$action" in
+  project-run)
+    [[ -n "${NIX_XD_PROJECT_FLAKE:-}" && -n "${NIX_XD_PROJECT_RUNTIME_FLAKE:-}" ]] || fail 'Select PROJECT_FLAKE and PROJECT_RUNTIME_FLAKE'
+    inside nix run --no-write-lock-file "$NIX_XD_PROJECT_RUNTIME_FLAKE#project-launch" -- \
+      --flake "$NIX_XD_PROJECT_FLAKE" --app "${NIX_XD_PROJECT_APP:-default}" \
+      --system "$system" --store "${NIX_XD_PROJECT_STORE:-local}" --args-json "${NIX_XD_PROJECT_ARGS_JSON:-[]}"
+    ;;
   stage) stage ;;
   show|check|build|path-info|run|qualify|develop) nix_task ;;
   shell) interactive bash -l ;;
   exec) inside bash -lc "$cmd" ;;
   store-info) inside nix store info ;;
-  ps) "$runtime" ps -a ;;
-  inspect) "$runtime" inspect "$scope" ;;
+  store-diagnose) runtime_cmd exec -i "$scope" sh -s < "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/nix-xd-store-diagnose" ;;
+  ps) runtime_cmd ps -a ;;
+  inspect) runtime_cmd inspect "$scope" ;;
   *) fail "Unknown action $action" ;;
 esac

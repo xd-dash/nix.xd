@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+profile="${COREOS_PROFILE:-starwisp}"
+root="${COREOS_STATE_ROOT:-$PWD/.state/coreos}"
+port="${COREOS_SSH_PORT:-2222}"
+user="${COREOS_GUEST_USER:-wisp}"
+key="${COREOS_SSH_KEY:-}"
+fail() { echo "error: $*" >&2; exit 1; }
+[[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid profile"
+[[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail "Invalid guest user"
+[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail "Invalid SSH port"
+[[ -r "$key" ]] || fail "Provide COREOS_SSH_KEY"
+state="$root/$profile"
+[[ -f "$state/manifest.txt" ]] || fail "Missing CoreOS boot manifest"
+grep -Fxq "port=$port" "$state/manifest.txt" || fail "SSH port does not match boot manifest"
+case "${COREOS_VMM:-podman}" in
+  podman)
+    machine="${NIX_XD_MACHINE:-podman-machine-default}"
+    scope_name="${COREOS_CONTAINER_NAME:-coreos-$profile}"
+    [[ "$scope_name" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || fail "Invalid CoreOS container name"
+    [[ "$(podman --connection "$machine" inspect "$scope_name" --format '{{.State.Running}}' 2>/dev/null)" == true ]] ||
+      fail "Podman CoreOS guest is not running"
+    ;;
+  hvf)
+    [[ -f "$state/qemu.pid" ]] && kill -0 "$(cat "$state/qemu.pid")" 2>/dev/null || fail "QEMU is not running"
+    ;;
+  *) fail "Unknown COREOS_VMM" ;;
+esac
+ready_timeout="${COREOS_READY_TIMEOUT_SEC:-900}"
+retry_delay="${COREOS_READY_RETRY_SEC:-10}"
+connect_timeout="${COREOS_SSH_CONNECT_TIMEOUT_SEC:-10}"
+[[ "$ready_timeout" =~ ^[0-9]+$ ]] && (( ready_timeout >= 30 && ready_timeout <= 7200 )) || fail "Invalid COREOS_READY_TIMEOUT_SEC (30..7200)"
+[[ "$retry_delay" =~ ^[0-9]+$ ]] && (( retry_delay >= 1 && retry_delay <= 60 )) || fail "Invalid COREOS_READY_RETRY_SEC (1..60)"
+[[ "$connect_timeout" =~ ^[0-9]+$ ]] && (( connect_timeout >= 1 && connect_timeout <= 60 )) || fail "Invalid COREOS_SSH_CONNECT_TIMEOUT_SEC (1..60)"
+opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes
+  -o "ConnectTimeout=$connect_timeout" -o StrictHostKeyChecking=accept-new
+  -o "UserKnownHostsFile=$state/known_hosts"
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+start="$(date +%s)"
+deadline=$(( start + ready_timeout ))
+attempt=0
+ready=0
+last_error="$state/ssh-readiness-last-error.log"
+printf 'SSH_READINESS_START profile=%s timeout_sec=%s retry_sec=%s connect_timeout_sec=%s\n' "$profile" "$ready_timeout" "$retry_delay" "$connect_timeout"
+while :; do
+  attempt=$((attempt + 1))
+  now="$(date +%s)"
+  remaining=$((deadline - now))
+  (( remaining > 0 )) || break
+  opts_probe=("${opts[@]}" -o "ConnectTimeout=$(( remaining < connect_timeout ? remaining : connect_timeout ))")
+  if ssh "${opts_probe[@]}" "$user@127.0.0.1" true > /dev/null 2>"$last_error"; then
+    ready=1
+    printf 'SSH_READY profile=%s attempts=%s elapsed_sec=%s\n' "$profile" "$attempt" "$(( $(date +%s) - start ))"
+    break
+  fi
+  now="$(date +%s)"
+  printf 'SSH_WAIT profile=%s attempt=%s elapsed_sec=%s remaining_sec=%s reason=%s\n' "$profile" "$attempt" "$((now-start))" "$((deadline-now))" "$(tail -n 1 "$last_error")"
+  if [[ "${COREOS_VMM:-podman}" == podman ]]; then
+    [[ "$(podman --connection "$machine" inspect "$scope_name" --format '{{.State.Running}}' 2>/dev/null)" == true ]] ||
+      fail "QEMU container exited during SSH readiness; see container logs"
+  fi
+  (( now < deadline )) || break
+  nap=$((deadline - now))
+  (( nap > retry_delay )) && nap=$retry_delay
+  sleep "$nap"
+done
+(( ready == 1 )) || fail "CoreOS guest not SSH-ready after ${ready_timeout}s; last error: $(tail -n 2 "$last_error" 2>/dev/null | tr "\\n" " ")"
+if ! ssh "${opts[@]}" "$user@127.0.0.1" "bash -se" > "$state/wisp.log" 2>&1 <<'GUEST'
+set -Eeuo pipefail
+test "$(id -u)" -ne 0
+test -S "$XDG_RUNTIME_DIR/bus"
+systemctl --user show-environment >/dev/null
+test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+unit="wisp-qualify-$$"
+cleanup() {
+  systemctl --user stop "$unit.service" "$unit-fail.service" "$unit-timeout.service" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "$unit.service" "$unit-fail.service" "$unit-timeout.service" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+systemd-run --user --wait --pipe --collect --unit="$unit" --property=RuntimeMaxSec=30s \
+  /usr/bin/bash -c 'test -n "$INVOCATION_ID"; test "$(id -u)" -ne 0; podman info >/dev/null'
+if systemd-run --user --wait --pipe --collect --unit="$unit-fail" /usr/bin/false; then
+  echo "FAIL: false payload accepted" >&2; exit 1
+fi
+if systemd-run --user --wait --pipe --collect --unit="$unit-timeout" \
+  --property=RuntimeMaxSec=2s /usr/bin/sleep 20; then
+  echo "FAIL: timeout payload accepted" >&2; exit 1
+fi
+echo "PASS: Wisp user service, rootless Podman, failure and timeout paths"
+GUEST
+then
+  cat "$state/wisp.log" >&2
+  fail "Wisp guest qualification failed"
+fi
+if [[ -n "${COREOS_NIX_STORE_VOLUME:-}" ]]; then
+  printf 'NIX_9P_GUEST_CHECK_START profile=%s volume=%s\n' "$profile" "$COREOS_NIX_STORE_VOLUME"
+  if ! ssh "${opts[@]}" "$user@127.0.0.1" "bash -se" > "$state/nix-9p.log" 2>&1 <<'GUEST_NIX_9P'
+set -Eeuo pipefail
+mountpoint=/var/mnt/nixstore
+findmnt -rn --mountpoint "$mountpoint" >/dev/null || {
+  echo 'FAIL: 9P mount absent'
+  SYSTEMD_PAGER=cat SYSTEMD_COLORS=0 systemctl --no-pager --full status var-mnt-nixstore.mount || true
+  printf "MOUNT_BOOT_TARGET=%s\\n" "$(systemctl is-active multi-user.target || true)"
+  systemctl show var-mnt-nixstore.mount \
+    -p LoadState -p ActiveState -p SubState -p Result -p UnitFileState \
+    -p FragmentPath -p WantedBy -p RequiredBy -p Before -p After || true
+  SYSTEMD_PAGER=cat SYSTEMD_COLORS=0 systemctl --no-pager --plain list-dependencies multi-user.target | grep -E "nixstore|multi-user" || true
+  SYSTEMD_PAGER=cat SYSTEMD_COLORS=0 journalctl -b --no-pager -u var-mnt-nixstore.mount -n 40 || true
+  printf '%s\n' '--- 9P kernel support ---'
+  grep -E '(^nodev[[:space:]]+9p$|[[:space:]]9p$)' /proc/filesystems || true
+  printf '%s\n' '--- loaded 9P modules ---'
+  grep -E '^(9p|9pnet|9pnet_virtio)[[:space:]]' /proc/modules || true
+  printf '%s\n' '--- VirtIO devices ---'
+  for device in /sys/bus/virtio/devices/*; do
+    [[ -e "$device/device" ]] || continue
+    printf '%s device_id=%s\n' "$device" "$(cat "$device/device")"
+  done
+  exit 1
+}
+fs="$(findmnt -rn -o FSTYPE --mountpoint "$mountpoint")"
+[[ "$fs" == 9p ]] || { echo "FAIL: Expected 9p, got $fs"; exit 1; }
+opts="$(findmnt -rn -o OPTIONS --mountpoint "$mountpoint")"
+[[ ",$opts," == *,ro,* ]] || { echo "FAIL: 9P mount is not read-only: $opts"; exit 1; }
+test -d "$mountpoint"
+test -r "$mountpoint"
+test -x "$mountpoint"
+entries="$(find "$mountpoint" -mindepth 1 -maxdepth 1 -print -quit)"
+[[ -n "$entries" ]] || { echo 'FAIL: Nix store has no entries'; exit 1; }
+printf 'PASS: NIX_9P_GUEST_MOUNT path=%s fstype=%s options=%s\n' "$mountpoint" "$fs" "$opts"
+GUEST_NIX_9P
+  then
+    cat "$state/nix-9p.log" >&2
+    fail 'Guest 9P store mount qualification failed'
+  fi
+  cat "$state/nix-9p.log"
+  if [[ -n "${COREOS_GUEST_OCI_ARCHIVE:-}" ]]; then
+    oci_archive="$COREOS_GUEST_OCI_ARCHIVE"
+    [[ "$oci_archive" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+[.]tar[.]gz$ ]] ||
+      fail 'COREOS_GUEST_OCI_ARCHIVE must be a Nix store .tar.gz output'
+    echo "NIX_9P_OCI_ARCHIVE_CHECK_START archive=$oci_archive"
+    if ! ssh -T "${opts[@]}" "$user@127.0.0.1" \
+      "env COREOS_GUEST_OCI_ARCHIVE='$oci_archive' bash -se" \
+      > "$state/nix-9p-oci-archive.log" 2>&1 <<'GUEST_NIX_OCI'
+set -Eeuo pipefail
+archive="/var/mnt/nixstore/${COREOS_GUEST_OCI_ARCHIVE#/nix/store/}"
+test -f "$archive"
+test -r "$archive"
+test -s "$archive"
+magic="$(od -An -tx1 -N2 "$archive" | tr -d '[:space:]')"
+[[ "$magic" == 1f8b ]] || { echo "FAIL: Not gzip data: $archive"; exit 1; }
+printf 'PASS: NIX_9P_OCI_ARCHIVE_READONLY archive=%s bytes=%s\n' \
+  "$COREOS_GUEST_OCI_ARCHIVE" "$(stat -c %s "$archive")"
+GUEST_NIX_OCI
+    then
+      cat "$state/nix-9p-oci-archive.log" >&2
+      fail 'OCI archive is not readable from the read-only 9P Nix store'
+    fi
+    cat "$state/nix-9p-oci-archive.log"
+  fi
+  if [[ -n "${COREOS_GUEST_PROBE_ROOTFS:-}" ]]; then
+    probe_rootfs="$COREOS_GUEST_PROBE_ROOTFS"
+    [[ "$probe_rootfs" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+$ ]] ||
+      fail 'COREOS_GUEST_PROBE_ROOTFS must be an absolute Nix store output path'
+    echo "NIX_9P_NESTED_CHECK_START rootfs=$probe_rootfs"
+    repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    helper="$repo/bin/nix-xd-guest-store-exec"
+    [[ -r "$helper" ]] || fail 'Missing guest store executor'
+    probe_script='
+      test "$(/bin/busybox id -u)" = 0
+      test -d /nix/store && test -r /nix/store && test -x /nix/store
+      /bin/busybox grep -Eq " /nix/store ro(,| )" /proc/self/mountinfo
+      test -x /bin/sh && test -x /bin/busybox
+      /bin/busybox --help >/dev/null
+      /bin/sh -c "echo PASS: NIX_9P_NESTED_EXECUTABLE"
+    '
+    if [[ -n "${COREOS_GUEST_DYNAMIC_EXECUTABLE:-}" ]]; then
+      dynamic_executable="$COREOS_GUEST_DYNAMIC_EXECUTABLE"
+      [[ "$dynamic_executable" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/bin/hello$ ]] ||
+        fail 'COREOS_GUEST_DYNAMIC_EXECUTABLE must be a Nix store GNU hello executable path'
+      probe_script+=$'\n'"$dynamic_executable"
+      probe_script+=$'\n''echo "PASS: NIX_9P_DYNAMIC_CLOSURE_EXECUTABLE"'
+    fi
+    if [[ -n "${COREOS_GUEST_NIX_EXECUTABLE:-}" ]]; then
+      nix_executable="$COREOS_GUEST_NIX_EXECUTABLE"
+      [[ "$nix_executable" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+/bin/nix$ ]] ||
+        fail 'COREOS_GUEST_NIX_EXECUTABLE must be an absolute Nix store CLI path'
+      probe_script+=$'\n'"$nix_executable --version"
+      probe_script+=$'\n''echo "PASS: NIX_9P_NIX_CLI_READONLY"'
+    fi
+    printf -v remote_cmd 'bash -s -- %q %q %q %q' \
+      "$probe_rootfs/bin/sh" /bin/sh -ec "$probe_script"
+    if ! ssh -T "${opts[@]}" "$user@127.0.0.1" "$remote_cmd" \
+      < "$helper" > "$state/nix-9p-nested.log" 2>&1; then
+      cat "$state/nix-9p-nested.log" >&2
+      fail 'Nested rootless Podman shared-store rootfs qualification failed'
+    fi
+    cat "$state/nix-9p-nested.log"
+    echo "PASS: NIX_9P_NESTED_PODMAN_READONLY"
+  fi
+fi
+printf "QUALIFIED profile=%s evidence=%s\n" "$profile" "$state/wisp.log"

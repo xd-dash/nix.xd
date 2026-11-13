@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+scope=${NIX_XD_QUALIFY_SCOPE:-nix-xd-arm-chroot-qualify}
+machine=${NIX_XD_MACHINE:?Select the existing Podman Machine}
+system=${NIX_XD_SYSTEM:-aarch64-linux}
+image=${NIX_XD_QUALIFY_IMAGE:-localhost/nix-xd:arm64-chroot-qualify}
+authoritative="$scope-store"
+chroot_a="$scope-grumble-chroot"
+chroot_b="$scope-experiments-chroot"
+specs="grumble=$chroot_a experiments=$chroot_b"
+
+fail() { printf 'BUILDER_STORE_FRESH_RESULT=failed reason=%s\n' "$*" >&2; exit 1; }
+[[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || fail 'requires-macos-arm64'
+[[ ${NIX_XD_PROVIDER:-podman} == podman && $system == aarch64-linux ]] || fail 'requires-arm64-podman'
+[[ $scope =~ ^[a-z][a-z0-9-]{0,39}$ && $scope == *-qualify ]] || fail 'qualification-scope-must-end-in-qualify'
+[[ $machine =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'invalid-machine'
+[[ $image =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || fail 'invalid-image'
+[[ ${NIX_XD_PEER_STORES:-} == '' ]] || fail 'fresh-qualification-disallows-peer-volumes'
+[[ ${NIX_XD_CHROOT_SELINUX:-keep} == keep ]] || fail 'fresh-qualification-requires-selinux-keep'
+[[ ${BUILDER_CHROOT_NAMESPACE:-1} == 1 && ${BUILDER_CHROOT_SYSCALLS:-1} == 1 ]] || fail 'fresh-qualification-requires-namespace-and-syscalls'
+
+# Complete static and profile preflight before touching the VM or any resources.
+printf 'BUILDER_STORE_FRESH_PHASE=static\n'
+make -C "$repo" --no-print-directory builder-store-profile-check
+NIX_XD_SCOPE="$scope" NIX_XD_STORE_VOLUME="$authoritative" \
+ NIX_XD_PEER_STORES='' BUILDER_CHROOT_STORES="$specs" \
+ BUILDER_CHROOT_NAMESPACE=1 BUILDER_CHROOT_SYSCALLS=1 NIX_XD_CHROOT_SELINUX=keep \
+ bash "$repo/bin/nix-xd-builder-store-profile" plan
+
+[[ $(podman machine inspect "$machine" --format '{{.State}}') == running ]] ||
+  fail 'selected-podman-machine-must-be-running'
+podman_cmd=(podman --connection "$machine")
+for volume in "$authoritative" "$chroot_a" "$chroot_b"; do
+  if "${podman_cmd[@]}" volume exists "$volume"; then
+    fail "qualification-volume-already-exists:$volume"
+  fi
+done
+if "${podman_cmd[@]}" container exists "$scope"; then
+  fail "qualification-container-already-exists:$scope"
+fi
+if "${podman_cmd[@]}" image exists "$image"; then
+  fail "qualification-image-already-exists:$image"
+fi
+if podman machine ssh "$machine" "test -e \$HOME/.config/containers/systemd/$scope.container"; then
+  fail "qualification-quadlet-already-exists:$scope"
+fi
+printf 'BUILDER_STORE_FRESH_PHASE=bootstrap scope=%s machine=%s image=%s\n' "$scope" "$machine" "$image"
+common=(PROVIDER=podman ARCH=arm64 "MACHINE=$machine" "SCOPE=$scope"
+  "STORE_VOLUME=$authoritative" "BUILDER_CHROOT_STORES=$specs"
+  "PEER_STORES=" "IMAGE=$image" MACHINE_BOOTSTRAP=0
+  BUILDER_CHROOT_NAMESPACE=1 BUILDER_CHROOT_SYSCALLS=1 CHROOT_SELINUX=keep)
+
+make -C "$repo" --no-print-directory bootstrap-builder-profile "${common[@]}"
+before=$("${podman_cmd[@]}" inspect "$scope" --format '{{.Id}}')
+[[ -n $before ]] || fail 'missing-container-after-bootstrap'
+
+printf 'BUILDER_STORE_FRESH_PHASE=verify-mounts\n'
+mounts=$("${podman_cmd[@]}" inspect "$scope" --format '{{range .Mounts}}{{println .Name .Destination .RW}}{{end}}')
+for expected in "$authoritative /nix true" "$chroot_a /stores/grumble true" "$chroot_b /stores/experiments true"; do
+  grep -Fxq "$expected" <<< "$mounts" || fail "missing-or-wrong-mount:$expected"
+done
+[[ $(grep -Ec ' /nix true$' <<< "$mounts") == 1 ]] || fail 'unexpected-authoritative-mount-count'
+"${podman_cmd[@]}" exec "$scope" sh -ec '
+  test "$(id -u)" -eq 1000
+  test -f /nix/.nix-xd-direct-volume-v2
+  test -w /stores/grumble
+  test -w /stores/experiments
+  test -f /stores/grumble/.nix-xd-chroot-v1
+  test -f /stores/experiments/.nix-xd-chroot-v1
+  grep -Eq "^CapEff:[[:space:]]+0+$" /proc/self/status
+  grep -Eq "^Seccomp:[[:space:]]+2$" /proc/self/status
+' || fail 'container-security-or-store-readiness'
+
+printf 'BUILDER_STORE_FRESH_PHASE=idempotence\n'
+make -C "$repo" --no-print-directory builder-store-profile-qualify-idempotence "${common[@]}"
+after=$("${podman_cmd[@]}" inspect "$scope" --format '{{.Id}}')
+[[ $before == "$after" ]] || fail 'container-recreated-during-idempotence'
+[[ $("${podman_cmd[@]}" inspect "$scope" --format '{{.State.Running}}') == true ]] || fail 'container-not-running'
+printf 'BUILDER_STORE_FRESH_RESULT=passed scope=%s machine=%s image=%s container=%s chroots=2 idempotence=true retained=true\n' "$scope" "$machine" "$image" "$after"
+printf 'BUILDER_STORE_FRESH_VOLUMES=%s,%s,%s\n' "$authoritative" "$chroot_a" "$chroot_b"
+printf 'BUILDER_STORE_FRESH_REV=%s\n' "$(git -C "$repo" rev-parse HEAD)"

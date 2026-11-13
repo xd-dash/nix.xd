@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+action="$1"
+profile="${COREOS_PROFILE:-starwisp}"
+root="${COREOS_STATE_ROOT:-$PWD/.state/coreos}"
+port="${COREOS_SSH_PORT:-2222}"
+fail() { echo "error: $*" >&2; exit 1; }
+[[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail "Requires Apple Silicon macOS"
+[[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "Invalid profile"
+[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail "Invalid SSH port"
+mkdir -p "$root"
+root="$(cd "$root" && pwd -P)"
+state="$root/$profile"
+preflight() {
+  for program in qemu-system-aarch64 qemu-img shasum; do command -v "$program" >/dev/null || fail "Missing $program"; done
+  [[ -f "${COREOS_IMAGE:-}" && -f "${COREOS_IGNITION:-}" && -f "${COREOS_FIRMWARE:-}" ]] || fail "Provide COREOS_IMAGE, COREOS_IGNITION and COREOS_FIRMWARE"
+  qemu-system-aarch64 -accel help | grep -qw hvf || fail "QEMU lacks HVF"
+  qemu-img info --output=json "$COREOS_IMAGE" | grep -Eq '"format"[[:space:]]*:[[:space:]]*"qcow2"' || fail "Require qcow2 disk"
+  image_sha="$(shasum -a 256 "$COREOS_IMAGE" | awk '{print $1}')"
+  if [[ -n "${COREOS_IMAGE_SHA256:-}" ]]; then
+    [[ "$COREOS_IMAGE_SHA256" == "$image_sha" ]] || fail "Image hash mismatch"
+  fi
+}
+boot() {
+  preflight
+  [[ ! -e "$state" ]] || fail "Existing state: $state; refuse overwrite"
+  mkdir -m 700 "$state"
+  image="$(cd "$(dirname "$COREOS_IMAGE")" && pwd -P)/$(basename "$COREOS_IMAGE")"
+  ignition="$(cd "$(dirname "$COREOS_IGNITION")" && pwd -P)/$(basename "$COREOS_IGNITION")"
+  firmware="$(cd "$(dirname "$COREOS_FIRMWARE")" && pwd -P)/$(basename "$COREOS_FIRMWARE")"
+  qemu-img create -q -f qcow2 -F qcow2 -b "$image" "$state/overlay.qcow2"
+  { printf "image_sha256=%s\nport=%s\n" "$image_sha" "$port"; shasum -a 256 "$ignition" "$firmware"; } > "$state/manifest.txt"
+  qemu-system-aarch64 -machine virt,accel=hvf -cpu host -smp 4 -m 4096 \
+    -bios "$firmware" \
+    -drive "if=none,id=boot,file=$state/overlay.qcow2,format=qcow2" -device virtio-blk-pci,drive=boot \
+    -fw_cfg "name=opt/com.coreos/config,file=$ignition" \
+    -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$port-:22" -device virtio-net-pci,netdev=n0 \
+    -display none -monitor none -serial "file:$state/serial.log" \
+    -qmp "unix:$state/qmp.sock,server=on,wait=off" -daemonize -pidfile "$state/qemu.pid"
+  [[ -f "$state/qemu.pid" ]] || fail "QEMU startup failed; inspect $state/serial.log"
+  printf "BOOTED profile=%s state=%s port=%s\n" "$profile" "$state" "$port"
+}
+stop() {
+  [[ -S "$state/qmp.sock" ]] || fail "Missing QMP socket; refusing raw PID kill"
+  python3 - "$state/qmp.sock" <<'PY'
+import socket, sys
+with socket.socket(socket.AF_UNIX) as conn:
+    conn.settimeout(5)
+    conn.connect(sys.argv[1])
+    conn.recv(4096)
+    conn.sendall(b'{"execute":"qmp_capabilities"}\n')
+    conn.recv(4096)
+    conn.sendall(b'{"execute":"quit"}\n')
+PY
+  echo "STOP_REQUESTED; state retained: $state"
+}
+case "$action" in
+  preflight) preflight ;;
+  boot) boot ;;
+  stop) stop ;;
+  *) fail "Usage: $0 preflight|boot|stop" ;;
+esac

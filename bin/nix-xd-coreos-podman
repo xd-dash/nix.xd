@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+action="${1:-}"
+machine="${NIX_XD_MACHINE:-podman-machine-default}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+profile="${COREOS_PROFILE:-starwisp}"
+root="${COREOS_STATE_ROOT:-$PWD/.state/coreos}"
+port="${COREOS_SSH_PORT:-2222}"
+ram="${COREOS_RAM_MIB:-2048}"
+cpus="${COREOS_CPUS:-2}"
+flake="${COREOS_FLAKE:-/workspaces/agni/qemu/coreos-live/local}"
+image="${COREOS_RUNNER_IMAGE:-localhost/agni-coreos-qemu-runner:44.20261023.3.1-aarch64}"
+store_volume="${COREOS_NIX_STORE_VOLUME:-}"
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+[[ -z "$store_volume" || "$store_volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid shared Nix volume"
+[[ "$machine" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || fail 'Invalid machine'
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid scope'
+[[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid profile'
+[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Invalid port'
+[[ "$ram" =~ ^[0-9]+$ ]] && (( ram >= 2048 && ram <= 65536 )) || fail 'COREOS_RAM_MIB must be 2048..65536'
+[[ "$cpus" =~ ^[0-9]+$ ]] && (( cpus >= 1 && cpus <= 64 )) || fail 'COREOS_CPUS must be 1..64'
+[[ "$flake" == /workspaces/* && "$flake" != *..* ]] || fail 'COREOS_FLAKE must be a safe staged /workspaces path'
+command -v podman >/dev/null || fail 'Podman client is required'
+p=(podman --connection "$machine")
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || fail 'Podman Machine is not running'
+arch="$("${p[@]}" info --format '{{.Host.Arch}}')"
+[[ "$arch" == aarch64 || "$arch" == arm64 ]] || fail "Expected ARM64 machine; got $arch"
+mkdir -p "$root"
+root="$(cd "$root" && pwd -P)"
+state="$root/$profile"
+name="${COREOS_CONTAINER_NAME:-coreos-$profile}"
+artifacts="${COREOS_ARTIFACT_STATE:-$state}"
+if [[ "$artifacts" != "$state" ]]; then
+  [[ -d "$artifacts" && -f "$artifacts/build.txt" ]] || fail 'Missing shared CoreOS artifact state'
+  artifacts="$(cd "$artifacts" && pwd -P)"
+  mkdir -p "$state"
+  if [[ -e "$state/build.txt" ]]; then
+    cmp -s "$artifacts/build.txt" "$state/build.txt" || fail 'VM artifact manifest differs from shared source'
+  else
+    cp "$artifacts/build.txt" "$state/build.txt"
+  fi
+fi
+[[ "$name" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || fail "Invalid CoreOS container name"
+runner_id() {
+  local id
+  id="$("${p[@]}" image inspect "$image" --format '{{.Id}}')" || fail "Missing ARM64 QEMU image: $image (run coreos-container-build)"
+  [[ "$id" == sha256:* ]] || id="sha256:$id"
+  [[ "$id" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "Unexpected runner image ID: $id"
+  printf '%s\n' "$id"
+}
+build() {
+  [[ "$artifacts" == "$state" ]] || fail 'Build artifacts in their owner state directory'
+  [[ -d "$state" ]] || mkdir -m 700 "$state"
+  "${p[@]}" exec "$scope" nix --version >/dev/null || fail 'Nix executor unavailable'
+  local archive disk
+  archive="$("${p[@]}" exec "$scope" nix build --no-write-lock-file --no-link --print-out-paths "$flake#qemuRunner")"
+  [[ "$archive" == /nix/store/* && "$archive" != *$'\n'* ]] || fail 'Unexpected runner archive path'
+  "${p[@]}" exec "$scope" cat "$archive" | "${p[@]}" load
+  runner_id >/dev/null
+  disk="$("${p[@]}" exec "$scope" nix build --no-write-lock-file --no-link --print-out-paths "$flake#qcow")"
+  [[ "$disk" == /nix/store/* && "$disk" != *$'\n'* ]] || fail 'Unexpected QCOW output path'
+  [[ ! -e "$state/base.qcow2" ]] || fail 'Disk exists; refusing overwrite'
+  "${p[@]}" cp "$scope:$disk/base.qcow2" "$state/base.qcow2"
+  printf 'runner=%s\ndisk_sha256=%s\n' "$(runner_id)" "$(shasum -a 256 "$state/base.qcow2" | awk '{print $1}')" > "$state/build.txt"
+  echo "BUILT profile=$profile state=$state"
+}
+ignition() {
+  [[ "$artifacts" == "$state" ]] || fail 'Generate Ignition in its owner state directory'
+  [[ "$profile" == starwisp ]] || fail "Ignition generation currently supports PROFILE=starwisp only"
+  [[ -r "${COREOS_SSH_PUBLIC_KEY:-}" ]] || fail "Provide COREOS_SSH_PUBLIC_KEY path to an SSH ed25519 public key"
+  [[ -d "$state" && -f "$state/base.qcow2" ]] || fail "Build the ARM64 disk first"
+  [[ ! -e "$state/config.ign" ]] || fail "Existing config.ign; refusing overwrite"
+  local key output
+  key="$(awk '{print $1 " " $2}' "$COREOS_SSH_PUBLIC_KEY")"
+  [[ "$key" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+$ ]] || fail "Expected one valid ssh-ed25519 public key"
+  local butane="${flake%/local}/profiles/starwisp/butane/starwisp.bu"
+  local output_name=ignitionStarwisp
+  if [[ -n "$store_volume" ]]; then
+    butane="${flake%/local}/profiles/starwisp/butane/starwisp-9p.bu"
+    output_name=ignitionStarwisp9p
+  fi
+  "${p[@]}" exec "$scope" test -f "$butane" || fail "Missing staged Agni Starwisp Butane profile: $butane"
+  output="$("${p[@]}" exec "$scope" env COREOS_TEST_SSH_PUBLIC_KEY="$key" COREOS_STARWISP_BUTANE="$butane" COREOS_STARWISP_9P_BUTANE="$butane" \
+    nix build --impure --no-write-lock-file --no-link --print-out-paths "$flake#$output_name")"
+  [[ "$output" == /nix/store/* && "$output" != *$'\n'* ]] || fail 'Unexpected Ignition output path'
+  "${p[@]}" cp "$scope:$output/config.ign" "$state/config.ign"
+  printf 'ignition_sha256=%s\nshared_nix_volume=%s\n' "$(shasum -a 256 "$state/config.ign" | awk '{print $1}')" "${store_volume:-none}" >> "$state/build.txt"
+  echo "IGNITION_BUILT profile=$profile state=$state"
+}
+preflight() {
+  [[ -f "$artifacts/base.qcow2" ]] || fail 'Missing base.qcow2; run coreos-container-build'
+  [[ -f "$artifacts/config.ign" ]] || fail 'Missing config.ign; export application-owned Ignition here'
+  [[ -f "$state/build.txt" ]] || fail 'Missing build manifest'
+  [[ "$(shasum -a 256 "$artifacts/config.ign" | awk '{print $1}')" == "$(sed -n 's/^ignition_sha256=//p' "$state/build.txt")" ]] || fail 'Ignition SHA256 mismatch'
+  local configured_share
+  configured_share="$(sed -n 's/^shared_nix_volume=//p' "$state/build.txt")"
+  [[ "$configured_share" == "${store_volume:-none}" || ( -z "$configured_share" && -z "$store_volume" ) ]] ||
+    fail 'Shared Nix store option does not match the built Ignition configuration'
+  [[ "$(shasum -a 256 "$artifacts/base.qcow2" | awk '{print $1}')" == "$(sed -n 's/^disk_sha256=//p' "$state/build.txt")" ]] || fail 'CoreOS disk digest mismatch'
+  local id
+  id="$(runner_id)"
+  [[ "$(sed -n 's/^runner=//p' "$state/build.txt")" == "$id" ]] || fail 'QEMU runner identity mismatch'
+  "${p[@]}" run --rm --pull=never --volume "$state:/state:ro" --volume "$artifacts:/artifacts:ro" "$id" img info /artifacts/base.qcow2 >/dev/null || fail 'Runner cannot read host state; verify Podman Machine file sharing'
+  "${p[@]}" run --rm --pull=never "$id" run -machine help >/dev/null || fail 'ARM64 QEMU firmware or runner execution unavailable'
+  if [[ -n "$store_volume" ]]; then
+    "${p[@]}" volume exists "$store_volume" || fail "Missing shared Nix volume: $store_volume on machine $machine"
+    "${p[@]}" run --rm --pull=never --mount "type=volume,src=$store_volume,dst=/host-nix,ro" "$id" run-shared-nix -device virtio-9p-pci,help >/dev/null || fail "Agni QEMU runner lacks the shared-store 9P mode"
+  fi
+  echo "PASS profile=$profile image=$id accel=tcg shared_nix_volume=${store_volume:-none}"
+}
+boot() {
+  preflight
+  [[ ! -e "$state/overlay.qcow2" ]] || fail 'Overlay exists; refusing overwrite'
+  if "${p[@]}" container exists "$name"; then fail "Existing guest container: $name"; fi
+  local id
+  id="$(runner_id)"
+  "${p[@]}" run --rm --pull=never --volume "$state:/state:rw" --volume "$artifacts:/artifacts:ro" "$id" img create -q -f qcow2 -F qcow2 -b /artifacts/base.qcow2 /state/overlay.qcow2
+  printf 'port=%s\nrunner=%s\nartifact_state=%s\n' "$port" "$id" "$artifacts" > "$state/manifest.txt"
+  local mounts=(--volume "$artifacts:/artifacts:ro") qemu_mode=run
+  if [[ -n "$store_volume" ]]; then
+    mounts+=(--mount "type=volume,src=$store_volume,dst=/host-nix,ro")
+    qemu_mode=run-shared-nix
+  fi
+  local cid
+  cid="$("${p[@]}" run --detach --pull=never --name "$name" --volume "$state:/state:rw" \
+    "${mounts[@]}" \
+    --publish "127.0.0.1:$port:2222" "$id" "$qemu_mode" \
+    -machine virt -accel tcg,thread=multi -cpu cortex-a72 -m "$ram" -smp "$cpus" \
+    -drive if=none,id=disk0,file=/state/overlay.qcow2,format=qcow2 \
+    -device virtio-blk-pci,drive=disk0 \
+    -fw_cfg name=opt/com.coreos/config,file=/artifacts/config.ign \
+    -netdev user,id=n0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=n0 \
+    -display none -serial file:/state/serial.log -monitor none)"
+  [[ "$cid" =~ ^[a-f0-9]{64}$ ]] || fail 'Unexpected QEMU container identity'
+  printf 'container_id=%s\n'  "$cid" >> "$state/manifest.txt"
+  printf '%s\n' "$cid"
+  echo "BOOT_REQUESTED profile=$profile container=$name accel=tcg ram_mib=$ram cpus=$cpus"
+}
+reset_failed() {
+  [[ -f "$state/overlay.qcow2" ]] || fail "No overlay to archive; refusing reset"
+  [[ -f "$state/manifest.txt" ]] || fail "No boot manifest; refusing reset"
+  local status stamp archive orphan source_machine
+  orphan="${COREOS_ORPHANED_OVERLAY:-0}"
+  source_machine="${NIX_XD_FROM_MACHINE:-podman-machine-default}"
+  [[ "$orphan" == 0 || "$orphan" == 1 ]] || fail "COREOS_ORPHANED_OVERLAY must be 0 or 1"
+  if status="$("${p[@]}" inspect "$name" --format '{{.State.Status}}' 2>/dev/null)"; then
+    [[ "$status" == exited || "$status" == created ]] ||
+      fail "Guest status is $status, not safely resettable"
+  else
+    [[ "$orphan" == 1 ]] ||
+      fail "Missing $name on current machine; set COREOS_ORPHANED_OVERLAY=1 after confirming the original machine is stopped"
+    [[ "$source_machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail "Invalid source machine"
+    [[ "$source_machine" != "$machine" ]] || fail "Orphan source must differ from selected machine"
+    [[ "$(podman machine inspect "$source_machine" --format '{{.State}}')" != running ]] ||
+      fail "Original machine $source_machine is still running; refusing orphan reset"
+    [[ "$(sed -n 's/^runner=//p' "$state/manifest.txt")" == "$(runner_id)" ]] ||
+      fail "Orphaned boot manifest runner does not match selected QEMU image"
+    status=orphaned
+  fi
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  archive="$state/failed-$stamp-$$"
+  [[ ! -e "$archive" ]] || fail "Existing archive: $archive"
+  mkdir -m 700 "$archive"
+  if [[ "$status" != orphaned ]]; then
+    "${p[@]}" logs "$name" > "$archive/container.log" 2>&1 || true
+    "${p[@]}" rm "$name" >/dev/null
+  else
+    printf 'Orphaned overlay from stopped machine %s; no container exists on %s\n' "$source_machine" "$machine" > "$archive/container.log"
+  fi
+  for file in overlay.qcow2 serial.log manifest.txt wisp.log known_hosts ssh-readiness-last-error.log; do
+    if [[ -e "$state/$file" ]]; then mv "$state/$file" "$archive/$file"; fi
+  done
+  echo "RESET_FAILED profile=$profile archived=$archive status=$status; base disk and Ignition preserved"
+}
+start() {
+  [[ ! -e "$state/.qualify-starwisp.lock" ]] || fail 'VM qualification is already running'
+  mkdir "$state/.managed-start.lock" || fail 'Managed VM start is already running'
+  trap 'rmdir "$state/.managed-start.lock"' EXIT
+  preflight
+  local status cid recorded actual_image recorded_artifacts
+  if status="$("${p[@]}" inspect "$name" --format '{{.State.Status}}' 2>/dev/null)"; then
+    cid="$("${p[@]}" inspect "$name" --format '{{.Id}}')"
+    recorded="$(sed -n 's/^container_id=//p' "$state/manifest.txt")"
+    if [[ "$status" == running || "$recorded" == "$cid" ]]; then
+      [[ "$recorded" == "$cid" ]] || fail 'Running VM lacks matching managed container identity'
+      recorded_artifacts="$(sed -n 's/^artifact_state=//p' "$state/manifest.txt")"
+      [[ "$recorded_artifacts" == "$artifacts" || ( -z "$recorded_artifacts" && "$artifacts" == "$state" ) ]] || fail 'VM artifact binding changed'
+      grep -Fxq "port=$port" "$state/manifest.txt" || fail 'VM SSH port differs from recorded boot'
+      grep -Fxq "runner=$(runner_id)" "$state/manifest.txt" || fail 'VM runner differs from recorded boot'
+      actual_image="$("${p[@]}" inspect "$name" --format '{{.Image}}')"
+      [[ "$actual_image" == sha256:* ]] || actual_image="sha256:$actual_image"
+      [[ "$actual_image" == "$(runner_id)" ]] || fail 'VM image identity changed'
+      if [[ -n "$store_volume" ]]; then
+        [[ "$("${p[@]}" inspect "$name" --format '{{range .Mounts}}{{if eq .Destination "/host-nix"}}{{.Name}}:{{.RW}}{{end}}{{end}}')" == "$store_volume:false" ]] || fail 'VM store export differs from owner domain'
+      fi
+      if [[ "$status" != running ]]; then
+        [[ "$status" == exited || "$status" == created ]] || fail 'VM is not restartable'
+        "${p[@]}" start "$name"
+      fi
+      echo "COREOS_MANAGED_RUNNING container=$name reused=true"
+    else
+      [[ "$status" == exited || "$status" == created ]] || fail 'Unknown VM state'
+      reset_failed
+      boot
+    fi
+  else
+    if [[ -e "$state/overlay.qcow2" ]]; then fail 'Orphaned overlay requires explicit reconciliation'; fi
+    boot
+  fi
+}
+stop() {
+  "${p[@]}" stop "$name"
+  echo "STOPPED profile=$profile; state retained: $state"
+}
+case "$action" in
+  build) build ;;
+  ignition) ignition ;;
+  preflight) preflight ;;
+  boot) boot ;;
+  start) start ;;
+  reset-failed) reset_failed ;;
+  stop) stop ;;
+  *) fail 'Usage: coreos-podman build|ignition|preflight|boot|reset-failed|stop' ;;
+esac

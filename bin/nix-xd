@@ -30,8 +30,8 @@ case "$action" in
     systemctl --user show-environment >/dev/null
     [[ "$(podman info --format '{{.Host.Security.Rootless}}')" == true ]]
     podman build --platform "$platform" -t "$image" "$NIX_XD_CONTEXT"
-    # A fresh volume is populated from the image before its first Nix invocation.
-    podman run --rm --network=none "$image" bash -lc 'nix --version'
+    # ARM64 Nix initializes only after the persistent volume is attached.
+    # The x86_64 nix-alpine source has a separate bootstrap contract.
     mkdir -p "$dir"
     tmp="$(mktemp "$dir/.nix-xd.XXXXXX")"
     trap 'rm -f "$tmp"' EXIT

@@ -17,7 +17,9 @@ machine="${NIX_XD_MACHINE:-podman-machine-default}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
 [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die "Invalid scope"
 [[ "$machine" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || die "Invalid machine name"
-image="localhost/nix-xd:arm64"
+source "$repo/lib/builder-stores.sh"
+builder_stores_init "$scope"
+image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
 unit="$scope.service"
 
 if ! command -v podman >/dev/null 2>&1; then
@@ -26,13 +28,11 @@ if ! command -v podman >/dev/null 2>&1; then
   brew install podman
 fi
 
-if ! podman machine inspect "$machine" >/dev/null 2>&1; then
-  say "Creating rootless Podman Machine: $machine"
-  podman machine init --provider applehv \
-    --cpus "${NIX_XD_CPUS:-6}" \
-    --memory "${NIX_XD_MEMORY_MIB:-12288}" \
-    --disk-size "${NIX_XD_DISK_GIB:-120}" \
-    --rootful=false "$machine"
+if [[ "${NIX_XD_MACHINE_BOOTSTRAP:-1}" == 1 ]]; then
+  NIX_XD_MACHINE_VERIFY="${NIX_XD_MACHINE_VERIFY:-0}" bash "$repo/bin/nix-xd-machine" init
+else
+  podman machine inspect "$machine" >/dev/null 2>&1 ||
+    die "Missing machine $machine; run make machine-init or set MACHINE_BOOTSTRAP=1"
 fi
 
 if [[ "$(podman machine inspect "$machine" --format '{{.State}}')" != running ]]; then
@@ -46,40 +46,47 @@ podman machine ssh "$machine" 'test "$(uname -m)" = aarch64' ||
 podman machine ssh "$machine" 'test "$(podman info --format "{{.Host.Security.Rootless}}")" = true' ||
   die "Machine Podman is not rootless"
 
+builder_stores_check podman --connection "$machine"
 say "Building the ARM64 image"
-podman build --platform linux/arm64 -t "$image" "$repo/arm"
-podman run --rm "$image" nix --version
-podman volume exists "$scope-store" || podman volume create "$scope-store" >/dev/null
+podman --connection "$machine" build --platform linux/arm64 -t "$image" "$repo/arm"
+if ! podman --connection "$machine" volume exists "$builder_store_volume"; then
+  say "Creating empty authoritative Nix store volume"
+  podman --connection "$machine" volume create "$builder_store_volume" >/dev/null
+fi
+# Set ownership of the volume root only, never recurse through store contents.
+# Existing stores are not migrated or repaired and fail closed if unmarked.
+podman --connection "$machine" run --rm --pull=never --user 0:0 \
+  --mount "type=volume,src=$builder_store_volume,dst=/nix" \
+  --entrypoint /bin/sh "$image" -ec '
+    if [ -e /nix/.nix-xd-direct-volume-v2 ]; then
+      exit 0
+    fi
+    if [ -n "$(find /nix -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]; then
+      echo "Existing unmarked Nix store: explicit redeployment required" >&2
+      exit 1
+    fi
+    chown 1000:1000 /nix
+  '
+# First Nix installation occurs only after the final volume is mounted.
 
 say "Installing rootless Quadlet"
+printf -v builder_remote_args '%q ' "$scope" "$image" "$builder_store_volume" "${NIX_XD_PEER_STORES:-}"
 # The VM's user service manager supervises the container; no macOS daemon needed.
-podman machine ssh "$machine" bash -se -- "$scope" "$image" <<'REMOTE'
+{
+cat "$repo/lib/builder-stores.sh"
+cat <<'REMOTE' 
 set -euo pipefail
 scope="$1"
 image="$2"
+NIX_XD_STORE_VOLUME="$3" NIX_XD_PEER_STORES="$4"
+builder_stores_init "$scope"
+builder_stores_check podman
 dir="$HOME/.config/containers/systemd"
 mkdir -p "$dir"
 file="$dir/$scope.container"
 tmp="$(mktemp "$dir/.nix-xd.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
-cat >"$tmp" <<EOF
-[Unit]
-Description=Nix-Alpine ARM64 ($scope)
-
-[Container]
-Image=$image
-ContainerName=$scope
-Pull=never
-Volume=$scope-store:/nix
-Exec=sleep infinity
-
-[Service]
-Restart=on-failure
-TimeoutStartSec=300
-
-[Install]
-WantedBy=default.target
-EOF
+builder_quadlet "$scope" "$image" "Nix-Alpine ARM64 ($scope)" > "$tmp"
 if [[ -e "$file" ]]; then
   cmp -s "$tmp" "$file" || { echo "Existing Quadlet differs: $file" >&2; exit 1; }
 else
@@ -92,6 +99,7 @@ if [[ "$(loginctl show-user "$USER" -p Linger --value)" != yes ]]; then
   sudo loginctl enable-linger "$USER"
 fi
 REMOTE
+} | podman machine ssh "$machine" "bash -se -- $builder_remote_args"
 
 say "Installing opt-in zsh helper"
 mkdir -p "$HOME/.config/nix-xd" "$HOME/Library/Caches/nix-xd"
@@ -122,9 +130,38 @@ touch "$HOME/.zshrc"
 line='[[ -f "$HOME/.config/nix-xd/macos.zsh" ]] && source "$HOME/.config/nix-xd/macos.zsh"'
 grep -Fqx "$line" "$HOME/.zshrc" || printf '\n%s\n' "$line" >>"$HOME/.zshrc"
 
-say "Checking service"
+say "Checking Nix-Alpine bootstrap readiness"
 podman machine ssh "$machine" systemctl --user is-active "$unit"
-podman exec "$scope" nix --version
+ready=0
+for attempt in $(seq 1 120); do
+  if podman --connection "$machine" exec "$scope" /bin/sh -ec '
+    test -f /nix/.nix-xd-direct-volume-v2
+    test -x /nix/home/nixuser/.nix-profile/bin/nix
+    /nix/home/nixuser/.nix-profile/bin/nix --version >/dev/null
+  ' >/dev/null 2>&1; then
+    ready=1
+    printf 'NIX_XD_BOOTSTRAP_READY attempts=%s\n' "$attempt"
+    break
+  fi
+  if [[ "$(podman machine ssh "$machine" systemctl --user is-active "$unit" 2>/dev/null)" != active ]]; then
+    echo "Nix-Alpine Quadlet became inactive during direct-volume bootstrap" >&2
+    break
+  fi
+  if (( attempt % 12 == 0 )); then
+    printf 'NIX_XD_BOOTSTRAP_WAIT attempt=%s\n' "$attempt"
+  fi
+  sleep 5
+done
+if [[ "$ready" != 1 ]]; then
+  printf '%s\n' '--- Nix-Alpine container logs ---' >&2
+  podman --connection "$machine" logs --tail 120 "$scope" >&2 || true
+  printf '%s\n' '--- Nix-Alpine user service journal ---' >&2
+  podman machine ssh "$machine" journalctl --user --no-pager -u "$unit" -n 120 >&2 || true
+  die 'Direct-volume initialization failed or timed out; do not reseed the volume'
+fi
+podman --connection "$machine" exec "$scope" nix --version
+NIX_XD_MACHINE="$machine" NIX_XD_SCOPE="$scope" NIX_XD_IMAGE="$image" \
+  COREOS_NIX_STORE_VOLUME="$builder_store_volume" bash "$repo/bin/nix-xd-store-export-check"
 
 printf '\nReady: %s on %s\n' "$unit" "$machine"
 printf 'Open a new zsh shell: nxd-status | nxd-up | nxd-shell | nxd-down\n'

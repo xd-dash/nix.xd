@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+operation="${1:?expected inspect or apply}"
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+provider="${NIX_XD_PROVIDER:-podman}"
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+system="${NIX_XD_SYSTEM:-aarch64-linux}"
+flake="${STORE_ROOTS_FLAKE:-/workspaces/nix.xd}"
+group="${STORE_ROOTS_GROUP:-starwisp}"
+volume="${STORE_ROOTS_VOLUME:-$scope-store}"
+[[ "$group" == starwisp ]] || { echo 'Only the Starwisp declaration is currently supported' >&2; exit 2; }
+[[ "$flake" =~ ^/workspaces/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$ && "$flake" != *..* ]] ||
+  { echo 'Invalid staged flake path' >&2; exit 2; }
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ && "$volume" == "$scope-store" ]] ||
+  { echo 'Invalid scope or authoritative volume' >&2; exit 2; }
+[[ "$system" == aarch64-linux || "$system" == x86_64-linux ]] ||
+  { echo 'Unsupported Nix system' >&2; exit 2; }
+[[ "$provider" == podman || "$provider" == container ]] ||
+  { echo 'Unsupported provider' >&2; exit 2; }
+
+runtime_cmd() {
+  if [[ "$provider" == podman && "$(uname -s)" == Darwin ]]; then
+    podman --connection "$machine" "$@"
+  else
+    "$provider" "$@"
+  fi
+}
+inside() { runtime_cmd exec "$scope" "$@"; }
+guest() { runtime_cmd exec -i --user 0 "$scope" sh -s -- "$@" < "$repo/bin/nix-xd-store-root-guest"; }
+[[ "$(inside uname -m)" == aarch64 || "$(inside uname -m)" == x86_64 ]] ||
+  { echo 'Unexpected runtime architecture' >&2; exit 1; }
+case "$system:$(inside uname -m)" in
+  aarch64-linux:aarch64|x86_64-linux:x86_64) ;;
+  *) echo 'Runtime system mismatch' >&2; exit 1 ;;
+esac
+actual="$(runtime_cmd inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')"
+[[ "$actual" == "$volume" ]] ||
+  { echo "Wrong Nix volume: expected $volume, got $actual" >&2; exit 1; }
+inside test -f /nix/.nix-xd-direct-volume-v2 || { echo 'Missing direct-volume marker' >&2; exit 1; }
+[[ "$operation" == inspect || "$operation" == apply ]] || { echo 'Expected inspect or apply' >&2; exit 2; }
+printf 'STORE_ROOTS_OPERATION=%s GROUP=%s VOLUME=%s\n' "$operation" "$group" "$volume"
+guest inspect "$group"
+[[ "$operation" == apply ]] || exit 0
+inside test -f "$flake/flake.nix" || { echo "Stage nix.xd at $flake before applying roots" >&2; exit 1; }
+manifest="$repo/store-roots/starwisp.tsv"
+while read -r name output extra; do
+  [[ -z "$name" || "$name" == \#* ]] && continue
+  [[ -z "${extra:-}" && "$name" =~ ^[a-z][a-z0-9-]*$ && "$output" =~ ^[A-Za-z][A-Za-z0-9]*$ ]] ||
+    { echo "Invalid root declaration: $name $output" >&2; exit 2; }
+  echo "STORE_ROOT_BUILD=$name OUTPUT=$output"
+  resolved="$(inside nix build --no-write-lock-file --no-link --print-out-paths "$flake#$output^out")"
+  [[ "$resolved" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+$ ]] ||
+    { echo "Expected one store path for $output, got $resolved" >&2; exit 1; }
+  inside nix path-info "$resolved" >/dev/null || { echo "Unregistered store path: $resolved" >&2; exit 1; }
+  guest register "$group" "$name" "$resolved"
+done < "$manifest"
+echo 'STORE_ROOTS_RESULT=passed'

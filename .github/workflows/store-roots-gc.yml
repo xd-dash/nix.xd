@@ -1,0 +1,60 @@
+name: Disposable store GC retention
+on:
+  push:
+    paths:
+      - tests/store-roots-gc.sh
+      - tests/workloads.py
+      - tests/workloads-nix.py
+      - lib/workloads.py
+      - flake.nix
+      - guest/nix-alpine/**
+      - tests/nested-alpine-nix.py
+      - bin/nix-xd-workload
+      - bin/nix-xd-workload-qualify
+      - bin/nix-xd-guest-store-exec
+      - qualifiers/modules/store-gc-retention.sh
+      - .github/workflows/store-roots-gc.yml
+  pull_request:
+    paths:
+      - tests/store-roots-gc.sh
+      - tests/workloads.py
+      - tests/workloads-nix.py
+      - lib/workloads.py
+      - flake.nix
+      - guest/nix-alpine/**
+      - tests/nested-alpine-nix.py
+      - bin/nix-xd-workload
+      - bin/nix-xd-workload-qualify
+      - bin/nix-xd-guest-store-exec
+      - qualifiers/modules/store-gc-retention.sh
+      - .github/workflows/store-roots-gc.yml
+permissions:
+  contents: read
+jobs:
+  gc-retention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate module syntax
+        run: bash -n qualifiers/modules/store-gc-retention.sh tests/store-roots-gc.sh
+      - name: Prepare Nix 2.34.9 CLI
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 https://releases.nixos.org/nix/nix-2.34.9/nix-2.34.9-x86_64-linux.tar.xz -o "$RUNNER_TEMP/nix.tar.xz"
+          tar -xJf "$RUNNER_TEMP/nix.tar.xz" -C "$RUNNER_TEMP"
+          sudo mkdir -p /nix/store
+          sudo cp -a "$RUNNER_TEMP/nix-2.34.9-x86_64-linux/store/." /nix/store/
+          echo /nix/store/*-nix-2.34.9/bin >> "$GITHUB_PATH"
+      - name: Verify roots protect transitive dependencies during GC
+        run: bash tests/store-roots-gc.sh
+      - name: Check real Nix workload preparation and root release
+        run: sudo env GITHUB_ACTIONS=true PATH="$PATH" python3 tests/workloads-nix.py
+      - name: Validate flake syntax
+        run: sudo env PATH="$PATH" nix-instantiate --parse flake.nix >/dev/null
+      - name: Prepare rootless Podman integration
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y podman uidmap
+      - name: Build nested Alpine workload and verify read-only execution
+        run: sudo env GITHUB_ACTIONS=true PATH="$PATH" python3 tests/nested-alpine-nix.py

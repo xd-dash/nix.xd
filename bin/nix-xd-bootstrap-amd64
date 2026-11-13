@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+[[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] ||
+  die 'Native x86_64 Linux required'
+[[ "${NIX_XD_PROVIDER:-podman}" == podman ]] || die 'AMD64 bootstrap requires Podman'
+for cmd in podman systemctl realpath; do command -v "$cmd" >/dev/null || die "Missing $cmd"; done
+scope="${NIX_XD_SCOPE:-nix-xd-amd64}"
+image="${NIX_XD_IMAGE:-localhost/nix-xd:amd64}"
+volume="$scope-store"
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo/lib/builder-stores.sh"
+builder_stores_init "$scope"
+volume="$builder_store_volume"
+builder_stores_check podman
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || die 'Invalid scope'
+[[ "$image" == localhost/nix-xd:amd64 ]] || die 'Unexpected image; use dedicated AMD64 bootstrap image'
+[[ "$(id -u)" != 0 ]] || die 'Run under ordinary user'
+[[ "$(podman info --format '{{.Host.Security.Rootless}}')" == true ]] ||
+  die 'Podman must be rootless'
+systemctl --user show-environment >/dev/null ||
+  die 'User systemd manager unavailable'
+printf 'X86_BOOTSTRAP_STEP=build-image\n'
+podman build --platform linux/amd64 -t "$image" "$repo/arm"
+if ! podman volume exists "$volume"; then
+  printf 'X86_BOOTSTRAP_STEP=create-authoritative-volume\n'
+  podman volume create "$volume" >/dev/null
+fi
+podman run --rm --pull=never --user 0:0 \
+  --mount "type=volume,src=$volume,dst=/nix" \
+  --entrypoint /bin/sh "$image" -ec '
+    if [ -e /nix/.nix-xd-direct-volume-v2 ]; then exit 0; fi
+    if [ -n "$(find /nix -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]; then
+      echo "Existing unmarked store: clean rebootstrap required; refusing migration" >&2
+      exit 1
+    fi
+    chown 1000:1000 /nix
+  '
+dir="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
+mkdir -p "$dir"
+file="$dir/$scope.container"
+tmp="$(mktemp "$dir/.nix-xd.XXXXXXXX")"
+trap 'rm -f -- "$tmp"' EXIT
+builder_quadlet "$scope" "$image" "Nix-Alpine AMD64 ($scope)" > "$tmp"
+if [[ -e "$file" ]]; then
+  cmp -s "$tmp" "$file" || die "Existing Quadlet differs: $file"
+else
+  install -m 600 "$tmp" "$file"
+fi
+systemctl --user daemon-reload
+systemctl --user start "$scope.service"
+ready=0
+for attempt in $(seq 1 120); do
+  if podman exec "$scope" /bin/sh -ec '
+    test -f /nix/.nix-xd-direct-volume-v2
+    test -x /nix/home/nixuser/.nix-profile/bin/nix
+    /nix/home/nixuser/.nix-profile/bin/nix --version >/dev/null
+  ' >/dev/null 2>&1; then
+    ready=1
+    printf 'X86_BOOTSTRAP_READY attempts=%s\n' "$attempt"
+    break
+  fi
+  if ! systemctl --user is-active --quiet "$scope.service"; then
+    echo 'Nix-Alpine user service inactive during initialization' >&2
+    break
+  fi
+  sleep 5
+done
+if [[ "$ready" != 1 ]]; then
+  podman logs --tail 100 "$scope" >&2 || true
+  journalctl --user --no-pager -u "$scope.service" -n 100 >&2 || true
+  die 'AMD64 direct-volume bootstrap not ready'
+fi
+NIX_XD_SCOPE="$scope" NIX_XD_IMAGE="$image" COREOS_NIX_STORE_VOLUME="$volume" \
+  bash "$repo/bin/nix-xd-store-export-check"
+printf 'X86_BOOTSTRAP_RESULT=passed scope=%s volume=%s image=%s store=direct-volume\n' "$scope" "$volume" "$image"

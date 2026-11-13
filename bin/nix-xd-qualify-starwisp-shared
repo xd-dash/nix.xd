@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+host="$(uname -s)"
+[[ "$host" == Darwin ]] || fail 'Current Starwisp QEMU transport requires macOS'
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+store_volume="${COREOS_NIX_STORE_VOLUME:-$scope-store}"
+flake="${COREOS_PROBE_FLAKE:-/workspaces/nix.xd}"
+state_root="${COREOS_STATE_ROOT:-$repo/.state/coreos}"
+profile="${COREOS_PROFILE:-starwisp}"
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Invalid Podman Machine'
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid Nix-Alpine scope'
+[[ "$store_volume" == "$scope-store" ]] || fail 'Store must be the selected Nix-Alpine authoritative volume'
+[[ "$flake" =~ ^/workspaces/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ ]] || fail 'COREOS_PROBE_FLAKE must be a staged /workspaces flake'
+[[ "$profile" == starwisp ]] || fail 'Requires PROFILE=starwisp'
+[[ -r "${COREOS_SSH_KEY:-}" ]] || fail 'Set COREOS_SSH_KEY to a readable Starwisp private SSH key'
+[[ "$(podman machine inspect "$machine" --format '{{.State}}')" == running ]] || fail 'Podman Machine not running'
+p=(podman --connection "$machine")
+[[ "$("${p[@]}" exec "$scope" uname -m)" == aarch64 ]] || fail 'Selected Nix-Alpine is not ARM64'
+[[ "$("${p[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')" == "$store_volume" ]] ||
+  fail 'Nix-Alpine owner does not mount the selected authoritative volume'
+"${p[@]}" exec "$scope" test -f /nix/.nix-xd-direct-volume-v2 ||
+  fail 'Nix-Alpine is not using the qualified direct-volume store'
+"${p[@]}" exec "$scope" test -f "$flake/flake.nix" ||
+  fail "Probe flake not staged: $flake; stage this repository before qualification"
+
+state="$state_root/$profile"
+[[ -f "$state/base.qcow2" && -f "$state/config.ign" && -f "$state/build.txt" ]] ||
+  fail "Missing Starwisp disk, Ignition, or build manifest under $state; build the 9P profile first"
+configured="$(sed -n 's/^shared_nix_volume=//p' "$state/build.txt")"
+[[ "$configured" == "$store_volume" ]] ||
+  fail "Existing Starwisp Ignition was built for shared_nix_volume=${configured:-none}, expected $store_volume; create separate 9P artifacts, do not overwrite"
+printf 'STARWISP_SHARED_PREPARE_STEP=store machine=%s scope=%s volume=%s\n' "$machine" "$scope" "$store_volume"
+NIX_XD_MACHINE="$machine" NIX_XD_SCOPE="$scope" NIX_XD_IMAGE=localhost/nix-xd:arm64 \
+  COREOS_NIX_STORE_VOLUME="$store_volume" bash "$repo/bin/nix-xd-store-export-check"
+
+build_probe() {
+  local name="$1" output
+  printf 'STARWISP_SHARED_PREPARE_BUILD=%s\n' "$name" >&2
+  # Select the executable output of multi-output packages (notably pkgs.nix).
+  output="$("${p[@]}" exec "$scope" nix build --no-write-lock-file --no-link --print-out-paths "$flake#$name^out")" ||
+    fail "Cannot build probe $name in the current Nix store"
+  [[ "$output" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9._+-]+$ ]] ||
+    fail "Expected exactly one store path for $name^out; received: $output"
+  "${p[@]}" exec "$scope" test -e "$output" || fail "Probe missing from owner store: $name"
+  printf '%s\n' "$output"
+}
+rootfs="$(build_probe storeProbeRootfs)"
+dynamic="$(build_probe storeProbeDynamic)"
+nix_package="$(build_probe storeProbeNix)"
+archive="$(build_probe storeProbeOciArchive)"
+nix_executable="$nix_package/bin/nix"
+dynamic_executable="$dynamic/bin/hello"
+"${p[@]}" exec "$scope" test -x "$rootfs/bin/sh" || fail 'Missing probe shell'
+"${p[@]}" exec "$scope" test -x "$dynamic_executable" || fail 'Missing dynamic probe binary'
+"${p[@]}" exec "$scope" test -x "$nix_executable" || fail 'Missing Nix CLI probe binary'
+"${p[@]}" exec "$scope" test -s "$archive" || fail 'Missing OCI archive'
+[[ "$archive" == *.tar.gz ]] || fail 'OCI archive must be .tar.gz output'
+
+# Roots and dynamically linked executables need their dependent store paths.
+# nix-store -qR ensures the closure is registered, not merely present by name.
+for output in "$rootfs" "$dynamic" "$nix_package" "$archive"; do
+  "${p[@]}" exec "$scope" /bin/sh -ec '
+    nix-store -qR "$1" | while IFS= read -r dependency; do
+      test -e "$dependency" || { echo "Missing closure dependency: $dependency" >&2; exit 1; }
+    done
+  ' sh "$output" || fail "Closure is incomplete: $output"
+done
+printf 'STARWISP_SHARED_PREPARE_RESULT=passed volume=%s rootfs=%s dynamic=%s nix=%s archive=%s\n' \
+  "$store_volume" "$rootfs" "$dynamic_executable" "$nix_executable" "$archive"
+export COREOS_NIX_STORE_VOLUME="$store_volume"
+export COREOS_GUEST_PROBE_ROOTFS="$rootfs"
+export COREOS_GUEST_DYNAMIC_EXECUTABLE="$dynamic_executable"
+export COREOS_GUEST_NIX_EXECUTABLE="$nix_executable"
+export COREOS_GUEST_OCI_ARCHIVE="$archive"
+export COREOS_PROFILE="$profile"
+export COREOS_STATE_ROOT="$state_root"
+export NIX_XD_MACHINE="$machine"
+export NIX_XD_SCOPE="$scope"
+exec bash "$repo/bin/nix-xd-qualify-starwisp"

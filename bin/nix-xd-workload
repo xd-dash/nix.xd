@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+operation="${1:?expected prepare, inspect, activate or stop}"
+case "$operation" in prepare|inspect|activate|check|status|shell|mode|stop|recreate|recreate-abandon|isolate-write|isolate-check) ;; *) echo 'Unknown workload action' >&2; exit 2 ;; esac
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+provider="${NIX_XD_PROVIDER:-podman}"
+machine="${NIX_XD_MACHINE:-coreos-arm64}"
+scope="${NIX_XD_SCOPE:-nix-xd-arm}"
+system="${NIX_XD_SYSTEM:-aarch64-linux}"
+name="${NIX_XD_WORKLOAD:-starwisp-probe}"
+placement="${NIX_XD_WORKLOAD_PLACEMENT:-guest}"
+[[ "$placement" == host || "$placement" == guest ]] || { echo 'Invalid placement' >&2; exit 2; }
+flake="${NIX_XD_WORKLOAD_FLAKE:-/workspaces/nix.xd}"
+revision="${NIX_XD_WORKLOAD_REV:-}"
+generation="${NIX_XD_WORKLOAD_GENERATION:-}"
+fail() { echo "error: $*" >&2; exit 1; }
+[[ "$provider" == podman ]] || fail 'Current workload transport requires Podman'
+[[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ && "$name" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail 'Invalid scope or workload'
+[[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Invalid machine'
+workspace_pattern='^/workspaces/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$'
+[[ "$flake" =~ $workspace_pattern && "$flake" != *..* ]] || fail 'Invalid staged controller flake'
+[[ -z "$generation" || "$generation" =~ ^[a-f0-9]{64}$ ]] || fail 'Invalid generation'
+runtime=(podman)
+if [[ "$(uname -s)" == Darwin ]]; then runtime+=(--connection "$machine"); fi
+inside() { "${runtime[@]}" exec "$scope" "$@"; }
+actual="$(inside uname -m)"
+case "$system:$actual" in aarch64-linux:aarch64|aarch64-linux:arm64|x86_64-linux:x86_64) ;; *) fail 'Owner architecture mismatch' ;; esac
+[[ "$("${runtime[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}')" == "${NIX_XD_STORE_VOLUME:-$scope-store}" ]] || fail 'Unexpected owner volume'
+inside sh -ec 'test "$(id -u)" = 1000; test -f /nix/.nix-xd-direct-volume-v2'
+controller=(nix run --no-write-lock-file "$flake#workload-control" --)
+if [[ -n "${NIX_XD_WORKLOAD_CONTROLLER:-}" ]]; then
+  [[ "$NIX_XD_WORKLOAD_CONTROLLER" =~ ^/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+/bin/nix-xd-workload-control$ ]] || fail 'Invalid pinned controller'
+  controller=("$NIX_XD_WORKLOAD_CONTROLLER")
+fi
+control() {
+  inside "${controller[@]}" "$@" --name "$name"
+}
+control_input() {
+  "${runtime[@]}" exec -i "$scope" "${controller[@]}" "$@" --name "$name"
+}
+selected_control() {
+  if [[ -n "$generation" ]]; then
+    control "$@" --generation "$generation"
+  else
+    control "$@"
+  fi
+}
+case "$operation" in
+  prepare)
+    [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || fail 'WORKLOAD_REV must pin the staged Git revision'
+    "${runtime[@]}" exec -i --user 0 "$scope" sh -s -- init-workloads workloads < "$repo/bin/nix-xd-store-root-guest"
+    control prepare --system "$system" --flake "$flake" --revision "$revision"
+    echo 'WORKLOAD_PREPARE_RESULT=passed'
+    exit 0 ;;
+  inspect) control inspect; exit 0 ;;
+  mode) selected_control mode; exit 0 ;;
+  status)
+    control summary
+    generation="$(control status-selection)"
+    if [[ "$generation" == none ]]; then
+      echo 'WORKLOAD_STATUS=stopped'
+      exit 0
+    fi
+    ;;
+esac
+# Guest connection is an adapter. It does not rebuild or boot a VM.
+profile="${COREOS_PROFILE:-starwisp}"
+root="${COREOS_STATE_ROOT:-$repo/.state/coreos}"
+user="${COREOS_GUEST_USER:-wisp}"
+port="${COREOS_SSH_PORT:-2222}"
+key="${COREOS_SSH_KEY:-}"
+if [[ "$placement" == host ]]; then
+  [[ "$(selected_control placement)" == host ]] || fail 'Workload is not declared for host placement'
+  state="$root/host"
+  mkdir -p "$state"
+  store_export="$("${runtime[@]}" volume inspect "${NIX_XD_STORE_VOLUME:-$scope-store}" --format '{{.Mountpoint}}')/store"
+else
+[[ "$profile" =~ ^[a-z][a-z0-9-]{0,39}$ && "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail 'Invalid guest profile or user'
+[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Invalid guest SSH port'
+[[ -r "$key" ]] || fail 'Provide COREOS_SSH_KEY'
+state="$root/$profile"
+[[ -f "$state/manifest.txt" && -f "$state/build.txt" && -f "$state/known_hosts" ]] || fail 'Boot and qualify the shared-store guest first'
+grep -Fxq "port=$port" "$state/manifest.txt" || fail 'Guest port differs from boot manifest'
+grep -Fxq "shared_nix_volume=${NIX_XD_STORE_VOLUME:-$scope-store}" "$state/build.txt" || fail 'Guest exports a different owner store'
+opts=(-i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10
+  -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$state/known_hosts"
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+fi
+remote_script() {
+  if [[ "$placement" == host ]]; then
+    if [[ "$(uname -s)" == Darwin ]]; then podman machine ssh "$machine" 'bash -se'; else bash -se; fi
+  else
+    ssh -T "${opts[@]}" "$user@127.0.0.1" 'bash -se'
+  fi
+}
+remote_command() {
+  if [[ "$placement" == host ]]; then
+    if [[ "$(uname -s)" == Darwin ]]; then podman machine ssh "$machine" "$1"; else bash -c "$1"; fi
+  else
+    ssh -T "${opts[@]}" "$user@127.0.0.1" "$1"
+  fi
+}
+boot_id="$(remote_command 'cat /proc/sys/kernel/random/boot_id')"
+[[ "$boot_id" =~ ^[a-f0-9-]{36}$ ]] || fail 'Invalid runtime boot identity'
+if [[ "$operation" == recreate || "$operation" == recreate-abandon ]]; then
+  generation="$(selected_control active-generation)"
+  if [[ "$operation" == recreate-abandon ]]; then
+    transaction="$(control pending-recreation --generation "$generation")"
+    control abandon-recreate --generation "$generation" --transaction "$transaction"
+    exec bash "$repo/bin/nix-xd-workload" stop
+  fi
+  transaction="$(control begin-recreate --generation "$generation" --target "$boot_id")"
+  [[ "$transaction" =~ ^[a-f0-9]{32}$ ]] || fail 'Invalid recreation transaction'
+  evidence="$state/workloads/$name/$generation/recreations/$transaction"
+  mkdir -p "$evidence"
+  control inspect > "$evidence/owner-before.json"
+  recreate_guest() {
+    local action="$1" marker="$2"
+    control "$action" --generation "$generation" > "$evidence/$action.sh"
+    if ! remote_script \
+       < "$evidence/$action.sh" > "$evidence/$action.log" 2>&1; then
+      cat "$evidence/$action.log" >&2
+      fail 'Recreation interrupted; roots retained. Retry workload-recreate or use workload-recreate-abandon.'
+    fi
+    cat "$evidence/$action.log"
+    grep -Fxq "$marker" "$evidence/$action.log" || fail 'Recreation acknowledgement missing; roots retained'
+  }
+  for attempt in 1 2 3 4 5 6; do
+    phase="$(control recreate-phase --generation "$generation" --transaction "$transaction")"
+    printf 'WORKLOAD_RECREATE_PHASE=%s transaction=%s\n' "$phase" "$transaction"
+    case "$phase" in
+      snapshot)
+        recreate_guest guest-snapshot-before "RECREATE_TRANSACTION=$transaction"
+        control_input recreate-record-before --generation "$generation" --transaction "$transaction" < "$evidence/guest-snapshot-before.log"
+        ;;
+      stop)
+        recreate_guest guest-recreate-stop "WORKLOAD_STOPPED=$generation"
+        control recreate-stopped --generation "$generation" --transaction "$transaction"
+        if [[ "${NIX_XD_RECREATE_PAUSE:-}" == after-stop ]]; then
+          printf 'WORKLOAD_RECREATE_PAUSED=after-stop generation=%s transaction=%s\n' "$generation" "$transaction"
+          exit 0
+        fi
+        ;;
+      start)
+        recreate_guest guest-recreate-activate "WORKLOAD_ACTIVATED=$generation"
+        control recreate-activated --generation "$generation" --transaction "$transaction"
+        ;;
+      check)
+        recreate_guest guest-recreate-check "WORKLOAD_CHECKED=$generation"
+        control recreate-checked --generation "$generation" --transaction "$transaction"
+        ;;
+      verify)
+        recreate_guest guest-snapshot-after "RECREATE_TRANSACTION=$transaction"
+        control_input recreate-record-after --generation "$generation" --transaction "$transaction" < "$evidence/guest-snapshot-after.log"
+        control confirm-recreated --generation "$generation" --transaction "$transaction"
+        ;;
+      done)
+        control inspect > "$evidence/owner-after.json"
+        control summary
+        printf 'WORKLOAD_RECREATE_RESULT=passed generation=%s transaction=%s evidence=%s\n' "$generation" "$transaction" "$evidence"
+        exit 0
+        ;;
+      *) fail 'Recreation phase is blocked; roots retained' ;;
+    esac
+  done
+  fail 'Recreation did not complete; roots retained'
+fi
+if [[ "$operation" == activate ]]; then
+  if [[ "$placement" == host ]]; then
+    generation="$(selected_control begin-activate --target "$boot_id" --store-export "$store_export")"
+  else
+    generation="$(selected_control begin-activate --target "$boot_id")"
+  fi
+  marker=WORKLOAD_ACTIVATED
+  guest_action=guest-activate
+  confirm_action=confirm-active
+elif [[ "$operation" == status || "$operation" == shell ]]; then
+  generation="$(selected_control active-generation)"
+  marker=WORKLOAD_STATUS_OK
+  guest_action="guest-$operation"
+  confirm_action=
+elif [[ "$operation" == isolate-write || "$operation" == isolate-check ]]; then
+  generation="$(selected_control active-generation)"
+  marker=WORKLOAD_ISOLATION_OK
+  guest_action=guest-isolation
+  confirm_action=
+elif [[ "$operation" == check ]]; then
+  generation="$(selected_control active-generation)"
+  marker=WORKLOAD_CHECKED
+  guest_action=guest-check
+  confirm_action=
+else
+  generation="$(selected_control begin-stop --target "$boot_id")"
+  marker=WORKLOAD_STOPPED
+  guest_action=guest-stop
+  confirm_action=confirm-stopped
+fi
+[[ "$generation" =~ ^[a-f0-9]{64}$ ]] || fail 'Invalid controller generation'
+evidence="$state/workloads/$name/$generation"
+mkdir -p "$evidence"
+# Generate fully before connecting: a partial producer failure must not run a partial script.
+control inspect > "$evidence/manifest.json"
+if [[ "$guest_action" == guest-isolation ]]; then
+  control "$guest_action" --generation "$generation" --isolation-token "${NIX_XD_ISOLATION_TOKEN:?isolation token}" \
+    --isolation-mode "${operation#isolate-}" > "$evidence/$operation.sh"
+else
+  control "$guest_action" --generation "$generation" > "$evidence/$operation.sh"
+fi
+if [[ "$operation" == shell && "$placement" == host ]]; then
+  control assert-target --target "$boot_id" >/dev/null
+  container_name="$(control container-name --generation "$generation")"
+  exec "${runtime[@]}" exec -it --user 1000:1000 "$container_name" /bin/sh
+fi
+if [[ "$operation" == shell ]]; then
+  # Stage the script separately so the second SSH connection has interactive stdin.
+  runtime_path="$(control runtime-path --generation "$generation")"
+  runtime_pattern='^[a-z][a-z0-9-]{0,39}/[a-f0-9]{64}(/[a-f0-9]{32})?$'
+  [[ "$runtime_path" =~ $runtime_pattern ]] || fail 'Invalid runtime instance path'
+  remote_dir='"$XDG_RUNTIME_DIR"/nix-xd-workloads/'"$runtime_path"
+  ssh -T "${opts[@]}" "$user@127.0.0.1" "umask 077; cat > $remote_dir/shell.sh" < "$evidence/shell.sh"
+  exec ssh -tt "${opts[@]}" "$user@127.0.0.1" "bash $remote_dir/shell.sh"
+fi
+if ! remote_script \
+  < "$evidence/$operation.sh" > "$evidence/$operation.log" 2>&1; then
+  cat "$evidence/$operation.log" >&2
+  fail 'Guest operation failed or uncertain; roots retained. Inspect, then retry stop for recovery.'
+fi
+cat "$evidence/$operation.log"
+grep -Fxq "$marker=$generation" "$evidence/$operation.log" || fail 'Guest acknowledgement missing; roots retained'
+if [[ -n "$confirm_action" ]]; then control "$confirm_action" --generation "$generation"; fi
+if [[ "$operation" == status ]]; then
+  printf 'WORKLOAD_STATUS_QUERY=passed generation=%s\n' "$generation"
+else
+  printf 'WORKLOAD_%s_RESULT=passed generation=%s\n' "$operation" "$generation"
+fi

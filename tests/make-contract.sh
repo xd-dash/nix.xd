@@ -7,6 +7,9 @@ mkdir -p "$tmp/bin"
 cat >"$tmp/bin/podman" <<'MOCK'
 #!/usr/bin/env bash
 printf '%s\n' "$@" >"$NIX_XD_TEST_RECORD"
+if [[ "${@: -2:1}" == uname && "${@: -1}" == -m ]]; then
+  printf '%s\n' x86_64
+fi
 MOCK
 chmod +x "$tmp/bin/podman"
 export NIX_XD_TEST_RECORD="$tmp/command"

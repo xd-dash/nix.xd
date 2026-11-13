@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Shared bootstrap policy; requires only Bash, including macOS Bash 3.2.
+builder_stores_init() {
+  local scope="$1" spec app volume seen=' '
+  [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || { echo "Invalid builder scope" >&2; return 1; }
+  builder_store_volume="${NIX_XD_STORE_VOLUME:-$scope-store}"
+  [[ "$builder_store_volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo 'Invalid writable store volume' >&2; return 1; }
+  [[ "${NIX_XD_PEER_STORES:-}" != *$'\n'* ]] || { echo 'Peer stores must be a single whitespace-separated list' >&2; return 1; }
+  builder_peer_apps=(); builder_peer_volumes=(); builder_peer_count=0
+  local specs=()
+  read -r -a specs <<< "${NIX_XD_PEER_STORES:-}"
+  for spec in ${specs[@]+"${specs[@]}"}; do
+    app="${spec%%=*}"
+    if [[ "$spec" == *=* ]]; then volume="${spec#*=}"; else volume="nix-xd-$app-store"; fi
+    [[ "$app" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || { echo 'Invalid peer application name' >&2; return 1; }
+    [[ "$volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo 'Invalid peer store volume' >&2; return 1; }
+    [[ "$volume" != "$builder_store_volume" ]] || { echo 'Own writable store cannot also be a peer' >&2; return 1; }
+    [[ "$seen" != *" $app "* ]] || { echo 'Duplicate peer mount destination' >&2; return 1; }
+    seen="$seen$app "
+    builder_peer_apps+=("$app"); builder_peer_volumes+=("$volume"); builder_peer_count=$((builder_peer_count+1))
+  done
+}
+builder_stores_check() {
+  local volume i
+  for ((i=0;i<builder_peer_count;i++)); do
+    volume="${builder_peer_volumes[i]}"
+    "$@" volume exists "$volume" || { echo "Selected peer store is missing: $volume" >&2; return 1; }
+  done
+}
+builder_store_mounts() {
+  local i
+  printf 'Volume=%s:/nix\n' "$builder_store_volume"
+  for ((i=0;i<builder_peer_count;i++)); do
+    printf 'Volume=%s:/peer/%s:ro\n' "${builder_peer_volumes[i]}" "${builder_peer_apps[i]}"
+  done
+}
+builder_quadlet() {
+  local scope="$1" image="$2" description="$3" volume i
+  [[ "$scope" =~ ^[a-z][a-z0-9-]{0,39}$ && "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || return 1
+  printf '[Unit]\nDescription=%s\n\n[Container]\nImage=%s\nContainerName=%s\nPull=never\n' "$description" "$image" "$scope"
+  builder_store_mounts
+  printf 'Exec=sleep infinity\n\n[Service]\n'
+  for ((i=0;i<builder_peer_count;i++)); do
+    volume="${builder_peer_volumes[i]}"
+    printf 'ExecStartPre=/usr/bin/podman volume exists %s\n' "$volume"
+  done
+  printf 'Restart=on-failure\nTimeoutStartSec=300\n\n[Install]\nWantedBy=default.target\n'
+}
