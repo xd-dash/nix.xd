@@ -3,7 +3,9 @@
 > **Historical VM1 qualification record.** The `fatline-*` Make commands
 > below belong to the pre-migration host controller, not the default
 > Nix-Alpine interface. They require
-> `ENABLE_LEGACY_APPLICATION_CONTROLLERS=1` and should be used only for
+> `ENABLE_LEGACY_APPLICATION_CONTROLLERS=1` for Fatline controllers and
+> `ENABLE_LEGACY_VM_PROFILES=1` for old CoreOS/Starwisp VM commands.
+> They should be used only for
 > recovery of generations created by that controller. New qualification
 > uses `make qualify QUALIFY_APP=1 FLAKE=... TARGET=... ARGS=...`,
 > and Agni's pinned guest checks use `make guest-app FLAKE=... TARGET=...
