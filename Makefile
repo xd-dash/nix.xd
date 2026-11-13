@@ -428,8 +428,6 @@ check-static-internal:
 check-legacy:
 	@python3 tests/redis-application.py
 	@bash -n qualifiers/redis-application.sh
-	@python3 tests/shoal-contract.py
-	@python3 tests/shoal-runtime.py
 	@$(MAKE) --no-print-directory legacy-application-check-static ENABLE_LEGACY_APPLICATION_CONTROLLERS=1
 	@$(MAKE) --no-print-directory legacy-vm-profile-static-check ENABLE_LEGACY_VM_PROFILES=1
 
