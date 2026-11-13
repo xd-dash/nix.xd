@@ -102,7 +102,7 @@ help:
 	  'make grants-transport-qualify GRANTS_FILE=... FLAKE=... BUILD_APP=... RUN_PACKAGE=... PROGRAM=...' \
 	  'make builder-image-prune-dangling DANGLING_PRUNE_CONFIRM=YES  Remove dangling images only' \
 	  'make store-isolation-static|store-isolation-check  Independent Nix-Alpine writer checks' \
-	  'make guest-app FLAKE=path TARGET=$(HASH)package GUEST_APP_REV=sha ARGS_JSON=...  Run store-backed guest script' \
+	  'make guest-app FLAKE=path TARGET=$(HASH)package GUEST_APP_REV=sha GUEST_VM_INSTANCE=...  Run store-backed guest script' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
 	  'make check-static                            Host-independent static checks'
 
@@ -173,12 +173,16 @@ stage show check build path-info run:
 # Package output must contain guest.sh; the application defines its behavior.
 GUEST_APP_REV ?=
 ARGS_JSON ?= []
-COREOS_KNOWN_HOSTS ?=
-COREOS_GUEST_HOST ?= 127.0.0.1
+GUEST_VM_INSTANCE ?=
+GUEST_STATE_ROOT ?= $(HOME)/.local/state/nix-xd/vms
+GUEST_SSH_HOST ?= 127.0.0.1
+GUEST_SSH_USER ?=
+GUEST_SSH_PORT ?=
+GUEST_SSH_KEY ?=
+GUEST_KNOWN_HOSTS ?=
 export NIX_XD_GUEST_APP_REV = $(GUEST_APP_REV)
 export NIX_XD_ARGS_JSON = $(ARGS_JSON)
-export COREOS_KNOWN_HOSTS
-export COREOS_GUEST_HOST
+export GUEST_VM_INSTANCE GUEST_STATE_ROOT GUEST_SSH_HOST GUEST_SSH_USER GUEST_SSH_PORT GUEST_SSH_KEY GUEST_KNOWN_HOSTS
 .PHONY: guest-app
 guest-app:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-app
