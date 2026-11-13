@@ -444,6 +444,7 @@ SHOAL_SSH_USER ?= wisp
 SHOAL_STATE_ROOT ?= $(CURDIR)/.state/coreos
 .PHONY: shoal-qualify
 shoal-qualify:
+	@$(MAKE) --no-print-directory stage CHECKOUT="$(notdir $(CURDIR))"
 	@bash bin/nix-xd-log "$(SCOPE)" shoal-qualify "$(PYTHON)" lib/shoal_runtime.py \
 	  --stage "$(SHOAL_STAGE)" --gate "$(SHOAL_GATE)" \
 	  --provider "$(PROVIDER)" --machine "$(MACHINE)" --owner "$(SCOPE)" \
