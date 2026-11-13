@@ -398,6 +398,7 @@ check-static-internal:
 	@bash tests/grants-transport-contract.sh
 	@bash tests/grants-execute-contract.sh
 	@bash -n bin/nix-xd-guest-app
+	@bash tests/guest-app-contract.sh
 	@python3 tests/builder-stores.py
 	@python3 tests/builder-store-profile.py
 	@bash -n bin/nix-xd-builder-store-profile bin/nix-xd-builder-store-idempotence bin/nix-xd-builder-store-qualify-fresh bin/nix-xd-builder-store-maintenance
