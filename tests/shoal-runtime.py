@@ -42,8 +42,10 @@ class ShoalRuntimeTests(unittest.TestCase):
         )
         fake_rootfs = "/nix/store/" + "a" * 32 + "-rootfs"
         calls = []
-        def fake_run(argv, input_text=None):
+        def fake_run(argv, input_text=None, timeout=120):
             calls.append(argv)
+            if argv[:2] == ['container', 'inspect']:
+                return '{"name": "nix-xd-arm-store"}'
             if "build" in argv:
                 return fake_rootfs
             if "readlink" in argv:
@@ -56,7 +58,7 @@ class ShoalRuntimeTests(unittest.TestCase):
              patch.object(shoal, "endpoints", return_value=[("farcaster", 2222, Path("/tmp/known"))]), \
              patch.object(shoal, "ssh", return_value="SHOAL_GUEST_READER=passed\nSHOAL_GUEST_READER=passed\nSHOAL_GUEST_STORAGE=passed"):
             shoal.storage(args)
-        self.assertEqual(calls[0][:3], ["container", "exec", "nix-xd-arm"])
+        self.assertEqual(calls[0][:3], ["container", "inspect", "nix-xd-arm"])
         self.assertTrue(any("storeProbeRootfs^out" in " ".join(c) for c in calls))
 
     def test_missing_guest_credentials_fail_before_qualification(self):
