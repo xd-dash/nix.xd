@@ -19,7 +19,7 @@ $(error Unsupported ARCH=$(ARCH); expected arm64 or amd64)
 endif
 MODULES ?=
 QUALIFY_APP ?= $(if $(strip $(MODULES)),0,1)
-MACHINE ?= $(shell cat .state/active-podman-machine 2>/dev/null || echo podman-machine-default)
+MACHINE ?= $(or $(shell podman system connection list --format '{{.Name}} {{.Default}}' 2>/dev/null | awk '$2 == "true" { print $1; exit }'),podman-machine-default)
 FROM_MACHINE ?= podman-machine-default
 TRANSFER_IMAGE ?=
 MACHINE_PROVIDER ?= applehv
@@ -175,7 +175,7 @@ stage show check build path-info run:
 GUEST_APP_REV ?=
 ARGS_JSON ?= []
 GUEST_VM_INSTANCE ?=
-GUEST_STATE_ROOT ?= $(HOME)/.local/state/nix-xd/vms
+GUEST_STATE_ROOT ?= $(HOME)/.local/state/nix-xd/coreos
 GUEST_SSH_HOST ?= 127.0.0.1
 GUEST_SSH_USER ?=
 GUEST_SSH_PORT ?=
@@ -485,7 +485,7 @@ SHOAL_FARCASTER_PORT ?= 2222
 SHOAL_WORLD1_PORT ?= 2223
 SHOAL_SSH_KEY ?= $(HOME)/.ssh/starwisp-test
 SHOAL_SSH_USER ?= wisp
-SHOAL_STATE_ROOT ?= $(CURDIR)/.state/coreos
+SHOAL_STATE_ROOT ?= $(GUEST_STATE_ROOT)
 .PHONY: shoal-qualify
 shoal-qualify:
 	@$(MAKE) --no-print-directory stage CHECKOUT="$(notdir $(CURDIR))"

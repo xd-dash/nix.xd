@@ -61,6 +61,13 @@ class ShoalRuntimeTests(unittest.TestCase):
         self.assertEqual(calls[0][:3], ["container", "inspect", "nix-xd-arm"])
         self.assertTrue(any("storeProbeRootfs^out" in " ".join(c) for c in calls))
 
+    def test_defaults_follow_generic_runtime_state_contract(self):
+        repo = Path(__file__).resolve().parents[1]
+        makefile = (repo / "Makefile").read_text()
+        self.assertIn("podman system connection list", makefile)
+        self.assertIn("GUEST_STATE_ROOT ?= $(HOME)/.local/state/nix-xd/coreos", makefile)
+        self.assertIn("SHOAL_STATE_ROOT ?= $(GUEST_STATE_ROOT)", makefile)
+
     def test_missing_guest_credentials_fail_before_qualification(self):
         args = argparse.Namespace(ssh_key="/unavailable/key", owner="nix-xd-arm")
         with patch.object(shoal.Path, "is_file", return_value=False):

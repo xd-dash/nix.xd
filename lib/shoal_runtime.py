@@ -141,7 +141,7 @@ def main():
     parser.add_argument("--flake", default="/workspaces/nix.xd20261112")
     parser.add_argument("--ssh-key", default=str(Path.home() / ".ssh/starwisp-test"))
     parser.add_argument("--ssh-user", default="wisp")
-    parser.add_argument("--state-root", default=".state/coreos")
+    parser.add_argument("--state-root", default=str(Path.home() / ".local/state/nix-xd/coreos"))
     parser.add_argument("--farcaster-port", type=int, default=2222)
     parser.add_argument("--world1-port", type=int, default=2223)
     args = parser.parse_args()

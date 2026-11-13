@@ -96,12 +96,15 @@ can write to the common store. Boot IDs are compared before and
 after. Existing credentials, Quadlets and application services are
 not touched. The World 1 gate requires a separate, already
 running CoreOS guest at the selected SSH port, with a pinned host
-identity in `.state/coreos/shoal-world1/known_hosts`.
+identity in `~/.local/state/nix-xd/coreos/shoal-world1/known_hosts`.
 
 The guest SSH key, ports, and state root can be selected using
 `SHOAL_SSH_KEY`, `SHOAL_FARCASTER_PORT`,
-`SHOAL_WORLD1_PORT` and `SHOAL_STATE_ROOT`. The default
-Farcaster port 2222 reuses the Starwisp transport.
+`SHOAL_WORLD1_PORT` and `SHOAL_STATE_ROOT`. The state root defaults to the
+canonical generic guest transport directory `~/.local/state/nix-xd/coreos`;
+it is not tied to the controller checkout. The selected Podman machine defaults
+to Podman's current default connection. Farcaster port 2222 reuses the
+Starwisp transport.
 
 `SHOAL_GATE=all` deliberately returns a blocked result after the
 storage gate because the existing QEMU runner uses **per-VM user
