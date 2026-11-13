@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 machine="${NIX_XD_MACHINE:-podman-machine-default}"
 scope="${NIX_XD_SCOPE:-nix-xd-arm}"
-volume="${COREOS_NIX_STORE_VOLUME:-$scope-store}"
+volume="${NIX_XD_STORE_EXPORT_VOLUME:-$scope-store}"
 image="${NIX_XD_IMAGE:-localhost/nix-xd:arm64}"
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ "$machine" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die 'Invalid machine'
@@ -29,7 +29,7 @@ owner_volume="$("${p[@]}" inspect "$scope" --format '{{range .Mounts}}{{if eq .D
   nix store info >/dev/null
 ' || die "Nix-Alpine owner store not ready or not writable"
 printf 'NIX_STORE_OWNER_READY machine=%s scope=%s volume=%s mode=read-write\n' "$machine" "$scope" "$volume"
-# Use the same rootless Podman volume mapping as the QEMU runner. Never chown or
+# Use the same rootless Podman volume mapping as a guest VM runner. Never chown or
 # recursively chmod the store to make an exporter work.
 for user in 0:0 1000:1000; do
   echo "STORE_EXPORT_PROBE user=$user machine=$machine volume=$volume"
