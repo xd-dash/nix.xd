@@ -430,7 +430,7 @@ check-static-internal:
 
 .PHONY: store-export-check
 store-export-check:
-	@NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_IMAGE='$(IMAGE)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-export-check
+	@NIX_XD_STORE_EXPORT_VOLUME='$(STORE_VOLUME)' NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_IMAGE='$(IMAGE)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-export-check
 
 # Shared post-bootstrap lifecycle. VM provisioning remains in the CoreOS adapter.
 WORKLOAD ?=
