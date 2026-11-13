@@ -275,6 +275,7 @@ check-static-internal:
 	@python3 tests/chroot-attach.py
 	@python3 tests/runtime-primitives.py
 	@python3 tests/compositions.py
+	@python3 tests/shoal-contract.py
 	@python3 tests/guest-executor.py
 	@python3 tests/coreos-managed-start.py
 	@python3 tests/workload-transport.py
