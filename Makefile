@@ -210,8 +210,10 @@ store-diagnose:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" store-diagnose bash bin/nix-xd-task store-diagnose
 
 # Declarative GC roots are registered only inside the authoritative Nix-Alpine store.
+STORE_ROOTS_FLAKE ?=
+STORE_ROOTS_VOLUME ?= $(SCOPE)-store
 store-roots-inspect store-roots-apply:
-	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' STORE_ROOTS_FLAKE='$(COREOS_PROBE_FLAKE)' STORE_ROOTS_VOLUME='$(if $(COREOS_NIX_STORE_VOLUME),$(COREOS_NIX_STORE_VOLUME),$(STORE_VOLUME))' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-roots $(patsubst store-roots-%,%,$@)
+	@NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' STORE_ROOTS_FLAKE='$(STORE_ROOTS_FLAKE)' STORE_ROOTS_VOLUME='$(STORE_ROOTS_VOLUME)' bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-store-roots $(patsubst store-roots-%,%,$@)
 
 # Qualifiers call Nix app outputs owned by the selected checkout.
 # No claimed success when the selected output or host capability is missing.
@@ -388,7 +390,6 @@ check-static-internal:
 	@python3 tests/guest-9p-grants.py
 	@bash -n bin/nix-xd-grants-host-share-qualify
 	@bash -n bin/nix-xd-grants-isolation-qualify runtime/grants-isolation-qualify.sh
-	@bash -n bin/nix-xd-coreos-podman
 	@bash -n bin/nix-xd-guest-9p-seed bin/nix-xd-guest-9p-qualify
 	@bash -n bin/nix-xd-guest-9p-runtime-qualify
 	@bash -n bin/nix-xd-grants-execute
@@ -409,20 +410,17 @@ check-static-internal:
 	@bash tests/runtime-resource-contract.sh
 	@python3 tests/compositions.py
 	@python3 tests/guest-executor.py
-	@python3 tests/coreos-managed-start.py
 	@python3 tests/workload-transport.py
 	@python3 tests/workloads.py
 	@bash -n bin/nix-xd-workload bin/nix-xd-workload-start bin/nix-xd-workload-qualify
 	@bash tests/store-roots-contract.sh
 	@bash tests/store-diagnose-contract.sh
-	@bash -n bin/nix-xd-qualify-starwisp-shared bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-qualify-starwisp bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh bin/nix-xd-guest-store-exec
+	@bash -n bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-guest-store-exec
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/bootstrap-architecture-contract.sh
 	@bash tests/qualification-modules.sh
 	@bash tests/machine-contract.sh
-	@bash tests/starwisp-shared-contract.sh
-	@bash tests/starwisp-lifecycle.sh
 	@echo 'Static command checks passed; no ARM runtime executed.'
 
 # VM image/boot/qualification profiles are application-owned. Generic host
