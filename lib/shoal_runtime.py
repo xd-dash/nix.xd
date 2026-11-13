@@ -43,10 +43,10 @@ echo "SHOAL_GUEST_STORAGE=passed boot=unchanged container_readers=2"
 """
 
 
-def run(argv, input_text=None):
+def run(argv, input_text=None, timeout=120):
     completed = subprocess.run(argv, input=input_text, text=True,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               timeout=120, check=False)
+                               timeout=timeout, check=False)
     if completed.returncode:
         raise ValueError("Command failed (" + str(completed.returncode) + "): " +
                          argv[0] + ": " + completed.stderr[-1200:])
@@ -96,11 +96,14 @@ def storage(args):
         executor = podman + ["exec", args.owner]
     else:
         executor = ["container", "exec", args.owner]
-        run(executor + ["test", "-f", "/nix/.nix-xd-direct-volume-v2"])
         owner_volume = args.owner + "-store"
+        inspect = run(["container", "inspect", args.owner])
+        if not re.search(r'"name"\\s*:\\s*"' + re.escape(owner_volume) + r'"', inspect):
+            raise ValueError("Apple container does not mount expected owner volume")
+        run(executor + ["test", "-f", "/nix/.nix-xd-direct-volume-v2"])
     rootfs = run(executor + ["nix", "build", "--no-link",
                   "--no-write-lock-file", "--print-out-paths",
-                  args.flake + "#storeProbeRootfs^out"])
+                  args.flake + "#storeProbeRootfs^out"], timeout=600)
     if not STORE.fullmatch(rootfs):
         raise ValueError("Unexpected store probe rootfs")
     run(executor + ["test", "-x", rootfs + "/bin/sh"])
