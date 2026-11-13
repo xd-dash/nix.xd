@@ -76,3 +76,41 @@ internet qualification yet. A future named Shoal execution adapter
 should reuse the qualified local 9P/multi-container operations and
 add explicit Squid/Logmash network checks rather than fork the
 Nix-Alpine or QEMU lifecycle.
+
+## Runtime storage gate (implemented; requires existing guests)
+
+The named operation `shoal-qualify` uses existing CoreOS guests and the
+existing Nix-Alpine store owner. It does not boot, reset, or install
+VMs, and does not change Fatline's running deployment.
+
+```sh
+make shoal-qualify PROVIDER=container SHOAL_GATE=storage SHOAL_STAGE=farcaster
+make shoal-qualify PROVIDER=container SHOAL_GATE=storage SHOAL_STAGE=world1
+```
+
+The host gate confirms a marked owner store volume, builds a small
+existing Nix-store BusyBox probe, and checks a rootless 9P mount
+inside each selected guest. Two ephemeral rootless Podman containers
+per guest share that **same** read-only 9P-backed Nix closure; neither
+can write to the common store. Boot IDs are compared before and
+after. Existing credentials, Quadlets and application services are
+not touched. The World 1 gate requires a separate, already
+running CoreOS guest at the selected SSH port, with a pinned host
+identity in `.state/coreos/shoal-world1/known_hosts`.
+
+The guest SSH key, ports, and state root can be selected using
+`SHOAL_SSH_KEY`, `SHOAL_FARCASTER_PORT`,
+`SHOAL_WORLD1_PORT` and `SHOAL_STATE_ROOT`. The default
+Farcaster port 2222 reuses the Starwisp transport.
+
+`SHOAL_GATE=all` deliberately returns a blocked result after the
+storage gate because the existing QEMU runner uses **per-VM user
+networking**, not a common routable dual-stack subnet. It is not
+valid to count SSH forwarding as World-to-Farcaster network
+qualification. Network qualification still requires a routed
+Shoal adapter, Agni-managed Squid, IPv4/IPv6 HTTP(S) transit and
+explicit direct-egress denial. The static plan is not a deployment.
+
+Store visibility and the two-container check do **not** establish
+GC-root retention, guest-local writable-store sharing, or
+actual multi-VM networking. Those gates remain distinct.
