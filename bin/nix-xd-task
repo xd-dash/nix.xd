@@ -104,7 +104,11 @@ nix_task() {
       local -a argv=()
       # Simple space-delimited arguments; use exec CMD=... for shell constructs.
       [[ -z "$args" ]] || read -r -a argv <<< "$args"
-      inside nix --option system "$system" run --no-write-lock-file "$ref" -- "${argv[@]}"
+      if (( ${#argv[@]} )); then
+        inside nix --option system "$system" run --no-write-lock-file "$ref" -- "${argv[@]}"
+      else
+        inside nix --option system "$system" run --no-write-lock-file "$ref"
+      fi
       ;;
     develop) interactive nix --option system "$system" develop --no-write-lock-file "$ref" -c bash ;;
   esac
