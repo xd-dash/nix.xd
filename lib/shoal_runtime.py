@@ -98,7 +98,7 @@ def storage(args):
         executor = ["container", "exec", args.owner]
         owner_volume = args.owner + "-store"
         inspect = run(["container", "inspect", args.owner])
-        if not re.search(r'"name"\\s*:\\s*"' + re.escape(owner_volume) + r'"', inspect):
+        if not re.search(r'"name"\s*:\s*"' + re.escape(owner_volume) + r'"', inspect):
             raise ValueError("Apple container does not mount expected owner volume")
         run(executor + ["test", "-f", "/nix/.nix-xd-direct-volume-v2"])
     rootfs = run(executor + ["nix", "build", "--no-link",
