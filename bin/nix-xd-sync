@@ -1,32 +1,56 @@
-#!/usr/bin/env bash
-set -euo pipefail
-repo="${1:?REPO=owner/repo required}"
-branch="${2:-main}"
-root="${3:?WORKSPACES required}"
-name="${4:-${repo#*/}}"
-rev="${5:-}"
-[[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "Invalid REPO: $repo" >&2; exit 2; }
-[[ "$name" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ ]] || { echo "Invalid SYNC_NAME: $name" >&2; exit 2; }
-[[ "$name" != *..* ]] || { echo "Unsafe checkout path" >&2; exit 2; }
-git check-ref-format --branch "$branch" >/dev/null
-[[ -z "$rev" || "$rev" =~ ^[0-9a-f]{40}$ ]] || { echo "REV must be a full Git SHA" >&2; exit 2; }
-dir="$root/$name"
-mkdir -p "$(dirname "$dir")"
-if [[ ! -e "$dir" ]]; then
-  git clone --branch "$branch" --single-branch "https://github.com/$repo.git" "$dir"
-else
-  [[ -d "$dir/.git" ]] || { echo "Not a checkout: $dir" >&2; exit 1; }
-  origin="$(git -C "$dir" remote get-url origin)"
-  case "$origin" in "https://github.com/$repo.git"|"git@github.com:$repo.git") ;; *) echo "Origin mismatch: $origin" >&2; exit 1;; esac
-  [[ -z "$(git -C "$dir" status --porcelain --untracked-files=no)" ]] || { echo "Tracked modifications: $dir" >&2; exit 1; }
-  git -C "$dir" fetch origin "refs/heads/$branch:refs/remotes/origin/$branch"
-  if git -C "$dir" show-ref --verify --quiet "refs/heads/$branch"; then
-    git -C "$dir" switch "$branch"
-  else
-    git -C "$dir" switch -c "$branch" "origin/$branch"
-  fi
-  git -C "$dir" merge --ff-only "origin/$branch"
-fi
-actual="$(git -C "$dir" rev-parse HEAD)"
-[[ -z "$rev" || "$actual" == "$rev" ]] || { echo "Revision mismatch expected $rev actual $actual" >&2; exit 1; }
-printf 'Synchronized %s %s at %s\n' "$repo" "$name" "$actual"
+#!/usr/bin/env python3
+"""Immutable staging checkout sync using a shared Git object store."""
+import pathlib
+import re
+import subprocess
+import sys
+
+def fail(msg):
+    raise SystemExit(f"Sync error: {msg}")
+def git(*args, check=True):
+    return subprocess.run(["git", *map(str, args)], text=True, capture_output=True, check=check)
+if len(sys.argv) != 6:
+    fail("Expected REPO BRANCH WORKSPACES SYNC_NAME REV")
+repo, branch, root_s, name, rev = sys.argv[1:]
+if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+    fail("Invalid REPO")
+if not re.fullmatch(r"[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*", name) or ".." in name:
+    fail("Unsafe SYNC_NAME")
+if rev and not re.fullmatch(r"[a-f0-9]{40}", rev):
+    fail("REV must be full SHA")
+if git("check-ref-format", "--branch", branch, check=False).returncode:
+    fail("Invalid BRANCH")
+root = pathlib.Path(root_s).expanduser().resolve()
+if not root.is_absolute():
+    fail("Expected absolute WORKSPACES")
+target = root / name
+store = root / ".repos" / (repo.rsplit("/", 1)[-1] + ".git")
+url = "https://github.com/" + repo + ".git"
+store.parent.mkdir(parents=True, exist_ok=True)
+if not store.exists():
+    git("init", "--bare", "-q", store)
+    git("--git-dir", store, "remote", "add", "origin", url)
+def sg(*args, check=True):
+    return git("--git-dir", store, *args, check=check)
+if sg("remote", "get-url", "origin").stdout.strip() != url:
+    fail("Canonical store origin mismatch")
+sg("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+sg("fetch", "origin", "+refs/heads/*:refs/remotes/origin/*")
+reference = sg("rev-parse", "--verify", "refs/remotes/origin/" + branch + "^{commit}").stdout.strip()
+if rev and reference != rev:
+    fail("Revision mismatch")
+if target.exists():
+    if not (target / ".git").exists():
+        fail("Destination is not a Git checkout")
+    original = git("-C", target, "remote", "get-url", "origin").stdout.strip()
+    if original not in (url, "git@github.com:" + repo + ".git"):
+        fail("Existing checkout origin mismatch")
+    if git("-C", target, "status", "--porcelain").stdout:
+        fail("Existing checkout is dirty")
+    actual = git("-C", target, "rev-parse", "HEAD").stdout.strip()
+    if actual != reference:
+        fail("Existing checkout does not match selected remote revision; refresh manually")
+else:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    sg("worktree", "add", "--detach", target, reference)
+print(f"Synchronized {repo} {name} at {reference}")
