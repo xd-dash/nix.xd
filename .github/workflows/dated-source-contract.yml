@@ -1,4 +1,4 @@
-name: Dated Nix-Alpine source contracts
+name: Dated Nix-Alpine infrastructure contracts
 on:
   push:
     branches:
@@ -13,11 +13,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check generic GHXD source contract
-        run: python3 tests/ghxd-source-version.py
-      - name: Check generic immutable guest execution and compatibility boundary
+      - name: Check generic immutable guest execution
         run: bash tests/guest-app-contract.sh
-      - name: Check generic Nix application dispatch
+      - name: Check generic project host dispatch
+        run: bash tests/project-host-run-contract.sh
+      - name: Enforce domain-neutral Nix-Alpine Make and flake
         run: |
-          make -n qualify QUALIFY_APP=1 FLAKE=example20261112/local/example TARGET='#qualify' ARGS='--phase verify' >/dev/null
-          if make ghxd-source-version-check; then echo 'Missing manifest accepted' >&2; exit 1; fi
+          python3 - <<'PY'
+          from pathlib import Path
+          make = Path("Makefile").read_text()
+          flake = Path("flake.nix").read_text()
+          for name in ("ghxd:", "ghxd-volumes-provision:", "ghxd-auth-inventory:", "ghxd-source-version-check:"):
+              assert not any(line.startswith(name) for line in make.splitlines()), name
+          for symbol in ("ghxdSmokeRevision", "ghxdSourceBuild", "ghxdOperator", "ghxd-source-build"):
+              assert symbol not in flake, symbol
+          PY
+      - name: Check generic Nix app dispatch
+        run: make -n qualify QUALIFY_APP=1 FLAKE=example20261112/local/example TARGET='#qualify' ARGS='--phase verify' >/dev/null
