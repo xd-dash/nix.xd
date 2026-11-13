@@ -410,8 +410,6 @@ check-static-internal:
 	@python3 tests/runtime-primitives.py
 	@bash tests/runtime-resource-contract.sh
 	@python3 tests/compositions.py
-	@python3 tests/shoal-contract.py
-	@python3 tests/shoal-runtime.py
 	@python3 tests/guest-executor.py
 	@python3 tests/workload-transport.py
 	@python3 tests/workloads.py
@@ -425,6 +423,14 @@ check-static-internal:
 	@bash tests/qualification-modules.sh
 	@bash tests/machine-contract.sh
 	@echo 'Static command checks passed; no ARM runtime executed.'
+
+# Historical application fixtures remain opt-in and never gate infrastructure.
+.PHONY: check-legacy
+check-legacy:
+	@python3 tests/shoal-contract.py
+	@python3 tests/shoal-runtime.py
+	@$(MAKE) --no-print-directory legacy-application-check-static ENABLE_LEGACY_APPLICATION_CONTROLLERS=1
+	@$(MAKE) --no-print-directory legacy-vm-profile-static-check ENABLE_LEGACY_VM_PROFILES=1
 
 # VM image/boot/qualification profiles are application-owned. Generic host
 # execution is via project-host-run, with the selected project's action.
@@ -477,27 +483,9 @@ PROFILE_MODE ?= store
 export NIX_XD_PROFILE_MODE = $(PROFILE_MODE)
 PROFILE_SAMPLES ?= 1
 export NIX_XD_PROFILE_SAMPLES = $(PROFILE_SAMPLES)
-# Shoal is a regional Farcaster/World contract; storage checks reuse running guests.
-# Network qualification remains blocked until routed dual-stack Shoal networking exists.
-SHOAL_STAGE ?= farcaster
-SHOAL_GATE ?= all
-SHOAL_FARCASTER_PORT ?= 2222
-SHOAL_WORLD1_PORT ?= 2223
-SHOAL_SSH_KEY ?= $(HOME)/.ssh/starwisp-test
-SHOAL_SSH_USER ?= wisp
-SHOAL_STATE_ROOT ?= $(GUEST_STATE_ROOT)
-.PHONY: shoal-qualify
-shoal-qualify:
-	@$(MAKE) --no-print-directory stage CHECKOUT="$(notdir $(CURDIR))"
-	@bash bin/nix-xd-log "$(SCOPE)" shoal-qualify "$(PYTHON)" lib/shoal_runtime.py \
-	  --stage "$(SHOAL_STAGE)" --gate "$(SHOAL_GATE)" \
-	  --provider "$(PROVIDER)" --machine "$(MACHINE)" --owner "$(SCOPE)" \
-	  --flake "/workspaces/$(notdir $(CURDIR))" \
-	  --ssh-key "$(SHOAL_SSH_KEY)" --ssh-user "$(SHOAL_SSH_USER)" \
-	  --state-root "$(SHOAL_STATE_ROOT)" \
-	  --farcaster-port "$(SHOAL_FARCASTER_PORT)" \
-	  --world1-port "$(SHOAL_WORLD1_PORT)"
-
+# Shoal deployment and qualification are Agni-owned. The generic host runner
+# executes an exact selected Agni checkout without translating topology names.
+# Use: make project-host-run PROJECT=agni20261112 APPLICATION=shoal ACTION=bind
 COMPOSITION ?= shared-store-matrix
 export NIX_XD_COMPOSITION = $(COMPOSITION)
 .PHONY: composition-plan composition-prepare composition-start composition-status composition-qualify composition-stop composition-cancel composition-profile composition-application
@@ -523,7 +511,7 @@ export NIX_XD_PEER_STORES = $(PEER_STORES)
 builder-store-plan:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-builder-store-plan
 
-PEER_BUILDER_SCOPE ?= nix-xd-grumble
+PEER_BUILDER_SCOPE ?= nix-xd-grumble-arm
 PEER_BUILDER_VOLUME ?= $(PEER_BUILDER_SCOPE)-store
 PEER_BUILDER_ALIAS ?= agni
 export NIX_XD_PEER_BUILDER_SCOPE = $(PEER_BUILDER_SCOPE)
