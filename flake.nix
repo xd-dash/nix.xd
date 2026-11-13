@@ -127,6 +127,9 @@
         });
       compositions = eachSystem (system: {
         shared-store-matrix = import ./compositions/shared-store-matrix.nix { inherit system; };
+        shoal-host-farcaster = import ./compositions/shoal.nix { inherit system; worlds = 0; };
+        shoal-host-farcaster-world1 = import ./compositions/shoal.nix { inherit system; worlds = 1; };
+        shoal-eight = import ./compositions/shoal.nix { inherit system; worlds = 7; };
       });
       workloads = eachSystem (system: {
         shared-host-a = self.workloads.${system}.nix-alpine-env // { name = "shared-host-a"; storeDomain = "common"; placement = "host"; capabilities = [ "store-bind-ro" "user-systemd" "rootless-podman" ]; };
