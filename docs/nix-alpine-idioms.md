@@ -1,7 +1,7 @@
 # Nix-Alpine execution and dated source idioms
 
-This document is normative for new nix.xd, Agni, Smoke and GHXD qualification
-work. It extends [Daily source workspaces](workspaces.md), whose workspace
+This document governs domain-neutral nix.xd and Nix-Alpine infrastructure
+execution; applications own their own qualification and validation contracts. It extends [Daily source workspaces](workspaces.md), whose workspace
 tool and tests already enforce the date-only branch convention.
 
 ## Ownership boundary
@@ -13,9 +13,10 @@ tool and tests already enforce the date-only branch convention.
 - **Application flakes (Agni, etc.)** supply build, compose, qualification and
   activation actions. Execute those actions via nix.xd's generic `make run`
   or `make qualify`; do not duplicate them in platform-specific wrappers.
-- **Smoke/GHXD** owns GitHub device authorization and exact-SHA source seeding.
-  It runs with isolated secret volumes. The Nix-Alpine writer never receives
-  the OAuth token.
+- **Smoke** owns GitHub device authorization, exact-SHA worktree seeding,
+  credential-volume selection, and dated GitHub source validation. Its
+  separately isolated operator receives runtime credentials; the
+  Nix-Alpine writer never receives the OAuth token.
 - **CoreOS guest** reads the host-owned Nix store through the qualified
   read-only 9P mount. Application services use rootless user-systemd units.
   Generate runtime credentials outside Nix derivations and mount them only
@@ -57,24 +58,31 @@ cd "$(make -s workspace-path WORKSPACE_VERSION=20261112)"
 make workspace-check
 ```
 
-The generic interface takes **FLAKE**, **TARGET** and **ARGS** from the
-caller. No project name, scenario or phase is a nix.xd Make variable or
-Make target. For example, after a caller supplies a pinned source manifest:
+Nix-Alpine's generic application interface takes `FLAKE`, `TARGET` and
+`ARGS` from the caller. A host-side tool requiring isolated credential
+volumes uses the pre-existing generic `project-host-run` dispatcher.
+For example, Smoke's versioned `ghxd` host actions are selected by:
 
 ```sh
-make ghxd GHXD_ACTION=source-sync GHXD_SOURCE_MANIFEST=/absolute/path/to/source-manifest.json
-make ghxd-source-version-check GHXD_SOURCE_MANIFEST=/absolute/path/to/source-manifest.json
+make project-host-run PROJECT=smoke20261112 APPLICATION=ghxd ACTION=source-sync \
+  SMOKE_GHXD_SOURCE_MANIFEST="$HOME/workspace/agni20261112/local/fatline/qualification/vm1-source-selection-20261112.json"
+```
+
+Here `APPLICATION`, `ACTION` and the source manifest belong to
+Smoke/Agni, not to the nix.xd Makefile. The generic dispatcher validates
+a clean exact Git revision before calling the selected project action.
+
+Another application runs through its own Nix flake:
+
+```sh
 make qualify QUALIFY_APP=1 \
   FLAKE=agni20261112/local/fatline \
   TARGET='#qualify-integration' \
   ARGS='--scenario probot-webhook --phase service-profile'
 ```
 
-The names `probot-webhook` and `service-profile` above are **opaque arguments
-to Agni**. The generic Nix-Alpine dispatcher never branches on these values.
-Other flakes can expose entirely different app names and argument conventions.
-`QUALIFY_APP=1` selects Nix app execution through the already existing
-generic `qualify` target.
+The generic Nix-Alpine executor does not interpret `probot-webhook` or
+`service-profile`.
 
 Use a new manifest with a new date for a new candidate; do not quietly
 rebind an existing checkout. Do not put credentials, GitHub tokens or
@@ -82,13 +90,10 @@ application configuration values into dated source names or derivations.
 
 ## Qualification
 
-Run `make workspace-check` and `make check-static` for workspace
-contracts. For a selected new GHXD candidate manifest, run
-`make ghxd-source-version-check GHXD_SOURCE_MANIFEST=/path/to/manifest.json`
-to verify date-only checkout names and exact source SHAs. The manifest is
-selected by the caller: no application-specific path is supplied by nix.xd.
-This validation is additive; older GHXD manifests remain readable to
-preserve prior qualification evidence.
+Run `make workspace-check` and `make check-static` for infrastructure
+contracts. Smoke's date-versioned exact-SHA source validator lives in
+`smoke20261112/local/ghxd/validate-source.py`, not in nix.xd.
+The application invokes it before fetching credentials or sources.
 
 Live guest activation is a separate, effectful phase. Source syncing,
 Nix building, service-profile rendering and ACL candidate checks must
