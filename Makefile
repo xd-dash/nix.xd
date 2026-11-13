@@ -104,6 +104,7 @@ help:
 	  'make store-isolation-static|store-isolation-check  Independent Nix-Alpine writer checks' \
 	  'make guest-app FLAKE=path TARGET=$(HASH)package GUEST_APP_REV=sha GUEST_VM_INSTANCE=...  Run store-backed guest script' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
+	  'make shoal-qualify SHOAL_STAGE=farcaster|world1 SHOAL_GATE=storage|all  Read-only runtime 9P checks' \
 	  'make check-static                            Host-independent static checks'
 
 self-update:
@@ -409,6 +410,8 @@ check-static-internal:
 	@python3 tests/runtime-primitives.py
 	@bash tests/runtime-resource-contract.sh
 	@python3 tests/compositions.py
+	@python3 tests/shoal-contract.py
+	@python3 tests/shoal-runtime.py
 	@python3 tests/guest-executor.py
 	@python3 tests/workload-transport.py
 	@python3 tests/workloads.py
@@ -474,6 +477,27 @@ PROFILE_MODE ?= store
 export NIX_XD_PROFILE_MODE = $(PROFILE_MODE)
 PROFILE_SAMPLES ?= 1
 export NIX_XD_PROFILE_SAMPLES = $(PROFILE_SAMPLES)
+# Shoal is a regional Farcaster/World contract; storage checks reuse running guests.
+# Network qualification remains blocked until routed dual-stack Shoal networking exists.
+SHOAL_STAGE ?= farcaster
+SHOAL_GATE ?= all
+SHOAL_FARCASTER_PORT ?= 2222
+SHOAL_WORLD1_PORT ?= 2223
+SHOAL_SSH_KEY ?= $(HOME)/.ssh/starwisp-test
+SHOAL_SSH_USER ?= wisp
+SHOAL_STATE_ROOT ?= $(CURDIR)/.state/coreos
+.PHONY: shoal-qualify
+shoal-qualify:
+	@$(MAKE) --no-print-directory stage CHECKOUT="$(notdir $(CURDIR))"
+	@bash bin/nix-xd-log "$(SCOPE)" shoal-qualify "$(PYTHON)" lib/shoal_runtime.py \
+	  --stage "$(SHOAL_STAGE)" --gate "$(SHOAL_GATE)" \
+	  --provider "$(PROVIDER)" --machine "$(MACHINE)" --owner "$(SCOPE)" \
+	  --flake "/workspaces/$(notdir $(CURDIR))" \
+	  --ssh-key "$(SHOAL_SSH_KEY)" --ssh-user "$(SHOAL_SSH_USER)" \
+	  --state-root "$(SHOAL_STATE_ROOT)" \
+	  --farcaster-port "$(SHOAL_FARCASTER_PORT)" \
+	  --world1-port "$(SHOAL_WORLD1_PORT)"
+
 COMPOSITION ?= shared-store-matrix
 export NIX_XD_COMPOSITION = $(COMPOSITION)
 .PHONY: composition-plan composition-prepare composition-start composition-status composition-qualify composition-stop composition-cancel composition-profile composition-application
