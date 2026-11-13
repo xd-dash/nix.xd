@@ -7,11 +7,6 @@
   };
   outputs = { self, nixpkgs, nix-alpine }:
     let
-      ghxdSmokeRevision = "66950da9a5e4e5303f5dcd018f9039f9b6fc8496";
-      ghxdSmokeSource = builtins.fetchGit {
-        url = "https://github.com/xd-dash/smoke.git";
-        rev = ghxdSmokeRevision;
-      };
       systems = [ "x86_64-linux" "aarch64-linux" ];
       eachSystem = nixpkgs.lib.genAttrs systems;
     in {
@@ -103,34 +98,6 @@
               exec python3 ${./lib/workloads.py} --executor ${./bin/nix-xd-guest-store-exec} "$@"
             '';
           };
-          ghxdSourceBuild = pkgs.writeShellApplication {
-            name = "nix-xd-ghxd-source-build";
-            runtimeInputs = with pkgs; [ go_1_26 git coreutils ];
-            text = ''
-              set -Eeuo pipefail
-              revision=${ghxdSmokeRevision}
-              source=${ghxdSmokeSource}
-              root="''${HOME}/.local/state/nix-xd/ghxd/$revision"
-              mkdir -p "$root/go-build" "$root/go-mod"
-              export GOCACHE="$root/go-build" GOMODCACHE="$root/go-mod"
-              export GOOS=linux CGO_ENABLED=0
-              scratch="$(mktemp -d "$root/build.XXXXXXXX")"
-              trap 'rm -rf -- "$scratch"' EXIT
-              (cd "$source" && go build -mod=readonly -trimpath -buildvcs=false -ldflags=-buildid= -o "$scratch/smoke" ./cmd/smoke)
-              binary="$(nix-store --add "$scratch/smoke")"
-              nix-store --realise --add-root "$root/smoke-gcroot" "$binary" >/dev/null
-              printf 'NIX_XD_NATIVE_ARTIFACT=%s\n' "$binary"
-              printf 'GHXD_SOURCE_BUILD=passed source=%s\n' "$revision"
-            '';
-          };
-          ghxdOperator = pkgs.writeShellApplication {
-            name = "nix-xd-ghxd-operator";
-            runtimeInputs = with pkgs; [ go_1_26 git sops age python3 coreutils gnutar gnugrep ];
-            text = ''
-              ${pkgs.bash}/bin/bash -n ${./runtime/ghxd-operator.sh}
-              exec ${pkgs.bash}/bin/bash ${./runtime/ghxd-operator.sh} "$@"
-            '';
-          };
           installer = pkgs.writeShellApplication {
             name = "nix-xd";
             runtimeInputs = [ pkgs.coreutils pkgs.gnused ];
@@ -142,8 +109,6 @@
           };
         in {
           default = installer;
-          ghxd-operator = ghxdOperator;
-          ghxdSourceBuild = ghxdSourceBuild;
           tenantStorageQualifier = pkgs.writeShellScriptBin "nix-xd-tenant-storage-qualify"
             (builtins.readFile ./lib/tenant-storage.sh + "\n" + builtins.readFile ./runtime/tenant-storage-qualify.sh);
           bootstrapProfileTools = pkgs.buildEnv {
@@ -235,11 +200,6 @@
         };
       });
       apps = eachSystem (system: {
-        ghxd-source-build = {
-          type = "app";
-          program = "${self.packages.${system}.ghxdSourceBuild}/bin/nix-xd-ghxd-source-build";
-        };
-
         tenant-storage-qualify = {
           type = "app";
           program = "${self.packages.${system}.tenantStorageQualifier}/bin/nix-xd-tenant-storage-qualify";
