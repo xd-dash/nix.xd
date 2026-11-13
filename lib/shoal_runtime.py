@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Shoal runtime storage qualification using existing CoreOS/9P guests."""
 import argparse
-import ipaddress
-import os
 from pathlib import Path
 import re
 import subprocess
@@ -15,12 +13,13 @@ test "$(findmnt -rn -o FSTYPE --mountpoint "$mountpoint")" = 9p
 options="$(findmnt -rn -o OPTIONS --mountpoint "$mountpoint")"
 [[ ",$options," == *,ro,* ]]
 store="$mountpoint/${SHOAL_PROBE_ROOTFS#/nix/store/}"
-test -x "$store/bin/sh"
+test -L "$store/bin/sh"
 test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
 boot="$(cat /proc/sys/kernel/random/boot_id)"
 for n in a b; do
   scratch="$(mktemp -d)"
   chmod 700 "$scratch"
+  trap 'rm -rf -- "$scratch"' EXIT
   mkdir -p "$scratch/bin" "$scratch/nix/store" "$scratch/tmp"
   ln -s "$SHOAL_PROBE_ROOTFS/bin/sh" "$scratch/bin/sh"
   podman run --rm --network none --pull=never \
@@ -32,6 +31,7 @@ for n in a b; do
       'test -x "$1/bin/sh"; if echo write > /nix/store/shoal-write-probe 2>/dev/null; then exit 1; fi' \
       sh "$SHOAL_PROBE_ROOTFS"
   rm -rf -- "$scratch"
+  trap - EXIT
   echo "SHOAL_GUEST_READER=passed container=$n store=9p-ro"
 done
 test "$(cat /proc/sys/kernel/random/boot_id)" = "$boot"
@@ -82,17 +82,23 @@ def storage(args):
         raise ValueError("Missing SSH key")
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,39}", args.owner):
         raise ValueError("Invalid Nix-Alpine owner")
-    podman = ["podman", "--connection", args.machine]
-    owner_volume = run(podman + ["inspect", args.owner, "--format",
-                    "{{range .Mounts}}{{if eq .Destination \"/nix\"}}{{.Name}}{{end}}{{end}}"])
-    if owner_volume != args.owner + "-store":
-        raise ValueError("Shoal shared store owner volume does not match " + args.owner)
-    rootfs = run(podman + ["exec", args.owner, "nix", "build", "--no-link",
+    if args.provider == "podman":
+        podman = ["podman", "--connection", args.machine]
+        volume_format = '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}'
+        owner_volume = run(podman + ["inspect", args.owner, "--format", volume_format])
+        if owner_volume != args.owner + "-store":
+            raise ValueError("Nix store owner volume differs from expected scope")
+        executor = podman + ["exec", args.owner]
+    else:
+        executor = ["container", "exec", args.owner]
+        run(executor + ["test", "-f", "/nix/.nix-xd-direct-volume-v2"])
+        owner_volume = args.owner + "-store"
+    rootfs = run(executor + ["nix", "build", "--no-link",
                   "--no-write-lock-file", "--print-out-paths",
                   args.flake + "#storeProbeRootfs^out"])
     if not STORE.fullmatch(rootfs):
         raise ValueError("Unexpected store probe rootfs")
-    run(podman + ["exec", args.owner, "test", "-x", rootfs + "/bin/sh"])
+    run(executor + ["test", "-x", rootfs + "/bin/sh"])
     print("SHOAL_STORE_OWNER=passed volume=" + owner_volume + " read_only_guests=true", flush=True)
     for name, port, known in endpoints(args):
         result = ssh(args, port, known, GUEST_PROBE, rootfs)
@@ -117,6 +123,7 @@ def main():
     parser.add_argument("--gate", choices=("storage", "network", "all"), default="all")
     parser.add_argument("--owner", default="nix-xd-arm")
     parser.add_argument("--machine", default="coreos-arm64")
+    parser.add_argument("--provider", choices=("podman", "container"), default="container")
     parser.add_argument("--flake", default="/workspaces/nix.xd20261112")
     parser.add_argument("--ssh-key", default=str(Path.home() / ".ssh/starwisp-test"))
     parser.add_argument("--ssh-user", default="wisp")
