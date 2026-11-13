@@ -112,3 +112,20 @@ workload-qualify:
 	@bash bin/nix-xd-log "$(SCOPE)" workload-prepare bash bin/nix-xd-workload prepare
 	@NIX_XD_QUALIFY_WORKLOAD=1 COREOS_NIX_STORE_VOLUME='$(SCOPE)-store' bash bin/nix-xd-log "$(SCOPE)" workload-qualify bash bin/nix-xd-qualify-starwisp
 
+
+# Generic declared workload storage grants; never reads volume payloads.
+# Read-only validation of a declared future CoreOS 9P export.
+.PHONY: guest-9p-runtime-qualify
+guest-9p-runtime-qualify:
+	@test "$(VMM)" = podman || { echo 'Guest 9P runtime gate requires Podman' >&2; exit 2; }
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-9p-runtime-qualify
+
+.PHONY: guest-9p-seed guest-9p-qualify
+guest-9p-seed:
+	@test -n "$(COREOS_9P_GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
+	@NIX_XD_IMAGE="$(IMAGE)" bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-9p-seed
+
+guest-9p-qualify:
+	@test -n "$(COREOS_9P_GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
+	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-9p-qualify
+
