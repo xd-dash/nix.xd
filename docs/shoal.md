@@ -84,8 +84,8 @@ existing Nix-Alpine store owner. It does not boot, reset, or install
 VMs, and does not change Fatline's running deployment.
 
 ```sh
-make shoal-qualify PROVIDER=container SHOAL_GATE=storage SHOAL_STAGE=farcaster
-make shoal-qualify PROVIDER=container SHOAL_GATE=storage SHOAL_STAGE=world1
+make shoal-qualify PROVIDER=podman SHOAL_GATE=storage SHOAL_STAGE=farcaster
+make shoal-qualify PROVIDER=podman SHOAL_GATE=storage SHOAL_STAGE=world1
 ```
 
 The host gate confirms a marked owner store volume, builds a small
@@ -114,3 +114,7 @@ explicit direct-egress denial. The static plan is not a deployment.
 Store visibility and the two-container check do **not** establish
 GC-root retention, guest-local writable-store sharing, or
 actual multi-VM networking. Those gates remain distinct.
+
+The default and current recommended provider is `podman`. The Apple
+`container` provider is legacy optional support and must not be selected
+implicitly for Shoal. Shoal does not migrate stores between providers.
