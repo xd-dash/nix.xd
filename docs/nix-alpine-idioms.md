@@ -113,13 +113,14 @@ readiness checks and any service mutations.
 make guest-app FLAKE=example20261112/local/example \
   TARGET='#guest-check' GUEST_APP_REV=<exact-staged-source-sha> \
   ARGS_JSON='["inventory","some-scope"]' \
-  COREOS_SSH_KEY="$HOME/.ssh/starwisp-test" \
-  COREOS_SSH_PORT=2222 COREOS_PROFILE=starwisp
+  GUEST_VM_INSTANCE=<selected-instance> \
+  GUEST_SSH_USER=<user> GUEST_SSH_PORT=<port> \
+  GUEST_SSH_KEY=/path/to/key
 ```
 
-Host SSH credentials remain on the host. `COREOS_KNOWN_HOSTS` may select an
+Host SSH credentials remain on the host. `GUEST_KNOWN_HOSTS` may select an
 existing verified known_hosts file; otherwise the transport reads the
-CoreOS profile's `known_hosts` from `COREOS_STATE_ROOT`. Neither guest
+selected VM instance's `known_hosts` from `GUEST_STATE_ROOT`. Neither guest
 credentials nor OAuth tokens are copied into Nix store derivations. Use only
 a pinned and reviewed `guest.sh`; it executes with the guest user's rights.
 
@@ -130,3 +131,25 @@ compatibility is available on demand with
 generation implementation and is not an activation recommendation.
 Retiring those controllers completely requires qualification of the
 Agni-owned migration and recovery paths against the existing VM.
+
+## Virtual machines: hypervisor versus guest semantics
+
+QEMU, accelerated execution, volumes, immutable Nix closures, transport and
+state ownership are infrastructure primitives. Fedora CoreOS, Grml and other
+guest images are **selected workloads**, not host Make subsystems. They choose
+their own image, firmware, kernel arguments, bootstrap metadata, guest security
+and service qualification.
+
+The previous `coreos-*` and `qualify-starwisp*` host Make targets are
+legacy profile controls under `ENABLE_LEGACY_VM_PROFILES=1`. They are
+intentionally absent from the default entry points. New work uses the
+already existing `make project-host-run PROJECT=... APPLICATION=... ACTION=...`
+interface for project-owned VM host actions, and `make guest-app` for
+immutable store-backed guest programs that support SSH + Bash.
+
+This is an **interface migration**, not yet a fully general reusable QEMU VM
+controller: legacy Podman/HVF boot scripts have moved to Agni but still rely
+on CoreOS-specific image and Ignition assumptions. A future generic VM runner
+must take image/firmware/devices/network/volumes as explicit inputs and must
+not recognize Fedora CoreOS or Grml by name. Keep the old VM1 state until
+the Agni-owned migration passes actual VM qualification.
