@@ -75,7 +75,10 @@ help:
 	  'make arm-rebootstrap MACHINE=... SCOPE=... ARM_RESET_CONFIRM=ERASE:<machine>:<scope>:<scope>-store' \
 	  'make machine-handoff FROM_MACHINE=... MACHINE=... TRANSFER_IMAGE=... (transfer selected image)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
-	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path]' \
+	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path] (shared Git store)' \
+	  'make workspace-init|workspace|workspace-refresh|workspace-list WORKSPACE_VERSION=YYYYMMDD.N' \
+	  'make workspace-pr WORKSPACE_PR_BASE=v20261112 (opens or reuses draft PR via gh)' \
+	  'make workspace-remove-plan|workspace-remove (explicit post-merge cleanup only)' \
 	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \\
 	  'make show|check|build|path-info FLAKE=path TARGET=$(HASH)output' \
 	  'make run FLAKE=path TARGET=\x23app ARGS="..."' \
@@ -384,6 +387,7 @@ check-static:
 check-static-internal:
 	@python3 tests/tenant-storage.py
 	@python3 tests/bootstrap-profile.py
+	@python3 -c 'import ast; [ast.parse(open(p).read()) for p in ("bin/nix-xd-workspace", "bin/nix-xd-sync")]'
 	@bash tests/workspace-contract.sh
 	@python3 tests/composition-artifact.py
 	@bash tests/project-host-run-contract.sh
@@ -415,7 +419,7 @@ check-static-internal:
 	@bash -n bin/nix-xd-workload bin/nix-xd-workload-start bin/nix-xd-workload-qualify
 	@bash tests/store-roots-contract.sh
 	@bash tests/store-diagnose-contract.sh
-	@bash -n bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-task bin/nix-xd-sync bin/nix-xd-log bin/nix-xd-guest-store-exec
+	@bash -n bin/nix-xd-bootstrap-amd64 qualifiers/dispatch.sh qualifiers/modules/secrets.sh arm/purge-legacy.sh arm/inspect-legacy.sh arm/wind-down.sh arm/qualify-recreation-podman.sh arm/rebootstrap-podman.sh arm/init-nix-store.sh arm/bootstrap-macos.sh arm/bootstrap-podman.sh arm/bootstrap-container.sh bin/nix-xd-container bin/nix-xd-machine bin/nix-xd-machine-handoff bin/nix-xd-store-export-check bin/nix-xd-task bin/nix-xd-log bin/nix-xd-guest-store-exec
 	@$(MAKE) --no-print-directory -n PROVIDER=podman OS=Linux plan sync stage build show qualify-process >/dev/null
 	@$(MAKE) --no-print-directory -n PROVIDER=container OS=Darwin plan bootstrap stage build show qualify-composition >/dev/null
 	@bash tests/bootstrap-architecture-contract.sh
