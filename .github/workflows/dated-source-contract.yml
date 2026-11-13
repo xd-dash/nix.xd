@@ -23,10 +23,14 @@ jobs:
           from pathlib import Path
           make = Path("Makefile").read_text()
           flake = Path("flake.nix").read_text()
-          for name in ("ghxd:", "ghxd-volumes-provision:", "ghxd-auth-inventory:", "ghxd-source-version-check:"):
+          for name in ("ghxd:", "ghxd-volumes-provision:", "ghxd-auth-inventory:", "ghxd-source-version-check:", "coreos-boot:", "coreos-ignition-build:", "coreos-preflight:", "qualify-starwisp:", "guest-9p-runtime-qualify:"):
               assert not any(line.startswith(name) for line in make.splitlines()), name
-          for symbol in ("ghxdSmokeRevision", "ghxdSourceBuild", "ghxdOperator", "ghxd-source-build"):
+          for symbol in ("ghxdSmokeRevision", "ghxdSourceBuild", "ghxdOperator", "ghxd-source-build", "fatlinePlans"):
               assert symbol not in flake, symbol
+          assert "COREOS_" not in make
+          guest=Path("bin/nix-xd-guest-app").read_text()
+          assert "COREOS_" not in guest and "GUEST_SSH_PORT" in guest and "GUEST_VM_INSTANCE" in guest
+          assert Path("mk/legacy-vm-profiles.mk").exists()
           PY
       - name: Check generic Nix app dispatch
         run: make -n qualify QUALIFY_APP=1 FLAKE=example20261112/local/example TARGET='#qualify' ARGS='--phase verify' >/dev/null
