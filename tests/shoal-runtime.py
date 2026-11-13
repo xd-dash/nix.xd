@@ -31,6 +31,7 @@ class ShoalRuntimeTests(unittest.TestCase):
         self.assertIn('dst=/nix/store,ro', script)
         self.assertIn('--network none', script)
         self.assertIn('SHOAL_GUEST_STORAGE=passed', script)
+        self.assertIn('SHOAL_EXPECTED_BUSYBOX_SHA256', script)
 
     def test_host_attestation_requires_correct_provider_and_store(self):
         args = argparse.Namespace(
@@ -45,6 +46,10 @@ class ShoalRuntimeTests(unittest.TestCase):
             calls.append(argv)
             if "build" in argv:
                 return fake_rootfs
+            if "readlink" in argv:
+                return "/nix/store/" + "b" * 32 + "-busybox/bin/busybox"
+            if "sha256sum" in argv:
+                return "c" * 64 + "  /nix/store/..."
             return ""
         with patch.object(shoal.Path, "is_file", return_value=True), \
              patch.object(shoal, "run", side_effect=fake_run), \
