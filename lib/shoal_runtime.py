@@ -14,6 +14,10 @@ options="$(findmnt -rn -o OPTIONS --mountpoint "$mountpoint")"
 [[ ",$options," == *,ro,* ]]
 store="$mountpoint/${SHOAL_PROBE_ROOTFS#/nix/store/}"
 test -L "$store/bin/sh"
+busybox="$(readlink "$store/bin/sh")"
+[[ "$busybox" == /nix/store/*/bin/busybox ]]
+actual="$(sha256sum "$mountpoint/${busybox#/nix/store/}" | cut -d ' ' -f 1)"
+[[ "$actual" == "$SHOAL_EXPECTED_BUSYBOX_SHA256" ]]
 test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
 boot="$(cat /proc/sys/kernel/random/boot_id)"
 for n in a b; do
@@ -28,8 +32,8 @@ for n in a b; do
     --cap-drop all --security-opt no-new-privileges \
     --mount "type=bind,src=$mountpoint,dst=/nix/store,ro" \
     --rootfs "$scratch" /bin/sh -ec \
-      'test -x "$1/bin/sh"; if echo write > /nix/store/shoal-write-probe 2>/dev/null; then exit 1; fi' \
-      sh "$SHOAL_PROBE_ROOTFS"
+      'test -x "$1/bin/sh"; test "$(sha256sum "$2" | cut -d " " -f 1)" = "$3"; if echo write > /nix/store/shoal-write-probe 2>/dev/null; then exit 1; fi' \
+      sh "$SHOAL_PROBE_ROOTFS" "$busybox" "$SHOAL_EXPECTED_BUSYBOX_SHA256"
   rm -rf -- "$scratch"
   trap - EXIT
   echo "SHOAL_GUEST_READER=passed container=$n store=9p-ro"
@@ -68,13 +72,14 @@ def endpoints(args):
         yield name, port, known
 
 
-def ssh(args, port, known, script, rootfs):
+def ssh(args, port, known, script, rootfs, expected_sha256):
     return run(["ssh", "-T", "-i", args.ssh_key, "-p", str(port),
                 "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
                 "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=yes",
                 "-o", "UserKnownHostsFile=" + str(known),
                 args.ssh_user + "@127.0.0.1",
-                "env", "SHOAL_PROBE_ROOTFS=" + rootfs, "bash", "-se"], script)
+                "env", "SHOAL_PROBE_ROOTFS=" + rootfs,
+                "SHOAL_EXPECTED_BUSYBOX_SHA256=" + expected_sha256, "bash", "-se"], script)
 
 
 def storage(args):
@@ -99,9 +104,15 @@ def storage(args):
     if not STORE.fullmatch(rootfs):
         raise ValueError("Unexpected store probe rootfs")
     run(executor + ["test", "-x", rootfs + "/bin/sh"])
+    busybox = run(executor + ["readlink", rootfs + "/bin/sh"])
+    if not re.fullmatch(r"/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+-]+/bin/busybox", busybox):
+        raise ValueError("Store probe executable is not a pinned BusyBox")
+    expected_sha256 = run(executor + ["sha256sum", busybox]).split()[0]
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise ValueError("Invalid probe checksum")
     print("SHOAL_STORE_OWNER=passed volume=" + owner_volume + " read_only_guests=true", flush=True)
     for name, port, known in endpoints(args):
-        result = ssh(args, port, known, GUEST_PROBE, rootfs)
+        result = ssh(args, port, known, GUEST_PROBE, rootfs, expected_sha256)
         if result.count("SHOAL_GUEST_READER=passed") != 2 or "SHOAL_GUEST_STORAGE=passed" not in result:
             raise ValueError("Incomplete guest 9P/container evidence: " + name)
         print("SHOAL_STORAGE_GUEST=passed name=" + name + " 9p=ro readers=2", flush=True)
