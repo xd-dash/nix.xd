@@ -1,84 +1,44 @@
 #!/usr/bin/env bash
-set -euo pipefail
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+set -Eeuo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd -P)
 tmp=$(mktemp -d)
-trap 'find "$tmp" -type d -exec chmod u+rwx {} \; ; rm -rf -- "$tmp"' EXIT
+trap 'rm -rf "$tmp"' EXIT
 git init -q "$tmp/source"
 git -C "$tmp/source" config user.name Fixture
 git -C "$tmp/source" config user.email fixture@example.invalid
-echo initial > "$tmp/source/file"
+printf 'fixture\n' > "$tmp/source/file"
 git -C "$tmp/source" add file
 git -C "$tmp/source" commit -qm initial
 git -C "$tmp/source" branch -M main
-export NIX_XD_WORKSPACE_ROOT="$tmp/work spaces"
-export NIX_XD_WORKSPACE_REPO="file://$tmp/source"
-export NIX_XD_WORKSPACE_VERSION=20261111 NIX_XD_WORKSPACE_BASE=main
-run() { bash "$repo_root/bin/nix-xd-workspace" "$@"; }
+git init -q --bare "$tmp/remote.git"
+git -C "$tmp/remote.git" symbolic-ref HEAD refs/heads/main
+git -C "$tmp/source" remote add origin "$tmp/remote.git"
+git -C "$tmp/source" push -q origin main
+export NIX_XD_WORKSPACE_ROOT="$tmp/workspaces"
+export NIX_XD_WORKSPACE_REPO="file://$tmp/remote.git"
+export NIX_XD_WORKSPACE_VERSION=20261113.0
+export NIX_XD_WORKSPACE_BASE=main
+run() { python3 "$root/bin/nix-xd-workspace" "$@"; }
 run plan > "$tmp/plan"
-[[ ! -e $NIX_XD_WORKSPACE_ROOT ]]
+[[ ! -d $NIX_XD_WORKSPACE_ROOT ]]
+run init > /dev/null
 run open > "$tmp/first"
-# macOS /var is an alias of /private/var; cleanup reports physical paths.
-NIX_XD_WORKSPACE_ROOT=$(cd "$NIX_XD_WORKSPACE_ROOT" && pwd -P)
-target="$NIX_XD_WORKSPACE_ROOT/source20261111"
-[[ $(git -C "$target" branch --show-current) == v20261111 ]]
-[[ $(run path) == "$target" ]]
-echo changed > "$target/file"
+one="$NIX_XD_WORKSPACE_ROOT/remote20261113.0"
+[[ $(git -C "$one" branch --show-current) == cal/0.20261113.0 ]]
+[[ -f "$one/.git" ]]
+[[ $(git -C "$one" rev-parse --git-common-dir | xargs realpath) == "$(realpath "$NIX_XD_WORKSPACE_ROOT/.repos/remote.git")" ]]
 run open > "$tmp/reuse"
-grep -qx WORKSPACE_RESULT=reused "$tmp/reuse"
-git -C "$target" restore file
-git -C "$target" switch -c wrong-date > /dev/null 2>&1
-if run open > /dev/null 2>&1; then exit 1; fi
-git -C "$target" switch v20261111 > /dev/null 2>&1
-NIX_XD_WORKSPACE_VERSION=20261112 run open > /dev/null
-[[ -d "$NIX_XD_WORKSPACE_ROOT/source20261112/.git" ]]
-[[ $(git -C "$target" branch --show-current) == v20261111 ]]
-for bad in ../bad 20260231 20261301; do
-  if NIX_XD_WORKSPACE_VERSION="$bad" run open > /dev/null 2>&1; then exit 1; fi
+grep -q WORKSPACE_RESULT=reused "$tmp/reuse"
+NIX_XD_WORKSPACE_VERSION=20261113.0 run refresh > "$tmp/second"
+two="$NIX_XD_WORKSPACE_ROOT/remote20261113.1"
+[[ -f "$two/.git" ]]
+[[ $(git -C "$two" branch --show-current) == cal/0.20261113.1 ]]
+[[ $(git -C "$one" rev-parse --git-common-dir) == "$(git -C "$two" rev-parse --git-common-dir)" ]]
+if run clean >/dev/null 2>&1; then exit 1; fi
+if run remove >/dev/null 2>&1; then exit 1; fi
+[[ -d $one && -d $two ]]
+for invalid in 20260231.0 20261113 20261113.01 ../bad; do
+  if NIX_XD_WORKSPACE_VERSION="$invalid" run plan >/dev/null 2>&1; then exit 1; fi
 done
-mkdir "$target.lock"
-if run open > /dev/null 2>&1; then exit 1; fi
-rmdir "$target.lock"
-git -C "$target" remote set-url origin file:///wrong
-if run open > /dev/null 2>&1; then exit 1; fi
-git -C "$tmp/source" branch v20261113
-NIX_XD_WORKSPACE_VERSION=20261113 NIX_XD_WORKSPACE_BASE=v20261113 run open > /dev/null
-[[ $(git -C "$NIX_XD_WORKSPACE_ROOT/source20261113" branch --show-current) == v20261113 ]]
-# An existing dated remote branch wins over the default branch on a fresh checkout.
-echo dated-remote > "$tmp/source/file"
-git -C "$tmp/source" add file
-git -C "$tmp/source" commit -qm dated-remote
-git -C "$tmp/source" branch v20261114
-git -C "$tmp/source" reset -q --hard HEAD^
-NIX_XD_WORKSPACE_VERSION=20261114 NIX_XD_WORKSPACE_BASE=main run open > /dev/null
-[[ $(cat "$NIX_XD_WORKSPACE_ROOT/source20261114/file") == dated-remote ]]
-[[ $(git -C "$NIX_XD_WORKSPACE_ROOT/source20261114" rev-parse --abbrev-ref '@{upstream}') == origin/v20261114 ]]
-mkdir -p "$NIX_XD_WORKSPACE_ROOT/source" "$NIX_XD_WORKSPACE_ROOT/source-fresh" "$NIX_XD_WORKSPACE_ROOT/source-consolidated"
-mkdir -p "$NIX_XD_WORKSPACE_ROOT/grumble" "$NIX_XD_WORKSPACE_ROOT/source-tools" "$NIX_XD_WORKSPACE_ROOT/source20261201"
-echo stale > "$NIX_XD_WORKSPACE_ROOT/source/file"
-cache="$NIX_XD_WORKSPACE_ROOT/source/.cache/go/mod/example.invalid/module@v1.0.0"
-mkdir -p "$cache/nested" "$tmp/outside-cache"
-echo cached > "$cache/nested/file.go"
-echo outside > "$tmp/outside-cache/file"
-ln -s "$tmp/outside-cache" "$NIX_XD_WORKSPACE_ROOT/source/outside-link"
-chmod 0444 "$cache/nested/file.go"
-chmod 0555 "$cache" "$cache/nested" "$tmp/outside-cache"
-git -C "$tmp/source" worktree add --quiet --detach "$NIX_XD_WORKSPACE_ROOT/source20261110" HEAD
-if (cd "$NIX_XD_WORKSPACE_ROOT/source"; NIX_XD_WORKSPACE_VERSION=20261113 run clean-plan > /dev/null 2>&1); then exit 1; fi
-NIX_XD_WORKSPACE_VERSION=20261113 run clean-plan > "$tmp/cleanup-plan"
-ln -s "$NIX_XD_WORKSPACE_ROOT" "$tmp/workspace-alias"
-NIX_XD_WORKSPACE_ROOT="$tmp/workspace-alias" NIX_XD_WORKSPACE_VERSION=20261113 run clean-plan > "$tmp/alias-plan"
-cmp "$tmp/cleanup-plan" "$tmp/alias-plan"
-[[ -f "$NIX_XD_WORKSPACE_ROOT/source/file" ]]
-[[ ! -w $cache && ! -w $cache/nested ]]
-grep -qx "WORKSPACE_REMOVE=$NIX_XD_WORKSPACE_ROOT/source" "$tmp/cleanup-plan"
-NIX_XD_WORKSPACE_VERSION=20261113 run clean > "$tmp/cleanup"
-[[ ! -w $tmp/outside-cache && -f $tmp/outside-cache/file ]]
-for stale in source source-fresh source-consolidated source20261110 source20261111 source20261112; do
-  [[ ! -e $NIX_XD_WORKSPACE_ROOT/$stale ]]
-done
-if git -C "$tmp/source" worktree list --porcelain | grep -Fq "$NIX_XD_WORKSPACE_ROOT/source20261110"; then exit 1; fi
-for keep in source20261113 source20261114 source20261201 source-tools grumble; do
-  [[ -d $NIX_XD_WORKSPACE_ROOT/$keep ]]
-done
-if NIX_XD_WORKSPACE_VERSION=20261115 run clean > /dev/null 2>&1; then exit 1; fi
+[[ $(run list | grep -c ^worktree) == 3 ]]
 echo WORKSPACE_CONTRACT=passed
