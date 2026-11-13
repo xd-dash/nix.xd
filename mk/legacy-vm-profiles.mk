@@ -129,3 +129,11 @@ guest-9p-qualify:
 	@test -n "$(COREOS_9P_GRANTS_FILE)" || { echo 'GRANTS_FILE is required' >&2; exit 2; }
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-9p-qualify
 
+
+.PHONY: legacy-vm-profile-static-check
+legacy-vm-profile-static-check:
+	@bash -n bin/nix-xd-coreos-podman
+	@python3 tests/coreos-managed-start.py
+	@bash -n bin/nix-xd-qualify-starwisp-shared bin/nix-xd-qualify-starwisp bin/nix-xd-coreos-hvf bin/nix-xd-coreos-podman bin/nix-xd-wisp-ssh
+	@bash tests/starwisp-shared-contract.sh
+	@bash tests/starwisp-lifecycle.sh
