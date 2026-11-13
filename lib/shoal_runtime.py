@@ -23,7 +23,8 @@ boot="$(cat /proc/sys/kernel/random/boot_id)"
 for n in a b; do
   scratch="$(mktemp -d)"
   chmod 700 "$scratch"
-  trap 'rm -rf -- "$scratch"' EXIT
+  cleanup() { podman unshare rm -rf -- "$scratch"; }
+  trap cleanup EXIT
   mkdir -p "$scratch/bin" "$scratch/nix/store" "$scratch/tmp"
   ln -s "$SHOAL_PROBE_ROOTFS/bin/sh" "$scratch/bin/sh"
   podman run --rm --network none --pull=never \
@@ -32,9 +33,9 @@ for n in a b; do
     --cap-drop all --security-opt no-new-privileges \
     --mount "type=bind,src=$mountpoint,dst=/nix/store,ro" \
     --rootfs "$scratch" /bin/sh -ec \
-      'test -x "$1/bin/sh"; test "$(sha256sum "$2" | cut -d " " -f 1)" = "$3"; if echo write > /nix/store/shoal-write-probe 2>/dev/null; then exit 1; fi' \
+      'test -x "$1/bin/sh"; test "$("$2" sha256sum "$2" | "$2" cut -d " " -f 1)" = "$3"; if echo write > /nix/store/shoal-write-probe 2>/dev/null; then exit 1; fi' \
       sh "$SHOAL_PROBE_ROOTFS" "$busybox" "$SHOAL_EXPECTED_BUSYBOX_SHA256"
-  rm -rf -- "$scratch"
+  cleanup
   trap - EXIT
   echo "SHOAL_GUEST_READER=passed container=$n store=9p-ro"
 done

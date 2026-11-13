@@ -32,6 +32,8 @@ class ShoalRuntimeTests(unittest.TestCase):
         self.assertIn('--network none', script)
         self.assertIn('SHOAL_GUEST_STORAGE=passed', script)
         self.assertIn('SHOAL_EXPECTED_BUSYBOX_SHA256', script)
+        self.assertIn('"$2" sha256sum', script)
+        self.assertIn('podman unshare rm -rf', script)
 
     def test_host_attestation_requires_correct_provider_and_store(self):
         args = argparse.Namespace(
