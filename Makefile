@@ -88,6 +88,7 @@ help:
 	  'make qualify-starwisp COREOS_SSH_KEY=...      Full ARM64 Starwisp boot/Wisp/shutdown gate' \
 	  'make qualify-starwisp-shared COREOS_SSH_KEY=...  Build current store closures and qualify guest 9P' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
+	  'make shoal-qualify SHOAL_STAGE=farcaster|world1 SHOAL_GATE=storage|all  Read-only runtime 9P checks' \
 	  'make check-static                            Host-independent static checks'
 
 self-update:
@@ -276,6 +277,7 @@ check-static-internal:
 	@python3 tests/runtime-primitives.py
 	@python3 tests/compositions.py
 	@python3 tests/shoal-contract.py
+	@python3 tests/shoal-runtime.py
 	@python3 tests/guest-executor.py
 	@python3 tests/coreos-managed-start.py
 	@python3 tests/workload-transport.py
@@ -431,6 +433,26 @@ PROFILE_MODE ?= store
 export NIX_XD_PROFILE_MODE = $(PROFILE_MODE)
 PROFILE_SAMPLES ?= 1
 export NIX_XD_PROFILE_SAMPLES = $(PROFILE_SAMPLES)
+# Shoal is a regional Farcaster/World contract; storage checks reuse running guests.
+# Network qualification fails closed until a routed dual-stack Shoal adapter exists.
+SHOAL_STAGE ?= farcaster
+SHOAL_GATE ?= all
+SHOAL_FARCASTER_PORT ?= 2222
+SHOAL_WORLD1_PORT ?= 2223
+SHOAL_SSH_KEY ?= $(HOME)/.ssh/starwisp-test
+SHOAL_SSH_USER ?= wisp
+SHOAL_STATE_ROOT ?= $(CURDIR)/.state/coreos
+.PHONY: shoal-qualify
+shoal-qualify:
+	@bash bin/nix-xd-log "$(SCOPE)" shoal-qualify "$(PYTHON)" lib/shoal_runtime.py \
+	  --stage "$(SHOAL_STAGE)" --gate "$(SHOAL_GATE)" \
+	  --provider "$(PROVIDER)" --machine "$(MACHINE)" --owner "$(SCOPE)" \
+	  --flake "/workspaces/$(notdir $(CURDIR))" \
+	  --ssh-key "$(SHOAL_SSH_KEY)" --ssh-user "$(SHOAL_SSH_USER)" \
+	  --state-root "$(SHOAL_STATE_ROOT)" \
+	  --farcaster-port "$(SHOAL_FARCASTER_PORT)" \
+	  --world1-port "$(SHOAL_WORLD1_PORT)"
+
 COMPOSITION ?= shared-store-matrix
 export NIX_XD_COMPOSITION = $(COMPOSITION)
 .PHONY: composition-plan composition-prepare composition-start composition-status composition-qualify composition-stop composition-cancel composition-profile composition-application
