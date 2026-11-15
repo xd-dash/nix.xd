@@ -20,8 +20,10 @@ check("make guest-app" in policy, "undocumented-guest-transport")
 check("make project-run" in policy, "undocumented-project-dispatch")
 check("local/<application>/host-actions/<action>.sh" in policy,
       "missing-host-action-exception")
-check("project-host-run:" in makefile, "untracked-host-action-entry")
-check("bin/nix-xd-project-host-run" in makefile, "host-action-source-drift")
+check("include mk/legacy-host-actions.mk" in makefile, "host-action-compatibility-not-isolated")
+legacy_host = (root / "mk/legacy-host-actions.mk").read_text()
+check("project-host-run:" in legacy_host, "untracked-host-action-entry")
+check("bin/nix-xd-project-host-run" in legacy_host, "host-action-source-drift")
 check('script="$source/local/$application/host-actions/$action.sh"' in host,
       "host-dispatch-must-remain-project-owned")
 check('[[ "$revision" =~ ^[a-f0-9]{40}$ ]]' in host, "host-action-missing-pin")
