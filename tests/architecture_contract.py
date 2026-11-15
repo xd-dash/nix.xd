@@ -18,6 +18,11 @@ def check(condition, label):
 check("make run FLAKE=" in policy, "undocumented-flake-transport")
 check("make guest-app" in policy, "undocumented-guest-transport")
 check("make project-run" in policy, "undocumented-project-dispatch")
+check("project-run:" in makefile, "missing-canonical-project-launcher")
+check("NIX_XD_PROJECT_RUNTIME_FLAKE=" in makefile, "missing-runtime-flake-binding")
+check("NIX_XD_PROJECT_FLAKE=" in makefile, "missing-project-flake-binding")
+check('inside nix run --no-write-lock-file "$NIX_XD_PROJECT_RUNTIME_FLAKE#project-launch"' in task,
+      "project-launcher-not-inside-nix-alpine")
 check("local/<application>/host-actions/<action>.sh" in policy,
       "missing-host-action-exception")
 check("include mk/legacy-host-actions.mk" in makefile, "host-action-compatibility-not-isolated")
