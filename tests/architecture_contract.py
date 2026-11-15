@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Static ownership guard; intentionally does not inspect or change the Mac runtime."""
 from pathlib import Path
+import json
 import re
 
 root = Path(__file__).resolve().parents[1]
@@ -36,6 +37,18 @@ check('StrictHostKeyChecking=yes' in guest, "guest-host-key-not-verified")
 check('GUEST_STATE_ROOT:-$HOME/.local/state/nix-xd/coreos' in guest,
       "guest-state-default-drift")
 check("PROVIDER ?= podman" in makefile, "wrong-default-provider")
+native_grants = json.loads((root / "examples/ghxd-native-grants.json").read_text())
+check(native_grants.get("schema") == 1 and native_grants.get("scope") == "nix-xd-arm",
+      "invalid-native-ghxd-grant-contract")
+grants = native_grants.get("grants", [])
+check({g.get("destination") for g in grants} == {
+    "/run/nix-xd/mounts/ghxd-secret",
+    "/run/nix-xd/mounts/ghxd-home",
+    "/run/nix-xd/mounts/ghxd-workspaces",
+}, "invalid-native-ghxd-grant-destinations")
+check(all(g.get("reader") == "nix-xd-arm" and g.get("writer") == "nix-xd-arm"
+          and g.get("access") == "rw" for g in grants),
+      "native-ghxd-grants-must-have-one-writer")
 
 # Detect any newly added application-named command in the canonical interface.
 # Historical Shoal is recorded above; do not silently expand this exception.
