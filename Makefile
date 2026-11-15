@@ -55,6 +55,13 @@ OS := $(shell uname -s)
 TASK_ENV = NIX_XD_MACHINE='$(MACHINE)' NIX_XD_SYSTEM='$(NIX_SYSTEM)' NIX_XD_PROVIDER='$(PROVIDER)' NIX_XD_SCOPE='$(SCOPE)' NIX_XD_WORKSPACES='$(WORKSPACES)' NIX_XD_CHECKOUT='$(CHECKOUT)' NIX_XD_FLAKE='$(FLAKE)' NIX_XD_TARGET='$(TARGET)' NIX_XD_ARGS='$(ARGS)' NIX_XD_CMD='$(CMD)' 
 TASK = $(TASK_ENV) bash bin/nix-xd-task
 
+AGNI_DIR ?=
+SMOKE_DIR ?=
+.PHONY: architecture-audit
+architecture-audit:
+	@test -n "$(AGNI_DIR)" -a -n "$(SMOKE_DIR)" || { echo 'AGNI_DIR and SMOKE_DIR required' >&2; exit 2; }
+	@python3 tests/architecture_audit.py --agni "$(AGNI_DIR)" --smoke "$(SMOKE_DIR)"
+
 .PHONY: architecture-check
 .PHONY: help self-update bootstrap plan image-build machine-init machine-check machine-handoff machine-select machine-start machine-stop start stop restart status logs shell exec ps inspect store-info store-diagnose store-roots-inspect store-roots-apply sync clone stage show check build path-info run develop compose qualify qualify-process qualify-service qualify-composition qualify-plan check-static
 
@@ -107,7 +114,8 @@ help:
 	  'make self-update                             Fast-forward this nix.xd checkout' \
 	  'make shoal-qualify SHOAL_STAGE=farcaster|world1 SHOAL_GATE=storage|all  Read-only runtime 9P checks' \
 	  'make check-static                            Host-independent static checks' \\
-	  'make architecture-check                     Validate canonical execution authority and documented exceptions'
+	  'make architecture-check                     Validate canonical execution authority and documented exceptions' \\
+	  'make architecture-audit AGNI_DIR=... SMOKE_DIR=...  Inspect active cross-repo host-action exceptions'
 
 architecture-check:
 	@python3 tests/architecture_contract.py
