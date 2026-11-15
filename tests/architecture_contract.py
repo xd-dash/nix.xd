@@ -40,5 +40,8 @@ check("PROVIDER ?= podman" in makefile, "wrong-default-provider")
 # Detect any newly added application-named command in the canonical interface.
 # Historical Shoal is recorded above; do not silently expand this exception.
 app_specific = {target for target in re.findall(r"^([a-z][a-z0-9-]*(?:shoal|fatline|probot|farcaster)[a-z0-9-]*):", makefile, re.M)}
-check(app_specific <= {"shoal-qualify"}, "new-app-specific-nix-xd-target")
+check(not app_specific, "app-specific-nix-xd-target-in-canonical-makefile")
+check("include mk/legacy-shoal.mk" in makefile, "historical-shoal-not-isolated")
+legacy = (root / "mk/legacy-shoal.mk").read_text()
+check("shoal-qualify:" in legacy, "historical-shoal-target-disappeared")
 print("NIX_XD_ARCHITECTURE_CHECK=passed owner=nix-alpine host_exceptions=documented application_targets=legacy-only")
