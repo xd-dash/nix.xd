@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "scope": "nix-xd-arm",
+  "grants": [
+    {
+      "volume": "nix-xd-state-secret-ghxd",
+      "destination": "/run/nix-xd/mounts/ghxd-secret",
+      "access": "rw",
+      "writer": "nix-xd-arm",
+      "reader": "nix-xd-arm"
+    },
+    {
+      "volume": "nix-xd-state-control-ghxd-home",
+      "destination": "/run/nix-xd/mounts/ghxd-home",
+      "access": "rw",
+      "writer": "nix-xd-arm",
+      "reader": "nix-xd-arm"
+    },
+    {
+      "volume": "nix-xd-state-control-ghxd-workspaces",
+      "destination": "/run/nix-xd/mounts/ghxd-workspaces",
+      "access": "rw",
+      "writer": "nix-xd-arm",
+      "reader": "nix-xd-arm"
+    }
+  ]
+}
