@@ -1,3 +1,5 @@
+> **v20261115 architecture baseline:** See [execution authority](docs/architecture-v20261115.md) and [AGENTS.md](AGENTS.md). The canonical path is Nix-Alpine execution; historical macOS GHXD project-host-run and Shoal operations are documented transitional exceptions, not approved extension points.
+
 # Nix.xd / Nix-Alpine
 
 The [tenant storage gate](docs/tenant-storage.md), `make tenant-storage-qualify`,
