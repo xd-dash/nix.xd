@@ -84,7 +84,7 @@ help:
 	  'make machine-handoff FROM_MACHINE=... MACHINE=... TRANSFER_IMAGE=... (transfer selected image)' \
 	  'make image-build                            Build Nix-Alpine OCI image' \
 	  'make sync REPO=owner/repo BRANCH=... [REV=sha] [SYNC_NAME=path]' \
-	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \\
+	  'make stage CHECKOUT=path                     Stage committed checkout at /workspaces/path' \
 	  'make show|check|build|path-info FLAKE=path TARGET=$(HASH)output' \
 	  'make run FLAKE=path TARGET=\x23app ARGS="..."' \
 	  'make compose|qualify|qualify-process|qualify-service|qualify-composition' \
@@ -113,8 +113,8 @@ help:
 	  'make guest-app FLAKE=path TARGET=$(HASH)package GUEST_APP_REV=sha GUEST_VM_INSTANCE=...  Run store-backed guest script' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
 	  'make shoal-qualify SHOAL_STAGE=farcaster|world1 SHOAL_GATE=storage|all  Read-only runtime 9P checks' \
-	  'make check-static                            Host-independent static checks' \\
-	  'make architecture-check                     Validate canonical execution authority and documented exceptions' \\
+	  'make check-static                            Host-independent static checks' \
+	  'make architecture-check                     Validate canonical execution authority and documented exceptions' \
 	  'make architecture-audit AGNI_DIR=... SMOKE_DIR=...  Inspect active cross-repo host-action exceptions'
 
 architecture-check:
