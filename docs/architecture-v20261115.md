@@ -99,3 +99,27 @@ files. An untested host-side replacement is *not* a completed cleanup.
 Before changes touching this contract, run `make architecture-check` and
 the repository's normal static checks. This is a repository ownership
 guard, not the runtime qualification.
+
+## Native GHXD grant candidate (opt-in; not yet live-qualified)
+
+`examples/ghxd-native-grants.json` declares three explicit named volumes
+for the Nix-Alpine owner: GHXD secret, home and source generations. The
+existing `lib/runtime_grants.py` validates grant ownership and the
+rootless bootstrap renders mounts. **The previously started owner does not
+inherit new grants**. Apply this manifest only during an explicit disposable
+owner bootstrap; prove read/write access and one-writer isolation with the
+generic `grants-plan` / `grants-execute` checks before dispatch.
+
+Smoke `v20261115` now includes an opt-in `#ghxd-native` app that can operate
+on those pregranted volumes and stage source generations directly inside the
+Nix-Alpine owner. It does not require a host Podman launcher for each GHXD
+run. This code is an unqualified candidate, *not* authorization to delete the
+current host operator or credentials. Giving the trusted Nix-Alpine owner
+writable GHXD secret access expands its authority compared with a dedicated
+secret-isolated sibling container. Select this model only if that explicit
+trust boundary is acceptable. Never supply a broad Podman socket.
+
+The migration gate must verify the initial grants, SOPS+age access, refresh,
+source generation, absence of concurrent old host adapters and isolated
+teardown with the candidate running on an intentionally disposable owner.
+If it fails, keep the old GHXD path selected until its replacement passes.
