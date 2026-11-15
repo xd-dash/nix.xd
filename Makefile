@@ -180,6 +180,21 @@ sync clone:
 	@test -n "$(REPO)" || { echo "REPO=owner/repo required" >&2; exit 2; }
 	@bash bin/nix-xd-log "$(SCOPE)" sync bash bin/nix-xd-sync "$(REPO)" "$(BRANCH)" "$(WORKSPACES)" "$(SYNC_NAME)" "$(REV)"
 
+# Generic project launcher; project policy and store identity come from pinned flakes.
+PROJECT_FLAKE ?=
+RUNTIME_FLAKE ?=
+PROJECT_APP ?= default
+PROJECT_STORE ?= local
+PROJECT_ARGS_JSON ?= []
+.PHONY: project-run
+project-run:
+	@test -n "$(PROJECT_FLAKE)" -a -n "$(RUNTIME_FLAKE)" || { echo 'PROJECT_FLAKE and RUNTIME_FLAKE are required' >&2; exit 2; }
+	@$(TASK_ENV) NIX_XD_PROJECT_FLAKE='$(PROJECT_FLAKE)' \
+	  NIX_XD_PROJECT_RUNTIME_FLAKE='$(RUNTIME_FLAKE)' \
+	  NIX_XD_PROJECT_APP='$(PROJECT_APP)' NIX_XD_PROJECT_STORE='$(PROJECT_STORE)' \
+	  NIX_XD_PROJECT_ARGS_JSON='$(PROJECT_ARGS_JSON)' \
+	  bash bin/nix-xd-log "$(SCOPE)" project-run bash bin/nix-xd-task project-run
+
 stage show check build path-info run:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-task "$@"
 
