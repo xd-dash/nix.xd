@@ -14,7 +14,7 @@ port=${GUEST_SSH_PORT:?Specify guest SSH port}
 user=${GUEST_SSH_USER:?Specify guest SSH user}
 host=${GUEST_SSH_HOST:-127.0.0.1}
 key=${GUEST_SSH_KEY:?Specify guest SSH identity}
-state=${GUEST_STATE_ROOT:-$HOME/.local/state/nix-xd/vms}
+state=${GUEST_STATE_ROOT:-$HOME/.local/state/nix-xd/coreos}
 profile=${GUEST_VM_INSTANCE:?Specify selected VM instance}
 known_hosts=${GUEST_KNOWN_HOSTS:-$state/$profile/known_hosts}
 
