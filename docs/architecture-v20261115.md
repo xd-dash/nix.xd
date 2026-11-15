@@ -108,7 +108,7 @@ existing `lib/runtime_grants.py` validates grant ownership and the
 rootless bootstrap renders mounts. **The previously started owner does not
 inherit new grants**. Apply this manifest only during an explicit disposable
 owner bootstrap; prove read/write access and one-writer isolation with the
-generic `grants-plan` / `grants-execute` checks before dispatch.
+generic `grants-plan` / `grants-verify` checks before dispatch.
 
 Smoke `v20261115` now includes an opt-in `#ghxd-native` app that can operate
 on those pregranted volumes and stage source generations directly inside the
