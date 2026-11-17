@@ -22,9 +22,9 @@ agni = args.agni.resolve()
 smoke = args.smoke.resolve()
 ghxd = smoke / "local/ghxd/host-actions"
 require(ghxd.is_dir(), "missing-transitional-smoke-adapter")
-allowed = {"bootstrap", "auth-start", "auth-finish", "auth-refresh", "source-sync"}
+allowed = {"bootstrap", "auth-start", "auth-finish", "auth-refresh", "source-sync", "inventory", "provision"}
 actions = {p.stem for p in ghxd.glob("*.sh")}
-require(actions <= allowed, "new-smoke-host-operation")
+require(actions == allowed, "smoke-host-operation-inventory-changed")
 require("source-sync" in actions, "missing-current-ghxd-caller")
 
 # The old host dispatcher is an exception with known callers, not an
