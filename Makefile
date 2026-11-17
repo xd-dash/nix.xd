@@ -547,19 +547,7 @@ else ifneq ($(ENABLE_LEGACY_APPLICATION_CONTROLLERS),0)
 $(error ENABLE_LEGACY_APPLICATION_CONTROLLERS must be 0 or 1)
 endif
 
-# Make selects the runtime and project; orchestration executes in Nix-Alpine.
-PROJECT_FLAKE ?=
-PROJECT_APP ?= default
-PROJECT_ARGS_JSON ?= []
-PROJECT_RUNTIME_FLAKE ?= $(WORKLOAD_FLAKE)
-export NIX_XD_PROJECT_FLAKE = $(PROJECT_FLAKE)
-export NIX_XD_PROJECT_APP = $(PROJECT_APP)
-export NIX_XD_PROJECT_ARGS_JSON = $(PROJECT_ARGS_JSON)
-export NIX_XD_PROJECT_RUNTIME_FLAKE = $(PROJECT_RUNTIME_FLAKE)
-.PHONY: project-run
-project-run:
-	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-task project-run
-
+# The canonical project-run recipe is defined once above.
 PROJECT_STORE ?= local
 CHROOT_NAME ?= grumble
 CHROOT_VOLUME ?= $(SCOPE)-$(CHROOT_NAME)-chroot
@@ -570,7 +558,7 @@ export NIX_XD_CHROOT_VOLUME = $(CHROOT_VOLUME)
 chroot-store-attach:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-chroot-attach
 chroot-store-qualify:
-	@$(MAKE) --no-print-directory project-run PROJECT_FLAKE="$(WORKLOAD_FLAKE)" PROJECT_APP=chroot-store-poc PROJECT_ARGS_JSON='["--root","/stores/$(CHROOT_NAME)","--flake","$(WORKLOAD_FLAKE)","--system","$(NIX_SYSTEM)"]' PROJECT_STORE=local
+	@$(MAKE) --no-print-directory project-run PROJECT_FLAKE="$(WORKLOAD_FLAKE)" RUNTIME_FLAKE="$(WORKLOAD_FLAKE)" PROJECT_APP=chroot-store-poc PROJECT_ARGS_JSON='["--root","/stores/$(CHROOT_NAME)","--flake","$(WORKLOAD_FLAKE)","--system","$(NIX_SYSTEM)"]' PROJECT_STORE=local
 
 .PHONY: builder-chroot-profile
 builder-chroot-profile:
