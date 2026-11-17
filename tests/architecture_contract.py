@@ -19,6 +19,8 @@ check("make run FLAKE=" in policy, "undocumented-flake-transport")
 check("make guest-app" in policy, "undocumented-guest-transport")
 check("make project-run" in policy, "undocumented-project-dispatch")
 check("project-run:" in makefile, "missing-canonical-project-launcher")
+check(len(re.findall(r"^project-run:", makefile, re.M)) == 1,
+      "duplicate-project-run-target")
 check("NIX_XD_PROJECT_RUNTIME_FLAKE=" in makefile, "missing-runtime-flake-binding")
 check("NIX_XD_PROJECT_FLAKE=" in makefile, "missing-project-flake-binding")
 check('inside nix run --no-write-lock-file "$NIX_XD_PROJECT_RUNTIME_FLAKE#project-launch"' in task,
