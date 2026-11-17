@@ -64,4 +64,16 @@ check(not app_specific, "app-specific-nix-xd-target-in-canonical-makefile")
 check("include mk/legacy-shoal.mk" in makefile, "historical-shoal-not-isolated")
 legacy = (root / "mk/legacy-shoal.mk").read_text()
 check("shoal-qualify:" in legacy, "historical-shoal-target-disappeared")
+# The current contract is normative for new work; historical compatibility
+# adapters are not permission to add another entrypoint.
+canonical = (root / "docs/CANONICAL-ARCHITECTURE.md").read_text()
+agents = (root / "AGENTS.md").read_text()
+for phrase in ("Forbidden new idioms", "One writer per Nix store domain",
+               "Nix-Alpine pinned flake", "project-host-run", "full 40-character"):
+    check(phrase in canonical, "canonical-contract-missing-" + phrase.replace(" ", "-"))
+check("docs/CANONICAL-ARCHITECTURE.md" in agents, "agent-policy-not-linked")
+check("DO NOT ADD" in agents and "quarantined exceptions" in agents,
+      "agent-legacy-ban-not-explicit")
+check("~/.local/nix.xd/logs" in canonical and "~/.local/state/nix-xd" in canonical,
+      "state-or-log-policy-drift")
 print("NIX_XD_ARCHITECTURE_CHECK=passed owner=nix-alpine host_exceptions=documented application_targets=legacy-only")
