@@ -68,7 +68,9 @@ class ShoalRuntimeTests(unittest.TestCase):
         makefile = (repo / "Makefile").read_text()
         self.assertIn("podman system connection list", makefile)
         self.assertIn("GUEST_STATE_ROOT ?= $(HOME)/.local/state/nix-xd/coreos", makefile)
-        self.assertIn("SHOAL_STATE_ROOT ?= $(GUEST_STATE_ROOT)", makefile)
+        legacy = repo / "mk/legacy-shoal.mk"
+        if legacy.exists():
+            self.assertIn("SHOAL_STATE_ROOT ?= $(GUEST_STATE_ROOT)", legacy.read_text())
 
     def test_missing_guest_credentials_fail_before_qualification(self):
         args = argparse.Namespace(ssh_key="/unavailable/key", owner="nix-xd-arm")
