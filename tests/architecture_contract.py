@@ -8,7 +8,6 @@ root = Path(__file__).resolve().parents[1]
 makefile = (root / "Makefile").read_text()
 task = (root / "bin/nix-xd-task").read_text()
 guest = (root / "bin/nix-xd-guest-app").read_text()
-host = (root / "bin/nix-xd-project-host-run").read_text()
 policy = (root / "docs/architecture-v20261115.md").read_text()
 
 def check(condition, label):
@@ -27,15 +26,23 @@ check('inside nix run --no-write-lock-file "$NIX_XD_PROJECT_RUNTIME_FLAKE#projec
       "project-launcher-not-inside-nix-alpine")
 check("local/<application>/host-actions/<action>.sh" in policy,
       "missing-host-action-exception")
-check("include mk/legacy-host-actions.mk" in makefile, "host-action-compatibility-not-isolated")
-legacy_host = (root / "mk/legacy-host-actions.mk").read_text()
-check("project-host-run:" in legacy_host, "untracked-host-action-entry")
-check("bin/nix-xd-project-host-run" in legacy_host, "host-action-source-drift")
-check('script="$source/local/$application/host-actions/$action.sh"' in host,
-      "host-dispatch-must-remain-project-owned")
-check('[[ "$revision" =~ ^[a-f0-9]{40}$ ]]' in host, "host-action-missing-pin")
-check('[[ -z "$(git -C "$source" status --porcelain --untracked-files=no)" ]]' in host,
-      "host-action-dirty-source-accepted")
+legacy_host_path = root / "mk/legacy-host-actions.mk"
+host_path = root / "bin/nix-xd-project-host-run"
+if legacy_host_path.exists():
+    check("include mk/legacy-host-actions.mk" in makefile, "host-action-compatibility-not-isolated")
+    check(host_path.exists(), "host-action-transport-missing")
+    legacy_host = legacy_host_path.read_text()
+    host = host_path.read_text()
+    check("project-host-run:" in legacy_host, "untracked-host-action-entry")
+    check("bin/nix-xd-project-host-run" in legacy_host, "host-action-source-drift")
+    check('script="$source/local/$application/host-actions/$action.sh"' in host,
+          "host-dispatch-contract-drift")
+    check('[[ "$revision" =~ ^[a-f0-9]{40}$ ]]' in host, "host-action-missing-pin")
+    check('[[ -z "$(git -C "$source" status --porcelain --untracked-files=no)" ]]' in host,
+          "host-action-dirty-source-accepted")
+else:
+    check("include mk/legacy-host-actions.mk" not in makefile and not host_path.exists(),
+          "orphaned-host-action-transport")
 check('inside nix --option system "$system" run' in task,
       "nix-alpine-not-execution-authority")
 check('inside nix --option system "$system" build' in task,
@@ -63,9 +70,12 @@ check(all(g.get("reader") == "nix-xd-arm" and g.get("writer") == "nix-xd-arm"
 # Historical Shoal is recorded above; do not silently expand this exception.
 app_specific = {target for target in re.findall(r"^([a-z][a-z0-9-]*(?:shoal|fatline|probot|farcaster)[a-z0-9-]*):", makefile, re.M)}
 check(not app_specific, "app-specific-nix-xd-target-in-canonical-makefile")
-check("include mk/legacy-shoal.mk" in makefile, "historical-shoal-not-isolated")
-legacy = (root / "mk/legacy-shoal.mk").read_text()
-check("shoal-qualify:" in legacy, "historical-shoal-target-disappeared")
+legacy_path = root / "mk/legacy-shoal.mk"
+if legacy_path.exists():
+    check("include mk/legacy-shoal.mk" in makefile, "historical-shoal-not-isolated")
+    check("shoal-qualify:" in legacy_path.read_text(), "historical-shoal-target-drift")
+else:
+    check("include mk/legacy-shoal.mk" not in makefile, "orphaned-shoal-include")
 # The current contract is normative for new work; historical compatibility
 # adapters are not permission to add another entrypoint.
 canonical = (root / "docs/CANONICAL-ARCHITECTURE.md").read_text()
