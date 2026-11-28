@@ -26,23 +26,10 @@ check('inside nix run --no-write-lock-file "$NIX_XD_PROJECT_RUNTIME_FLAKE#projec
       "project-launcher-not-inside-nix-alpine")
 check("local/<application>/host-actions/<action>.sh" in policy,
       "missing-host-action-exception")
-legacy_host_path = root / "mk/legacy-host-actions.mk"
-host_path = root / "bin/nix-xd-project-host-run"
-if legacy_host_path.exists():
-    check("include mk/legacy-host-actions.mk" in makefile, "host-action-compatibility-not-isolated")
-    check(host_path.exists(), "host-action-transport-missing")
-    legacy_host = legacy_host_path.read_text()
-    host = host_path.read_text()
-    check("project-host-run:" in legacy_host, "untracked-host-action-entry")
-    check("bin/nix-xd-project-host-run" in legacy_host, "host-action-source-drift")
-    check('script="$source/local/$application/host-actions/$action.sh"' in host,
-          "host-dispatch-contract-drift")
-    check('[[ "$revision" =~ ^[a-f0-9]{40}$ ]]' in host, "host-action-missing-pin")
-    check('[[ -z "$(git -C "$source" status --porcelain --untracked-files=no)" ]]' in host,
-          "host-action-dirty-source-accepted")
-else:
-    check("include mk/legacy-host-actions.mk" not in makefile and not host_path.exists(),
-          "orphaned-host-action-transport")
+check("include mk/legacy-host-actions.mk" not in makefile, "legacy-host-target-restored")
+for retired in ("mk/legacy-host-actions.mk", "bin/nix-xd-project-host-run",
+                "tests/project-host-run-contract.sh"):
+    check(not (root / retired).exists(), "host-action-dispatch-restored-" + retired)
 check('inside nix --option system "$system" run' in task,
       "nix-alpine-not-execution-authority")
 check('inside nix --option system "$system" build' in task,
