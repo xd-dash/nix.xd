@@ -21,9 +21,10 @@ for name, root in (("agni", args.agni), ("smoke", args.smoke)):
 agni = args.agni.resolve()
 smoke = args.smoke.resolve()
 ghxd = smoke / "local/ghxd/host-actions"
-allowed = {"bootstrap", "auth-start", "auth-finish", "auth-refresh", "source-sync", "inventory", "provision"}
 actions = {p.stem for p in ghxd.glob("*.sh")}
-require(actions <= allowed, "smoke-host-operation-inventory-expanded")
+require(not actions, "smoke-host-actions-restored")
+require(not (smoke / "local/ghxd/host-operator.sh").exists(), "smoke-host-operator-restored")
+require(not (repo / "bin/nix-xd-project-host-run").exists(), "nix-host-dispatch-restored")
 
 # The old host dispatcher is an exception with known callers, not an
 # extension point. Reject introduction of new project-owned host-actions.
@@ -55,25 +56,12 @@ allowed_agni = {
 found_agni = {str(item.relative_to(agni)) for item in agni.glob("local/*/host-actions/*.sh")}
 require(found_agni <= allowed_agni, "agni-host-action-inventory-expanded")
 found_smoke = {str(item.relative_to(smoke)) for item in smoke.glob("local/*/host-actions/*.sh")}
-require(found_smoke <= {"local/ghxd/host-actions/" + name + ".sh" for name in allowed},
-        "smoke-host-action-inventory-expanded")
-
+require(not found_smoke, "smoke-host-actions-restored")
 agni_operations = agni / "local/fatline/operations"
 require(not (agni_operations / "guest-migration.sh").exists(), "monolithic-guest-migration-restored")
 active_sources = [agni / "local/fatline/Makefile", *agni_operations.glob("*.sh")]
 host_caller = any("APPLICATION=ghxd ACTION=source-sync" in p.read_text() for p in active_sources)
-require(not host_caller or "source-sync" in actions,
-        "legacy-ghxd-caller-without-adapter")
-if actions:
-    operator_path = smoke / "local/ghxd/host-operator.sh"
-    require(operator_path.is_file(), "host-actions-without-operator")
-    require('p=(podman --connection "$machine")' in operator_path.read_text(),
-            "host-adapter-missing-or-untracked")
-if host_caller:
-    nix_host = repo / "bin/nix-xd-project-host-run"
-    require(nix_host.is_file(), "host-caller-without-transport")
-    require("local/$application/host-actions/$action.sh" in nix_host.read_text(),
-            "host-dispatch-contract-drift")
+require(not host_caller, "agni-legacy-ghxd-caller-restored")
 require("host Podman operator" in (agni / "local/fatline/qualification/architecture-v20261115.md").read_text(),
         "missing-agni-exception")
 require("transitional adapters" in (smoke / "docs/composition-contract-v20261115.md").read_text(),
