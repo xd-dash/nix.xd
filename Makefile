@@ -112,8 +112,7 @@ help:
 	  'make store-isolation-static|store-isolation-check  Independent Nix-Alpine writer checks' \
 	  'make guest-app FLAKE=path TARGET=$(HASH)package GUEST_APP_REV=sha GUEST_VM_INSTANCE=...  Run store-backed guest script' \
 	  'make self-update                             Fast-forward this nix.xd checkout' \
-	  'make shoal-qualify SHOAL_STAGE=farcaster|world1 SHOAL_GATE=storage|all  Read-only runtime 9P checks' \
-	  'make check-static                            Host-independent static checks' \
+		  'make check-static                            Host-independent static checks' \
 	  'make architecture-check                     Validate canonical execution authority and documented exceptions' \
 	  'make architecture-audit AGNI_DIR=... SMOKE_DIR=...  Inspect active cross-repo host-action exceptions'
 
@@ -426,8 +425,6 @@ check-static-internal:
 	@python3 tests/runtime-primitives.py
 	@bash tests/runtime-resource-contract.sh
 	@python3 tests/compositions.py
-	@python3 tests/shoal-contract.py
-	@python3 tests/shoal-runtime.py
 	@python3 tests/guest-executor.py
 	@python3 tests/workload-transport.py
 	@python3 tests/workloads.py
@@ -442,10 +439,7 @@ check-static-internal:
 	@bash tests/machine-contract.sh
 	@echo 'Static command checks passed; no ARM runtime executed.'
 
-# VM image/boot/qualification profiles are application-owned. Generic host
-# execution is via project-host-run, with the selected project's action.
-# Historical CoreOS/Starwisp commands are available via the opt-in
-# legacy VM-profile include below.
+# VM lifecycle and application qualification are owned by Agni.
 
 .PHONY: store-export-check
 store-export-check:
@@ -494,7 +488,6 @@ export NIX_XD_PROFILE_MODE = $(PROFILE_MODE)
 PROFILE_SAMPLES ?= 1
 export NIX_XD_PROFILE_SAMPLES = $(PROFILE_SAMPLES)
 # Historical application-specific commands are isolated from the canonical API.
-include mk/legacy-shoal.mk
 
 COMPOSITION ?= shared-store-matrix
 export NIX_XD_COMPOSITION = $(COMPOSITION)
@@ -530,22 +523,6 @@ export NIX_XD_PEER_BUILDER_ALIAS = $(PEER_BUILDER_ALIAS)
 .PHONY: builder-store-qualify
 builder-store-qualify:
 	@bash bin/nix-xd-log "$(SCOPE)" "$@" "$(PYTHON)" lib/builder_store_qualify.py
-
-# Application-specific historical controllers are available only for explicit
-# recovery of old qualified generations. They are not part of the default API.
-ENABLE_LEGACY_VM_PROFILES ?= 0
-ifeq ($(ENABLE_LEGACY_VM_PROFILES),1)
-include mk/legacy-vm-profiles.mk
-else ifneq ($(ENABLE_LEGACY_VM_PROFILES),0)
-$(error ENABLE_LEGACY_VM_PROFILES must be 0 or 1)
-endif
-
-ENABLE_LEGACY_APPLICATION_CONTROLLERS ?= 0
-ifeq ($(ENABLE_LEGACY_APPLICATION_CONTROLLERS),1)
-include mk/legacy-application-controllers.mk
-else ifneq ($(ENABLE_LEGACY_APPLICATION_CONTROLLERS),0)
-$(error ENABLE_LEGACY_APPLICATION_CONTROLLERS must be 0 or 1)
-endif
 
 # The canonical project-run recipe is defined once above.
 PROJECT_STORE ?= local
