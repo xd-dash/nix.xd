@@ -216,7 +216,6 @@ guest-app:
 	@$(TASK_ENV) bash bin/nix-xd-log "$(SCOPE)" "$@" bash bin/nix-xd-guest-app
 
 # Transitional host action support; only for existing Smoke GHXD callers.
-include mk/legacy-host-actions.mk
 
 develop shell exec ps inspect store-info:
 	@$(TASK) $@
@@ -401,7 +400,6 @@ check-static-internal:
 	@python3 tests/bootstrap-profile.py
 	@bash tests/workspace-contract.sh
 	@python3 tests/composition-artifact.py
-	@bash tests/project-host-run-contract.sh
 	@python3 tests/runtime-grants.py
 	@python3 tests/guest-9p-grants.py
 	@bash -n bin/nix-xd-grants-host-share-qualify
