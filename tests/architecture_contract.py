@@ -66,6 +66,13 @@ check(all(g.get("reader") == "nix-xd-arm" and g.get("writer") == "nix-xd-arm"
           and g.get("access") == "rw" for g in grants),
       "native-ghxd-grants-must-have-one-writer")
 
+# Retired application Make modules must not return through another opt-in flag.
+for retired in ("legacy-shoal.mk", "legacy-vm-profiles.mk",
+                "legacy-application-controllers.mk"):
+    check(not (root / "mk" / retired).exists(), "retired-application-module-returned-" + retired)
+    check(retired not in makefile, "retired-application-include-returned-" + retired)
+for retired_test in ("shoal-contract.py", "shoal-runtime.py"):
+    check(not (root / "tests" / retired_test).exists(), "retired-shoal-test-returned")
 # Detect any newly added application-named command in the canonical interface.
 # Historical Shoal is recorded above; do not silently expand this exception.
 app_specific = {target for target in re.findall(r"^([a-z][a-z0-9-]*(?:shoal|fatline|probot|farcaster)[a-z0-9-]*):", makefile, re.M)}
