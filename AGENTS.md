@@ -2,6 +2,8 @@
 
 **MANDATORY before code changes:** Read [docs/CANONICAL-ARCHITECTURE.md](docs/CANONICAL-ARCHITECTURE.md), then [docs/architecture-v20261115.md](docs/architecture-v20261115.md). The canonical document takes precedence for new work; older docs explain transitional state only. Do not treat an existing legacy caller as an approved design example.
 
+For cross-repository qualification, merge or teardown also read Agni's `local/fatline/qualification/POST-QUALIFICATION-CLEANUP.md`. Legacy inventories may only shrink; tests must never require deleted adapters to reappear. Remove only resources created by the identified run.
+
 ## Nonnegotiable boundaries
 
 - macOS may bootstrap Podman Machine and scoped host resources, but after bootstrap the **Nix-Alpine owner is the execution authority**. Host Make targets are thin selectors and transports.

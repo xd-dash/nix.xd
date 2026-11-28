@@ -58,6 +58,10 @@ exit 99
         getenforce = self.directory / 'getenforce'
         getenforce.write_text('#!/usr/bin/env bash\necho "${PROFILE_TEST_ENFORCEMENT:-Enforcing}"\n')
         getenforce.chmod(0o755)
+        # Host package inventory must not affect this mocked SELinux probe.
+        rpm = self.directory / 'rpm'
+        rpm.write_text('#!/usr/bin/env bash\nexit 0\n')
+        rpm.chmod(0o755)
         self.environment = dict(os.environ, PATH=str(self.directory) + ':' + os.environ['PATH'],
                                 NIX_XD_PROVIDER="podman", NIX_XD_SCOPE="owner",
                                 NIX_XD_CHROOT_SELINUX="keep",

@@ -21,11 +21,10 @@ for name, root in (("agni", args.agni), ("smoke", args.smoke)):
 agni = args.agni.resolve()
 smoke = args.smoke.resolve()
 ghxd = smoke / "local/ghxd/host-actions"
-require(ghxd.is_dir(), "missing-transitional-smoke-adapter")
-allowed = {"bootstrap", "auth-start", "auth-finish", "auth-refresh", "source-sync", "inventory", "provision"}
 actions = {p.stem for p in ghxd.glob("*.sh")}
-require(actions == allowed, "smoke-host-operation-inventory-changed")
-require("source-sync" in actions, "missing-current-ghxd-caller")
+require(not actions, "smoke-host-actions-restored")
+require(not (smoke / "local/ghxd/host-operator.sh").exists(), "smoke-host-operator-restored")
+require(not (repo / "bin/nix-xd-project-host-run").exists(), "nix-host-dispatch-restored")
 
 # The old host dispatcher is an exception with known callers, not an
 # extension point. Reject introduction of new project-owned host-actions.
@@ -55,24 +54,18 @@ allowed_agni = {
     "local/vm/host-actions/stop.sh",
 }
 found_agni = {str(item.relative_to(agni)) for item in agni.glob("local/*/host-actions/*.sh")}
-require(found_agni == allowed_agni, "agni-host-action-inventory-changed")
+require(found_agni <= allowed_agni, "agni-host-action-inventory-expanded")
 found_smoke = {str(item.relative_to(smoke)) for item in smoke.glob("local/*/host-actions/*.sh")}
-require(found_smoke == {"local/ghxd/host-actions/" + name + ".sh" for name in allowed},
-        "smoke-host-action-inventory-changed")
-
-host_operator = (smoke / "local/ghxd/host-operator.sh").read_text()
-agni_dispatch = (agni / "local/fatline/operations/guest-migration.sh").read_text()
-nix_host = (repo / "bin/nix-xd-project-host-run").read_text()
-require("PROJECT=smoke20261112 APPLICATION=ghxd ACTION=source-sync" in agni_dispatch,
-        "unlisted-transitional-ghxd-caller")
-require("local/$application/host-actions/$action.sh" in nix_host,
-        "host-dispatch-contract-drift")
-require('p=(podman --connection "$machine")' in host_operator,
-        "host-adapter-missing-or-untracked")
+require(not found_smoke, "smoke-host-actions-restored")
+agni_operations = agni / "local/fatline/operations"
+require(not (agni_operations / "guest-migration.sh").exists(), "monolithic-guest-migration-restored")
+active_sources = [agni / "local/fatline/Makefile", *agni_operations.glob("*.sh")]
+host_caller = any("APPLICATION=ghxd ACTION=source-sync" in p.read_text() for p in active_sources)
+require(not host_caller, "agni-legacy-ghxd-caller-restored")
 require("host Podman operator" in (agni / "local/fatline/qualification/architecture-v20261115.md").read_text(),
         "missing-agni-exception")
 require("transitional adapters" in (smoke / "docs/composition-contract-v20261115.md").read_text(),
         "missing-smoke-exception")
 
-print("NIX_XD_ARCHITECTURE_AUDIT=passed exceptions=ghxd-host-only canonical=nix-alpine migration=pending")
-print(f"NIX_XD_ARCHITECTURE_LEGACY=observed host_actions={len(actions)} owner=smoke/ghxd")
+print(f"NIX_XD_ARCHITECTURE_AUDIT=passed canonical=nix-alpine legacy_ghxd_caller={str(host_caller).lower()}")
+print(f"NIX_XD_ARCHITECTURE_LEGACY=observed smoke_actions={len(actions)} agni_actions={len(found_agni)}")
