@@ -58,8 +58,10 @@ found_smoke = {str(item.relative_to(smoke)) for item in smoke.glob("local/*/host
 require(found_smoke <= {"local/ghxd/host-actions/" + name + ".sh" for name in allowed},
         "smoke-host-action-inventory-expanded")
 
-agni_dispatch = (agni / "local/fatline/operations/guest-migration.sh").read_text()
-host_caller = "PROJECT=smoke20261112 APPLICATION=ghxd ACTION=source-sync" in agni_dispatch
+agni_operations = agni / "local/fatline/operations"
+require(not (agni_operations / "guest-migration.sh").exists(), "monolithic-guest-migration-restored")
+active_sources = [agni / "local/fatline/Makefile", *agni_operations.glob("*.sh")]
+host_caller = any("APPLICATION=ghxd ACTION=source-sync" in p.read_text() for p in active_sources)
 require(not host_caller or "source-sync" in actions,
         "legacy-ghxd-caller-without-adapter")
 if actions:
